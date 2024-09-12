@@ -1,0 +1,8 @@
+{
+    "name": "cloudstream-extensions-hexated",
+    "description": "Hindi Movies Repository",
+    "manifestVersion": 1,
+    "pluginLists": [
+      "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/plugins.json"
+    ]
+  }
