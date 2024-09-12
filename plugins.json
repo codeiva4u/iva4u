@@ -1,0 +1,120 @@
+[
+    {
+        "iconUrl": "https://www.freepnglogos.com/uploads/tv-png/tv-png-box-television-set-cable-screen-icon-31.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 11850,
+        "status": 1,
+        "authors": [
+            "HindiProviders,King,Lag,Rowdy"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 26,
+        "internalName": "IndianTVProvider",
+        "description": "Indian TV",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/IndianTVProvider.cs3",
+        "name": "IndianTVProvider"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=github.com&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 15525,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProviders"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 2,
+        "internalName": "IPTVPlayer",
+        "description": "IPTV Player",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/IPTVPlayer.cs3",
+        "name": "IPTVPlayer"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=movierulzhd.green&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 34354,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProvider"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 19,
+        "internalName": "Movierulzhd",
+        "description": "Includes: Hdmovie2",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://i.imgur.com/9bGkGMi.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 35205,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 10,
+        "internalName": "MoviesDrive",
+        "description": "High Quality Movies and TV Shows",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "name": "MoviesDrive"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 27481,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProviders"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Live"
+        ],
+        "version": 29,
+        "internalName": "MultiMoviesProvider",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=yomovies.onl&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 14337,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 2,
+        "internalName": "YomviesProvider",
+        "description": "Includes: Watchomovies(NS*W), Max resolution is 720p in both extensions.",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/YomviesProvider.cs3",
+        "name": "YomviesProvider"
+    }
+]
