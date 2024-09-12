@@ -1,0 +1,85 @@
+[
+    {
+        "iconUrl": "https://www.uptoplay.net/imagescropped/hdmovies4udownloadandwatchmoviesicon128.jpgplus.webp",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 15410,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProviders"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 5,
+        "internalName": "Hdmovies4u",
+        "description": "Hdmovies4u Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Hdmovies4u.cs3",
+        "name": "Hdmovies4u"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=movierulzhd.green&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 25829,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProvider"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 30,
+        "internalName": "Movierulzhd",
+        "description": "Includes: Hdmovie2",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://i.imgur.com/9bGkGMi.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 27690,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 16,
+        "internalName": "MoviesDrive",
+        "description": "High Quality Movies and TV Shows",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "name": "MoviesDrive"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 30331,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProviders"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Live"
+        ],
+        "version": 38,
+        "internalName": "MultiMoviesProvider",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    }
+]
