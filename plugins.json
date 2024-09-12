@@ -1,0 +1,128 @@
+[
+    {
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/HDHUB.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 45782,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 3,
+        "internalName": "HDhub4u",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "name": "HDhub4u"
+    },
+    {
+        "iconUrl": "https://www.freepnglogos.com/uploads/tv-png/tv-png-box-television-set-cable-screen-icon-31.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 22539,
+        "status": 1,
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 7,
+        "internalName": "IndianTVProvider",
+        "description": "Indian TV",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/IndianTVProvider.cs3",
+        "name": "IndianTVProvider"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/IPTV.png",
+        "jarFileSize": 73061,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 17914,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,Adippe"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 6,
+        "internalName": "IPTVPlayer",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/IPTVPlayer.jar",
+        "description": "IPTV Player",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/IPTVPlayer.cs3",
+        "name": "IPTVPlayer"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/master/Movierulzhd/faviconV2.png",
+        "jarFileSize": 229930,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 44100,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 3,
+        "internalName": "Movierulzhd",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.jar",
+        "description": "Includes: Hdmovie2,hdmovie6",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/MoviesDrive/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 47286,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 3,
+        "internalName": "MoviesDrive",
+        "description": "High Quality Movies and TV Shows",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "name": "MoviesDrive"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "jarFileSize": 166109,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 35338,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 6,
+        "internalName": "MultiMoviesProvider",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    }
+]
