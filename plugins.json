@@ -1,0 +1,91 @@
+[
+    {
+        "iconUrl": "https://hdhub4u.soccer/wp-content/uploads/2021/05/hdhub4ulogo.png",
+        "jarFileSize": 195577,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 41616,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,Redowan"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 1,
+        "internalName": "HDhub4u",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.jar",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "name": "HDhub4u"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/master/Movierulzhd/faviconV2.png",
+        "jarFileSize": 160139,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 31302,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 136,
+        "internalName": "Movierulzhd",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.jar",
+        "description": "Includes: Hdmovie2,hdmovie6",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "jarFileSize": 150957,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 31868,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 35,
+        "internalName": "MultiMoviesProvider",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=yomovies.onl&sz=%size%",
+        "jarFileSize": 74264,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 16010,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "YomoviesProvider",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/YomoviesProvider.jar",
+        "description": "Max resolution is 720p in extensions.",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/YomoviesProvider.cs3",
+        "name": "YomoviesProvider"
+    }
+]
