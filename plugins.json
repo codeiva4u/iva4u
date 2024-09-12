@@ -1,0 +1,190 @@
+[
+    {
+        "iconUrl": "https://bollyflix-cdn.store/wp-content/uploads/2023/05/Bollyflix-movies.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 24731,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 10,
+        "internalName": "Bollyflix",
+        "description": "Movies and Series upto 4K",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Bollyflix.cs3",
+        "name": "Bollyflix"
+    },
+    {
+        "iconUrl": "https://www.full4movies.my/wp-content/uploads/2023/12/cropped-cropped-admin-ajax-1.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 12648,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 14,
+        "internalName": "Full4Movies",
+        "description": "Contains Indian Movies and TV Series upto 1080p",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Full4Movies.cs3",
+        "name": "Full4Movies"
+    },
+    {
+        "iconUrl": "https://www.uptoplay.net/imagescropped/hdmovies4udownloadandwatchmoviesicon128.jpgplus.webp",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 17912,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "HindiProviders"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 4,
+        "internalName": "Hdmovies4u",
+        "description": "Hdmovies4u Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Hdmovies4u.cs3",
+        "name": "Hdmovies4u"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=movierulzhd.green&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 29037,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 129,
+        "internalName": "Movierulzhd",
+        "description": "Includes: Hdmovie2,hdmovie22",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://i.imgur.com/9bGkGMi.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 23642,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 13,
+        "internalName": "MoviesDrive",
+        "description": "High Quality Movies and TV Shows",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "name": "MoviesDrive"
+    },
+    {
+        "iconUrl": "https://moviesmod.red/wp-content/uploads/2024/06/moviesmod-logo.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 26047,
+        "status": 1,
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 17,
+        "internalName": "Moviesmod",
+        "description": "Includes Topmovies",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Moviesmod.cs3",
+        "name": "Moviesmod"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 23344,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 21,
+        "internalName": "MultiMoviesProvider",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    },
+    {
+        "iconUrl": "https://apkrabi.com/uploads/2023/4/vegamovies-icon.jpg",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 28685,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 50,
+        "internalName": "VegaMovies",
+        "description": "Includes LuxMovies, Rogmovies",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/VegaMovies.cs3",
+        "name": "VegaMovies"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=yomovies.onl&sz=%size%",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 14252,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "YomoviesProvider",
+        "description": "Includes: Watchomovies(NS*W), Max resolution is 720p in both extensions.",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/YomoviesProvider.cs3",
+        "name": "YomoviesProvider"
+    }
+]
