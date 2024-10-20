@@ -1,6 +1,7 @@
 package com.HindiProviders
 
 //import android.util.Log
+import com.Phisher98.Movierulzhd
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile

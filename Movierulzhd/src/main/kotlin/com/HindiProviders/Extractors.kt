@@ -1,6 +1,7 @@
-package com.HindiProviders
+package com.Phisher98
 
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.os.Build
 import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
@@ -42,7 +43,7 @@ class Luluvdo : StreamWishExtractor() {
 
 class Lulust : StreamWishExtractor() {
     override val mainUrl = "https://lulu.st"
-    }
+}
 
 open class FMX : ExtractorApi() {
     override var name = "FMX"
@@ -53,21 +54,21 @@ open class FMX : ExtractorApi() {
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url,referer=mainUrl).document
         val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                    return listOf(
-                        ExtractorLink(
-                            this.name,
-                            this.name,
-                            link,
-                            referer ?: "",
-                            Qualities.Unknown.value,
-                            type = INFER_TYPE
-                        )
+        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                return listOf(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        link,
+                        referer ?: "",
+                        Qualities.Unknown.value,
+                        type = INFER_TYPE
                     )
-                }
+                )
             }
-            return null
+        }
+        return null
     }
 }
 
@@ -211,6 +212,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return String(Base64.getDecoder().decode(d))
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun GTAxQyTyBx(a: String): String {
         val b = a.reversed()
         val c = b.filterIndexed { index, _ -> index % 2 == 0 }
@@ -235,6 +237,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return d
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun detdj7JHiK(a: String): String {
         val b = a.substring(10, a.length - 16)
         val c = "3SAY~#%Y(V%>5d/Yg\"\$G[Lh1rK4a;7ok"
@@ -306,6 +309,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return a.map { b[it] ?: it }.joinToString("")
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun laM1dAi3vO(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
@@ -318,6 +322,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return e
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun GuxKGDsA2T(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
@@ -330,6 +335,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return e
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun LXVUMCoAHJ(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
