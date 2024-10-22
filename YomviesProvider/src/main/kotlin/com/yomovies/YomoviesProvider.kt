@@ -23,7 +23,7 @@ open class YomoviesProvider : MainAPI() {
     override val mainPage = mainPageOf(
         "genre/top-rated" to "Latest Release",
         "genre/hollywood" to "Hollywood Movies",
-        "genre/dual-audio" to "Dual Audio Movies",
+        "account/?ptype=post&tax_category%5B%5D=dual-audio&tax_category%5B%5D=south-special&wpas=1" to "South Movies",
         "genre/bollywood" to "Bollywood Movies",
         "director/netflix" to "Netflix",
         "director/amazon-prime" to "Amazon Prime Video",
