@@ -18,6 +18,7 @@ class MovierulzhdPlugin: Plugin() {
         registerExtractorAPI(FMX())
         registerExtractorAPI(Lulust())
         registerExtractorAPI(onionhd())
+        registerExtractorAPI(VidLinkProExtractor())
         registerExtractorAPI(VidSrcExtractorio())
         registerExtractorAPI(VidSrcExtractorcc())
         registerExtractorAPI(Playonion())
