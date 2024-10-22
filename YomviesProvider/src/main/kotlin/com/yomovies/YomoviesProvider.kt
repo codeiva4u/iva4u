@@ -29,7 +29,6 @@ open class YomoviesProvider : MainAPI() {
         "director/amazon-prime" to "Amazon Prime Video",
         "director/hotstar" to "Hotstar",
         "director/zee5" to "Zee5",
-        "director/voot-original" to "Voot Originals",
         "director/mx-player" to "MX Player",
         "director/sonyliv-original" to "SonyLIV Original",
     )
