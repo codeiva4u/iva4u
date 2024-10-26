@@ -43,6 +43,57 @@ class Lulust : StreamWishExtractor() {
     override val mainUrl = "https://lulu.st"
 }
 
+class Lfile : StreamWishExtractor() {
+    override val mainUrl = "https://file-mi11ljwj-embed.com/"
+}
+
+class VidLinkProExtractor : ExtractorApi() {
+    override val name = "VidLinkPro"
+    override val mainUrl = "https://vidlink.pro"
+    override val requiresReferer = true
+
+    @SuppressLint("SuspiciousIndentation")
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
+        return try {
+            val response = app.get(url, referer = referer).document
+            val videoElement = response.selectFirst("video")
+            val videoSrc = videoElement?.attr("src")?.takeIf { it.isNotBlank() }
+            val sourceElements = videoElement?.select("source")?.mapNotNull { it.attr("src") }.orEmpty()
+
+            val links = mutableListOf<ExtractorLink>()
+            if (videoSrc != null) {
+                Log.d("VidLinkProExtractor", "Primary Video Source: $videoSrc")
+                links.add(createExtractorLink(videoSrc, referer))
+            }
+
+            sourceElements.forEach { sourceSrc ->
+                if (sourceSrc.isNotEmpty()) {
+                    Log.d("VidLinkProExtractor", "Source Element: $sourceSrc")
+                    links.add(createExtractorLink(sourceSrc, referer))
+                }
+            }
+
+            if (links.isEmpty()) {
+                Log.w("VidLinkProExtractor", "No valid video sources found at $url")
+            }
+
+            links.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.e("VidLinkProExtractor", "Failed to fetch URL: $url", e)
+            null
+        }
+    }
+
+    private fun createExtractorLink(url: String, referer: String?) = ExtractorLink(
+        name = this.name,
+        source = this.name,
+        url = url,
+        referer = referer ?: mainUrl,
+        quality = Qualities.Unknown.value,
+        isM3u8 = url.endsWith(".m3u8", ignoreCase = true)
+    )
+}
+
 open class FMX : ExtractorApi() {
     override var name = "FMX"
     override var mainUrl = "https://fmx.lol"
