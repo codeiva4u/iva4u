@@ -1,251 +1,93 @@
-package com.Phisher98
+import com.lagradost.cloudstream3.gradle.CloudstreamExtension
+import com.android.build.gradle.BaseExtension
 
-import android.annotation.SuppressLint
-import android.annotation.TargetApi
-import android.os.Build
-import android.util.Log
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.extractors.Filesim
-import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.extractors.StreamWishExtractor
-import com.lagradost.cloudstream3.utils.JsUnpacker
-import java.util.Base64
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        // Shitpack repo which contains our tools and dependencies
+        maven("https://jitpack.io")
+    }
 
-class FMHD : Filesim() {
-    override val name = "FMHD"
-    override var mainUrl = "https://fmhd.bar/"
-    override val requiresReferer = true
+    dependencies {
+        classpath("com.android.tools.build:gradle:7.0.4")
+        // Cloudstream gradle plugin which makes everything work and builds plugins
+        classpath("com.github.recloudstream:gradle:-SNAPSHOT")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22")
+    }
 }
 
-class VidSrcExtractorio : VidSrcExtractor() {
-    override val mainUrl = "https://vidsrc.me"
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://jitpack.io")
+    }
 }
 
-class VidSrcExtractorcc : VidSrcExtractor() {
-    override val mainUrl = "https://vidsrc.cc"
-}
+fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
 
-class Playonion : Filesim() {
-    override val mainUrl = "https://playonion.sbs"
-}
+fun Project.android(configuration: BaseExtension.() -> Unit) = extensions.getByName<BaseExtension>("android").configuration()
 
-class onionhd : VidSrcExtractor() {
-    override val mainUrl = "https://onionhd.buzz"
-}
+subprojects {
+    apply(plugin = "com.android.library")
+    apply(plugin = "kotlin-android")
+    apply(plugin = "com.lagradost.cloudstream3.gradle")
 
-class Luluvdo : StreamWishExtractor() {
-    override val mainUrl = "https://luluvdo.com"
-}
+    cloudstream {
+        // when running through github workflow, GITHUB_REPOSITORY should contain current repository name
+        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/codeiva4u/iva4u")
 
-class Lulust : StreamWishExtractor() {
-    override val mainUrl = "https://lulu.st"
-}
+        authors = listOf("megix")
+    }
 
-open class FMX : ExtractorApi() {
-    override var name = "FMX"
-    override var mainUrl = "https://fmx.lol"
-    override val requiresReferer = true
-
-    @SuppressLint("SuspiciousIndentation")
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(url, referer = mainUrl).document
-        val extractedpack = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                return listOf(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        link,
-                        referer ?: "",
-                        Qualities.Unknown.value,
-                        type = INFER_TYPE
-                    )
-                )
-            }
+    android {
+        defaultConfig {
+            minSdk = 21
+            compileSdkVersion(33)
+            targetSdk = 33
         }
-        return null
-    }
-}
 
-open class Akamaicdn : ExtractorApi() {
-    override val name = "Akamaicdn"
-    override val mainUrl = "https://akamaicdn.life"
-    override val requiresReferer = true
+        compileOptions {
+            sourceCompatibility = JavaVersion.VERSION_1_8
+            targetCompatibility = JavaVersion.VERSION_1_8
+        }
 
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val res = app.get(url, referer = referer).document
-        val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
-            ?.substringBefore(");") ?: return
-        val ids = mappers.split(",").map { it.replace("\"", "") }
-        Log.d("Phisher", url)
-        val header = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-            "Accept" to "*/*",
-            "Referer" to url
-        )
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                "$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1",
-                url,
-                Qualities.Unknown.value,
-                type = ExtractorLinkType.M3U8,
-                headers = header
-            )
-        )
-    }
-}
-
-open class VidSrcExtractor : ExtractorApi() {
-    override val name = "VidSrc"
-    override val mainUrl = "https://vidsrc.net"
-    open val apiUrl = "https://flickersky.com"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val iframedoc = app.get(url).document
-
-        val srcrcpList =
-            iframedoc.select("div.serversList > div.server").mapNotNull {
-                val datahash = it.attr("data-hash") ?: return@mapNotNull null
-                val rcpLink = "$apiUrl/rcp/$datahash"
-                val rcpRes = app.get(rcpLink, referer = apiUrl).text
-                val srcrcpLink =
-                    Regex("src:\\s*'(.*)',").find(rcpRes)?.destructured?.component1()
-                        ?: return@mapNotNull null
-                "https:$srcrcpLink"
-            }
-
-        srcrcpList.amap { server ->
-            val res = app.get(server, referer = apiUrl)
-            if (res.url.contains("/prorcp")) {
-                val encodedElement = res.document.select("div#reporting_content+div")
-                val decodedUrl =
-                    decodeUrl(encodedElement.attr("id"), encodedElement.text()) ?: return@amap
-
-                callback.invoke(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        decodedUrl,
-                        apiUrl,
-                        Qualities.Unknown.value,
-                        isM3u8 = true
-                    )
-                )
-            } else {
-                loadExtractor(res.url, url, subtitleCallback, callback)
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+            kotlinOptions {
+                jvmTarget = "1.8" // Required
+                // Disables some unnecessary features
+                freeCompilerArgs = freeCompilerArgs +
+                        "-Xno-call-assertions" +
+                        "-Xno-param-assertions" +
+                        "-Xno-receiver-assertions"
             }
         }
     }
 
-    private fun decodeUrl(encType: String, url: String): String? {
-        return when (encType) {
-            "NdonQLf1Tzyx7bMG" -> bMGyx71TzQLfdonN(url)
-            "sXnL9MQIry" -> Iry9MQXnLs(url)
-            "IhWrImMIGL" -> IGLImMhWrI(url)
-            "xTyBxQyGTA" -> GTAxQyTyBx(url)
-            "ux8qjPHC66" -> C66jPHx8qu(url)
-            "eSfH1IRMyL" -> MyL1IRSfHe(url)
-            "KJHidj7det" -> detdj7JHiK(url)
-            "o2VSUnjnZl" -> nZlUnj2VSo(url)
-            "Oi3v1dAlaM" -> laM1dAi3vO(url)
-            "TsA2KGDGux" -> GuxKGDsA2T(url)
-            "JoAHUMCLXV" -> LXVUMCoAHJ(url)
-            else -> null
-        }
+    dependencies {
+        val apk by configurations
+        val implementation by configurations
+
+        // Stubs for all Cloudstream classes
+        apk("com.lagradost:cloudstream3:pre-release")
+
+        // these dependencies can include any of those which are added by the app,
+        // but you dont need to include any of them if you dont need them
+        // https://github.com/recloudstream/cloudstream/blob/master/app/build.gradle
+
+        implementation(kotlin("stdlib")) // adds standard kotlin features, like listOf, mapOf etc
+        implementation("com.github.Blatzar:NiceHttp:0.4.11") // http library
+        implementation("org.jsoup:jsoup:1.18.1") // html parser
+        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+        implementation("com.squareup.okhttp3:okhttp:4.12.0")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+        implementation("org.mozilla:rhino:1.7.15") //run JS
+        implementation("com.google.code.gson:gson:2.11.0")
+
     }
+}
 
-    private fun bMGyx71TzQLfdonN(a: String): String {
-        val b = 3
-        val c = mutableListOf<String>()
-        var d = 0
-        while (d < a.length) {
-            c.add(a.substring(d, minOf(d + b, a.length)))
-            d += b
-        }
-        return c.reversed().joinToString("")
-    }
-
-    @SuppressLint("NewApi")
-    private fun Iry9MQXnLs(a: String): String = String(Base64.getDecoder().decode(a))
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun IGLImMhWrI(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) {
-            val d = c.code
-            if (d in 846..1000) b += c.toString() else b += Character.toString((d - 1).toChar())
-        }
-        return String(Base64.getDecoder().decode(b))
-    }
-
-    private fun GTAxQyTyBx(a: String): String {
-        val b = 4
-        val c = mutableListOf<String>()
-        var d = 0
-        while (d < a.length) {
-            c.add(a.substring(d, minOf(d + b, a.length)))
-            d += b
-        }
-        return c.reversed().joinToString("")
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun C66jPHx8qu(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) b += Character.toString(c + 1)
-        return String(Base64.getDecoder().decode(b))
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun MyL1IRSfHe(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) {
-            val d = c.code
-            if (d in 846..1000) b += c.toString() else b += Character.toString((d - 2).toChar())
-        }
-        return String(Base64.getDecoder().decode(b))
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun detdj7JHiK(a: String): String = String(Base64.getDecoder().decode(a.reversed()))
-
-    private fun nZlUnj2VSo(a: String): String {
-        val b = 2
-        val c = mutableListOf<String>()
-        var d = 0
-        while (d < a.length) {
-            c.add(a.substring(d, minOf(d + b, a.length)))
-            d += b
-        }
-        return c.reversed().joinToString("")
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun laM1dAi3vO(a: String): String = String(Base64.getDecoder().decode(a.reversed()))
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun GuxKGDsA2T(a: String): String = String(Base64.getDecoder().decode(a))
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun LXVUMCoAHJ(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) b += Character.toString(c + 3)
-        return String(Base64.getDecoder().decode(b))
-    }
+task<Delete>("clean") {
+    delete(rootProject.buildDir)
 }
