@@ -72,7 +72,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         //Log.d("title", title)
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         //Log.d("href", href)
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("data-src"))
         //Log.d("posterUrl", posterUrl.toString())
         //Log.d("QualityN", qualityN)
         val quality =
@@ -276,10 +276,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 when {
                     !link.contains("youtube") -> {
                         if(link.contains("gdmirrorbot.nl"))
-                        {
+                            {
                             app.get(link).document.select("ul#videoLinks li").map {
-                                @Suppress("NAME_SHADOWING") val link=it.attr("data-link")
-                                loadExtractor(link,referer = mainUrl,subtitleCallback, callback)
+                            @Suppress("NAME_SHADOWING") val link=it.attr("data-link")
+                            loadExtractor(link,referer = mainUrl,subtitleCallback, callback)
                             }
                         }
                         else
@@ -290,8 +290,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                                     loadExtractor(server,referer = mainUrl,subtitleCallback, callback)
                                 }
                             }
-                            else
-                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                        else
+                        loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
                     else -> return@apmap
                 }
