@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.konan.properties.Properties
 // use an integer for version numbers
-version = 28
+version = 29
 
 cloudstream {
     // All of these properties are optional, you can safely remove them
