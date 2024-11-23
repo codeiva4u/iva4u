@@ -12,7 +12,7 @@ import java.io.InputStream
 
 class MPDPlayer : MainAPI() {
     override var lang = "hi"
-    override var mainUrl = "https://raw.githubusercontent.com/phisher98/TVVVV/main/15APR2024.m3u"
+    override var mainUrl = "https://raw.githubusercontent.com/codeiva4u/IN-TV/refs/heads/main/15APR2024.m3u"
     override var name = "IPTV Player"
     override val hasMainPage = true
     override val hasChromecastSupport = true
