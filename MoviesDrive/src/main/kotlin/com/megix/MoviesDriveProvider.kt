@@ -36,8 +36,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
-        TvType.AsianDrama,
-        TvType.Anime
     )
 
     override val mainPage = mainPageOf(
