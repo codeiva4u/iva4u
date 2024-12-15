@@ -10,19 +10,18 @@ class MovierulzhdPlugin: Plugin() {
     override fun load(context: Context) {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Movierulzhd())
-     //   registerMainAPI(Hdmovie2())
+    //  registerMainAPI(Hdmovie2())
+        registerMainAPI(Hdmovie6())
         registerExtractorAPI(FMHD())
         registerExtractorAPI(VidSrcTo())
         registerExtractorAPI(Akamaicdn())
+        registerExtractorAPI(Mocdn())
         registerExtractorAPI(Luluvdo())
         registerExtractorAPI(FMX())
         registerExtractorAPI(Lulust())
         registerExtractorAPI(onionhd())
-        registerExtractorAPI(VidLinkProExtractor())
         registerExtractorAPI(VidSrcExtractorio())
         registerExtractorAPI(VidSrcExtractorcc())
         registerExtractorAPI(Playonion())
-        registerExtractorAPI(Lfile())
-
     }
 }
