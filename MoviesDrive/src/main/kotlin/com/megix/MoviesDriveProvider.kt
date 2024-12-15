@@ -36,6 +36,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
+        TvType.AsianDrama,
+        TvType.Anime
     )
 
     override val mainPage = mainPageOf(
@@ -60,7 +62,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         return newHomePageResponse(request.name, home)
     }
 
-    private fun Element.toSearchResult(): SearchResponse? {
+    private fun Element.toSearchResult(): SearchResponse {
         val title = this.selectFirst("figure > img")?.attr("title")?.replace("Download ", "").toString()
         val href = this.selectFirst("figure > a")?.attr("href").toString()
         val posterUrl = this.selectFirst("figure > img")?.attr("src").toString()
@@ -93,7 +95,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         return searchResponse
     }
 
-    override suspend fun load(url: String): LoadResponse? {
+    override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
         var title = document.selectFirst("meta[property=og:title]")?.attr("content")?.replace("Download ", "").toString()
         val ogTitle = title
@@ -154,13 +156,13 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 if (checkSeason == null) {
                     val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
-                        title = title + " " + seasonText.toString()
+                        title = "$title $seasonText"
                     }
                 }
             }
             val tvSeriesEpisodes = mutableListOf<Episode>()
             val episodesMap: MutableMap<Pair<Int, Int>, List<String>> = mutableMapOf()
-            var buttons = document.select("h5 > a")
+            val buttons = document.select("h5 > a")
                 .filter { element -> !element.text().contains("Zip", true) }
 
 
