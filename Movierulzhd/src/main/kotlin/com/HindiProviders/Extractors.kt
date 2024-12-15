@@ -1,7 +1,6 @@
 package com.Phisher98
 
 import android.annotation.SuppressLint
-import android.annotation.TargetApi
 import android.os.Build
 import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
@@ -31,9 +30,11 @@ class Playonion : Filesim() {
     override val mainUrl = "https://playonion.sbs"
 }
 
+
 class onionhd : VidSrcExtractor() {
     override val mainUrl = "https://onionhd.buzz"
 }
+
 
 class Luluvdo : StreamWishExtractor() {
     override val mainUrl = "https://luluvdo.com"
@@ -41,58 +42,7 @@ class Luluvdo : StreamWishExtractor() {
 
 class Lulust : StreamWishExtractor() {
     override val mainUrl = "https://lulu.st"
-}
-
-class Lfile : StreamWishExtractor() {
-    override val mainUrl = "https://file-mi11ljwj-embed.com/"
-}
-
-class VidLinkProExtractor : ExtractorApi() {
-    override val name = "VidLinkPro"
-    override val mainUrl = "https://vidlink.pro"
-    override val requiresReferer = true
-
-    @SuppressLint("SuspiciousIndentation")
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        return try {
-            val response = app.get(url, referer = referer).document
-            val videoElement = response.selectFirst("video")
-            val videoSrc = videoElement?.attr("src")?.takeIf { it.isNotBlank() }
-            val sourceElements = videoElement?.select("source")?.mapNotNull { it.attr("src") }.orEmpty()
-
-            val links = mutableListOf<ExtractorLink>()
-            if (videoSrc != null) {
-                Log.d("VidLinkProExtractor", "Primary Video Source: $videoSrc")
-                links.add(createExtractorLink(videoSrc, referer))
-            }
-
-            sourceElements.forEach { sourceSrc ->
-                if (sourceSrc.isNotEmpty()) {
-                    Log.d("VidLinkProExtractor", "Source Element: $sourceSrc")
-                    links.add(createExtractorLink(sourceSrc, referer))
-                }
-            }
-
-            if (links.isEmpty()) {
-                Log.w("VidLinkProExtractor", "No valid video sources found at $url")
-            }
-
-            links.takeIf { it.isNotEmpty() }
-        } catch (e: Exception) {
-            Log.e("VidLinkProExtractor", "Failed to fetch URL: $url", e)
-            null
-        }
     }
-
-    private fun createExtractorLink(url: String, referer: String?) = ExtractorLink(
-        name = this.name,
-        source = this.name,
-        url = url,
-        referer = referer ?: mainUrl,
-        quality = Qualities.Unknown.value,
-        isM3u8 = url.endsWith(".m3u8", ignoreCase = true)
-    )
-}
 
 open class FMX : ExtractorApi() {
     override var name = "FMX"
@@ -101,23 +51,23 @@ open class FMX : ExtractorApi() {
 
     @SuppressLint("SuspiciousIndentation")
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(url, referer = mainUrl).document
-        val extractedpack = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                return listOf(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        link,
-                        referer ?: "",
-                        Qualities.Unknown.value,
-                        type = INFER_TYPE
+        val response = app.get(url,referer=mainUrl).document
+        val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                    return listOf(
+                        ExtractorLink(
+                            this.name,
+                            this.name,
+                            link,
+                            referer ?: "",
+                            Qualities.Unknown.value,
+                            type = INFER_TYPE
+                        )
                     )
-                )
+                }
             }
-        }
-        return null
+            return null
     }
 }
 
@@ -136,12 +86,8 @@ open class Akamaicdn : ExtractorApi() {
         val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
             ?.substringBefore(");") ?: return
         val ids = mappers.split(",").map { it.replace("\"", "") }
-        Log.d("Phisher", url)
-        val header = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-            "Accept" to "*/*",
-            "Referer" to url
-        )
+        Log.d("Phisher",url)
+        val header= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0","Accept" to "*/*","Referer" to url)
         callback.invoke(
             ExtractorLink(
                 this.name,
@@ -155,7 +101,10 @@ open class Akamaicdn : ExtractorApi() {
         )
     }
 }
-
+class Mocdn:Akamaicdn(){
+   override val name = "Mocdn"
+   override val mainUrl = "https://mocdn.art"
+}
 open class VidSrcExtractor : ExtractorApi() {
     override val name = "VidSrc"
     override val mainUrl = "https://vidsrc.net"
@@ -229,74 +178,170 @@ open class VidSrcExtractor : ExtractorApi() {
             c.add(a.substring(d, minOf(d + b, a.length)))
             d += b
         }
-        return c.reversed().joinToString("")
+        val e = c.reversed().joinToString("")
+        return e
     }
 
     @SuppressLint("NewApi")
-    private fun Iry9MQXnLs(a: String): String = String(Base64.getDecoder().decode(a))
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun IGLImMhWrI(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) {
-            val d = c.code
-            if (d in 846..1000) b += c.toString() else b += Character.toString((d - 1).toChar())
+    private fun Iry9MQXnLs(a: String): String {
+        val b = "pWB9V)[*4I`nJpp?ozyB~dbr9yt!_n4u"
+        val d = a.chunked(2).map { it.toInt(16).toChar() }.joinToString("")
+        var c = ""
+        for (e in d.indices) {
+            c += (d[e].code xor b[e % b.length].code).toChar()
         }
-        return String(Base64.getDecoder().decode(b))
+        var e = ""
+        for (ch in c) {
+            e += (ch.code - 3).toChar()
+        }
+        return String(Base64.getDecoder().decode(e))
+    }
+
+    @SuppressLint("NewApi")
+    private fun IGLImMhWrI(a: String): String {
+        val b = a.reversed()
+        val c =
+            b
+                .map {
+                    when (it) {
+                        in 'a'..'m', in 'A'..'M' -> it + 13
+                        in 'n'..'z', in 'N'..'Z' -> it - 13
+                        else -> it
+                    }
+                }
+                .joinToString("")
+        val d = c.reversed()
+        return String(Base64.getDecoder().decode(d))
     }
 
     private fun GTAxQyTyBx(a: String): String {
-        val b = 4
-        val c = mutableListOf<String>()
-        var d = 0
-        while (d < a.length) {
-            c.add(a.substring(d, minOf(d + b, a.length)))
-            d += b
-        }
-        return c.reversed().joinToString("")
+        val b = a.reversed()
+        val c = b.filterIndexed { index, _ -> index % 2 == 0 }
+        return String(Base64.getDecoder().decode(c))
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private fun C66jPHx8qu(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) b += Character.toString(c + 1)
-        return String(Base64.getDecoder().decode(b))
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun MyL1IRSfHe(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) {
-            val d = c.code
-            if (d in 846..1000) b += c.toString() else b += Character.toString((d - 2).toChar())
+        val b = a.reversed()
+        val c = "X9a(O;FMV2-7VO5x;Ao:dN1NoFs?j,"
+        val d = b.chunked(2).map { it.toInt(16).toChar() }.joinToString("")
+        var e = ""
+        for (i in d.indices) {
+            e += (d[i].code xor c[i % c.length].code).toChar()
         }
-        return String(Base64.getDecoder().decode(b))
+        return e
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun detdj7JHiK(a: String): String = String(Base64.getDecoder().decode(a.reversed()))
+    private fun MyL1IRSfHe(a: String): String {
+        val b = a.reversed()
+        val c = b.map { (it.code - 1).toChar() }.joinToString("")
+        val d = c.chunked(2).map { it.toInt(16).toChar() }.joinToString("")
+        return d
+    }
+
+    private fun detdj7JHiK(a: String): String {
+        val b = a.substring(10, a.length - 16)
+        val c = "3SAY~#%Y(V%>5d/Yg\"\$G[Lh1rK4a;7ok"
+        val d = String(Base64.getDecoder().decode(b))
+        val e = c.repeat((d.length + c.length - 1) / c.length).substring(0, d.length)
+        var f = ""
+        for (i in d.indices) {
+            f += (d[i].code xor e[i].code).toChar()
+        }
+        return f
+    }
 
     private fun nZlUnj2VSo(a: String): String {
-        val b = 2
-        val c = mutableListOf<String>()
-        var d = 0
-        while (d < a.length) {
-            c.add(a.substring(d, minOf(d + b, a.length)))
-            d += b
-        }
-        return c.reversed().joinToString("")
+        val b =
+            mapOf(
+                'x' to 'a',
+                'y' to 'b',
+                'z' to 'c',
+                'a' to 'd',
+                'b' to 'e',
+                'c' to 'f',
+                'd' to 'g',
+                'e' to 'h',
+                'f' to 'i',
+                'g' to 'j',
+                'h' to 'k',
+                'i' to 'l',
+                'j' to 'm',
+                'k' to 'n',
+                'l' to 'o',
+                'm' to 'p',
+                'n' to 'q',
+                'o' to 'r',
+                'p' to 's',
+                'q' to 't',
+                'r' to 'u',
+                's' to 'v',
+                't' to 'w',
+                'u' to 'x',
+                'v' to 'y',
+                'w' to 'z',
+                'X' to 'A',
+                'Y' to 'B',
+                'Z' to 'C',
+                'A' to 'D',
+                'B' to 'E',
+                'C' to 'F',
+                'D' to 'G',
+                'E' to 'H',
+                'F' to 'I',
+                'G' to 'J',
+                'H' to 'K',
+                'I' to 'L',
+                'J' to 'M',
+                'K' to 'N',
+                'L' to 'O',
+                'M' to 'P',
+                'N' to 'Q',
+                'O' to 'R',
+                'P' to 'S',
+                'Q' to 'T',
+                'R' to 'U',
+                'S' to 'V',
+                'T' to 'W',
+                'U' to 'X',
+                'V' to 'Y',
+                'W' to 'Z'
+            )
+        return a.map { b[it] ?: it }.joinToString("")
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun laM1dAi3vO(a: String): String = String(Base64.getDecoder().decode(a.reversed()))
+    private fun laM1dAi3vO(a: String): String {
+        val b = a.reversed()
+        val c = b.replace("-", "+").replace("_", "/")
+        val d = String(Base64.getDecoder().decode(c))
+        var e = ""
+        val f = 5
+        for (ch in d) {
+            e += (ch.code - f).toChar()
+        }
+        return e
+    }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    private fun GuxKGDsA2T(a: String): String = String(Base64.getDecoder().decode(a))
+    private fun GuxKGDsA2T(a: String): String {
+        val b = a.reversed()
+        val c = b.replace("-", "+").replace("_", "/")
+        val d = String(Base64.getDecoder().decode(c))
+        var e = ""
+        val f = 7
+        for (ch in d) {
+            e += (ch.code - f).toChar()
+        }
+        return e
+    }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private fun LXVUMCoAHJ(a: String): String {
-        var b = ""
-        for (c in a.toCharArray()) b += Character.toString(c + 3)
-        return String(Base64.getDecoder().decode(b))
+        val b = a.reversed()
+        val c = b.replace("-", "+").replace("_", "/")
+        val d = String(Base64.getDecoder().decode(c))
+        var e = ""
+        val f = 3
+        for (ch in d) {
+            e += (ch.code - f).toChar()
+        }
+        return e
     }
 }
