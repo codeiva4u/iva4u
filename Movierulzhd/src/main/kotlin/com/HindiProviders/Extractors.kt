@@ -1,6 +1,7 @@
 package com.Phisher98
 
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.os.Build
 import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
@@ -29,11 +30,6 @@ class VidSrcExtractorcc : VidSrcExtractor() {
 class Playonion : Filesim() {
     override val mainUrl = "https://playonion.sbs"
 }
-
-class fle-rvd0i9o8-moo : Filesim() {
-    override val mainUrl = "https://fle-rvd0i9o8-moo.com"
-}
-
 
 class onionhd : VidSrcExtractor() {
     override val mainUrl = "https://onionhd.buzz"
@@ -218,6 +214,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return String(Base64.getDecoder().decode(d))
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun GTAxQyTyBx(a: String): String {
         val b = a.reversed()
         val c = b.filterIndexed { index, _ -> index % 2 == 0 }
@@ -242,6 +239,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return d
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun detdj7JHiK(a: String): String {
         val b = a.substring(10, a.length - 16)
         val c = "3SAY~#%Y(V%>5d/Yg\"\$G[Lh1rK4a;7ok"
@@ -313,6 +311,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return a.map { b[it] ?: it }.joinToString("")
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun laM1dAi3vO(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
@@ -325,6 +324,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return e
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun GuxKGDsA2T(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
@@ -337,6 +337,7 @@ open class VidSrcExtractor : ExtractorApi() {
         return e
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun LXVUMCoAHJ(a: String): String {
         val b = a.reversed()
         val c = b.replace("-", "+").replace("_", "/")
