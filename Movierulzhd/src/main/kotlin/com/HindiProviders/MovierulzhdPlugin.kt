@@ -23,5 +23,7 @@ class MovierulzhdPlugin: Plugin() {
         registerExtractorAPI(VidSrcExtractorio())
         registerExtractorAPI(VidSrcExtractorcc())
         registerExtractorAPI(Playonion())
+        registerExtractorAPI(fle-rvd0i9o8-moo())
+
     }
 }
