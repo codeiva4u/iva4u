@@ -30,6 +30,10 @@ class Playonion : Filesim() {
     override val mainUrl = "https://playonion.sbs"
 }
 
+class fle-rvd0i9o8-moo : Filesim() {
+    override val mainUrl = "https://fle-rvd0i9o8-moo.com"
+}
+
 
 class onionhd : VidSrcExtractor() {
     override val mainUrl = "https://onionhd.buzz"
