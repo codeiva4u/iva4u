@@ -18,6 +18,7 @@ class MovierulzhdPlugin: Plugin() {
         registerExtractorAPI(Mocdn())
         registerExtractorAPI(Luluvdo())
         registerExtractorAPI(FMX())
+        registerExtractorAPI(FileMoon())
         registerExtractorAPI(Lulust())
         registerExtractorAPI(Playonion())
     }
