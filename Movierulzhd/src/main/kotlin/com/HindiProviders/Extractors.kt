@@ -31,11 +31,11 @@ class FileMoon : ExtractorApi() {
         // वेबपेज को पार्स करें
         val document: Document = Jsoup.connect(url).referrer(referer ?: mainUrl).get()
 
-        // स्ट्रीमिंग लिंक निकालें
+        // स्ट्रीमिंग लिंक निकालें (यदि यह एक ब्लॉब URL है, तो इसे संभालें)
         val videoElement: Element? = document.selectFirst("video.jw-video")
         val streamingLink: String? = videoElement?.attr("src")
 
-        // डाउनलोड लिंक निकालें (यहां हम मान रहे हैं कि डाउनलोड लिंक किसी अन्य तरीके से प्राप्त किया जा सकता है)
+        // डाउनलोड लिंक निकालें (यदि यह मौजूद है)
         val downloadLink: String? = document.selectFirst("a.download-link")?.attr("href")
 
         // जावास्क्रिप्ट एलिमेंट को पार्स करें
