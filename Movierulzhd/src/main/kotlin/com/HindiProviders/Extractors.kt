@@ -12,6 +12,40 @@ import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import java.util.Base64
 
+class FileMoon : ExtractorApi() {
+    override val name: String = "FileMoon"
+    override val mainUrl: String = "https://filemoon.sx"
+    override val requiresReferer = true
+
+    @SuppressLint("SuspiciousIndentation")
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val document = app.get(url, referer = referer).document
+
+        // डाउनलोड लिंक निकालने के लिए जावास्क्रिप्ट एलिमेंट को पार्स करें
+        val scriptTag = document.selectFirst("script:containsData(sources: [)")?.data() ?: return
+
+        // जावास्क्रिप्ट से डाउनलोड लिंक निकालें
+        val downloadLink = Regex("sources: \\[\\{file: \"(.*?)\"").find(scriptTag)?.groupValues?.get(1) ?: return
+
+        // डाउनलोड लिंक को रिटर्न करें
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                "FileMoon Download",
+                downloadLink,
+                url,
+                Qualities.Unknown.value,
+                type = ExtractorLinkType.M3U8 // यह मानते हुए कि लिंक M3U8 फॉर्मेट में है
+            )
+        )
+    }
+}
+
 class FMHD : Filesim() {
     override val name = "FMHD"
     override var mainUrl = "https://fmhd.bar/"
