@@ -14,7 +14,7 @@ import java.util.Base64
 
 class FileMoon : ExtractorApi() {
     override val name: String = "FileMoon"
-    override val mainUrl: String = "https://filemoon.sx"
+    override val mainUrl: String = "https://fle-rvd0i9o8-moo.com"
     override val requiresReferer = true
 
     @SuppressLint("SuspiciousIndentation")
