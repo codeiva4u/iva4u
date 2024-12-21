@@ -26,18 +26,18 @@ class FileMoon : ExtractorApi() {
     ) {
         val document = app.get(url, referer = referer).document
 
-        // डाउनलोड लिंक निकालने के लिए जावास्क्रिप्ट एलिमेंट को पार्स करें
+        // जावास्क्रिप्ट एलिमेंट को पार्स करें
         val scriptTag = document.selectFirst("script:containsData(sources: [)")?.data() ?: return
 
-        // जावास्क्रिप्ट से डाउनलोड लिंक निकालें
-        val downloadLink = Regex("sources: \\[\\{file: \"(.*?)\"").find(scriptTag)?.groupValues?.get(1) ?: return
+        // जावास्क्रिप्ट से वीडियो लिंक निकालें
+        val videoLink = Regex("sources: \\[\\{file: \"(.*?)\"").find(scriptTag)?.groupValues?.get(1) ?: return
 
-        // डाउनलोड लिंक को रिटर्न करें
+        // वीडियो लिंक को रिटर्न करें
         callback.invoke(
             ExtractorLink(
                 this.name,
-                "FileMoon Download",
-                downloadLink,
+                "FileMoon Video",
+                videoLink,
                 url,
                 Qualities.Unknown.value,
                 type = ExtractorLinkType.M3U8 // यह मानते हुए कि लिंक M3U8 फॉर्मेट में है
