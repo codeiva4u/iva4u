@@ -1,16 +1,16 @@
 package com.Phisher98
 
 import android.annotation.SuppressLint
-import android.os.Build
-import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.Filesim
-import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.JsUnpacker
-import java.util.Base64
+import com.lagradost.cloudstream3.utils.Qualities
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -35,7 +35,7 @@ class FileMoon : ExtractorApi() {
         val videoElement: Element? = document.selectFirst("video.jw-video")
         val streamingLink: String? = videoElement?.attr("src")
 
-        // डाउनलोड लिंक निकालें (यहां हम मान रहे हैं कि डाउनलोड लिंक किसी अन्य तरीके से प्राप्त किया जा सकता है)
+        // डाउनलोड लिंक निकालें (यदि मौजूद है)
         val downloadLink: String? = document.selectFirst("a.download-link")?.attr("href")
 
         // जावास्क्रिप्ट एलिमेंट को पार्स करें
@@ -48,16 +48,20 @@ class FileMoon : ExtractorApi() {
         val videoLink: String? = if (matcher.find()) matcher.group(1) else return
 
         // वीडियो लिंक को रिटर्न करें
-        callback.invoke(
+        videoLink?.let {
             ExtractorLink(
                 this.name,
                 "FileMoon Video",
-                videoLink,
+                it,
                 url,
                 Qualities.Unknown.value,
                 type = ExtractorLinkType.M3U8 // यह मानते हुए कि लिंक M3U8 फॉर्मेट में है
             )
-        )
+        }?.let {
+            callback.invoke(
+                it
+            )
+        }
 
         // निकाले गए लिंक प्रिंट करें
         println("Streaming Link: $streamingLink")
