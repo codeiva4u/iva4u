@@ -11,6 +11,10 @@ import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import java.util.Base64
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
+import java.util.regex.Pattern
 
 class FileMoon : ExtractorApi() {
     override val name: String = "FileMoon"
@@ -24,13 +28,24 @@ class FileMoon : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val document = app.get(url, referer = referer).document
+        // वेबपेज को पार्स करें
+        val document: Document = Jsoup.connect(url).referrer(referer ?: mainUrl).get()
+
+        // स्ट्रीमिंग लिंक निकालें
+        val videoElement: Element? = document.selectFirst("video.jw-video")
+        val streamingLink: String? = videoElement?.attr("src")
+
+        // डाउनलोड लिंक निकालें (यहां हम मान रहे हैं कि डाउनलोड लिंक किसी अन्य तरीके से प्राप्त किया जा सकता है)
+        val downloadLink: String? = document.selectFirst("a.download-link")?.attr("href")
 
         // जावास्क्रिप्ट एलिमेंट को पार्स करें
-        val scriptTag = document.selectFirst("script:containsData(sources: [)")?.data() ?: return
+        val scriptTag: Element? = document.selectFirst("script:containsData(sources: [)")
+        val scriptContent: String = scriptTag?.data() ?: return
 
         // जावास्क्रिप्ट से वीडियो लिंक निकालें
-        val videoLink = Regex("sources: \\[\\{file: \"(.*?)\"").find(scriptTag)?.groupValues?.get(1) ?: return
+        val videoLinkPattern: Pattern = Pattern.compile("sources: \\[\\{file: \"(.*?)\"")
+        val matcher = videoLinkPattern.matcher(scriptContent)
+        val videoLink: String? = if (matcher.find()) matcher.group(1) else return
 
         // वीडियो लिंक को रिटर्न करें
         callback.invoke(
@@ -43,6 +58,10 @@ class FileMoon : ExtractorApi() {
                 type = ExtractorLinkType.M3U8 // यह मानते हुए कि लिंक M3U8 फॉर्मेट में है
             )
         )
+
+        // निकाले गए लिंक प्रिंट करें
+        println("Streaming Link: $streamingLink")
+        println("Download Link: $downloadLink")
     }
 }
 
