@@ -18,7 +18,7 @@ cloudstream {
         "Movie",
         "TvSeries",
     )
-    language = "en"
+    language = "Hindi"
 
     iconUrl = "https://www.hdhub4u.com.mx/templates/favicon.ico"
 }
