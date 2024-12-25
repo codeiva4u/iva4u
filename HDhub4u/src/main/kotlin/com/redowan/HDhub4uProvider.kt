@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class HDhub4uProvider : MainAPI() {
@@ -155,7 +156,7 @@ class HDhub4uProvider : MainAPI() {
     ): Boolean {
         data.split(" ; ").forEach {
             val (quality, link) = it.split(" ## ")
-            if (link.contains("allset.lol")) {
+             if (link.contains("allset.lol")) {
                 loadExtractor(link, subtitleCallback, callback)
             }
             else if (link.contains("veryfastdownload"))
