@@ -24,7 +24,7 @@ cloudstream {
         "TvSeries",
         "NSFW"
     )
-    language = "en"
+    language = "Hi"
 
     iconUrl = "https://skymovieshd.diy/images/logo2.png"
 }
