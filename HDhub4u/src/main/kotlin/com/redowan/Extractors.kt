@@ -50,7 +50,7 @@ class VeryFastDownload : ExtractorApi() {
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    ) {
          if(url.lowercase().contains("veryfastdownload"))
         {
             val downloadLink = url.replace("watch2","download2")
@@ -64,7 +64,6 @@ class VeryFastDownload : ExtractorApi() {
                 quality = Qualities.Unknown.value,
             ))
         }
-        return true;
     }
 }
 
