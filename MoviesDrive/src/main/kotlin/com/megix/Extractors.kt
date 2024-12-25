@@ -215,77 +215,74 @@ class VCloud : ExtractorApi() {
             val header = document.select("div.card-header").text() ?: ""
             div?.select("h2 a.btn")?.apmap {
                 val link = it.attr("href")
+                val quality = getIndexQuality(header)
 
-                if (link.contains("technorozen.workers.dev"))
-                {
-                    val iframe = getGBurl(link)
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[Download]",
-                            "$name[Download] - $header",
-                            iframe,
-                            "",
-                            getIndexQuality(header),
+                when {
+                    link.contains("technorozen.workers.dev") -> {
+                        val iframe = getGBurl(link)
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[Download]",
+                                "$name[Download] - $header",
+                                iframe,
+                                "",
+                                quality,
+                            )
                         )
-                    )
-                }
-                else if (link.contains("pixeldra.in")) {
-                    callback.invoke(
-                        ExtractorLink(
-                            "Pixeldrain",
-                            "Pixeldrain - $header",
-                            link,
-                            "",
-                            getIndexQuality(header),
+                    }
+                    link.contains("pixeldra.in") -> {
+                        callback.invoke(
+                            ExtractorLink(
+                                "Pixeldrain",
+                                "Pixeldrain - $header",
+                                link,
+                                "",
+                                quality,
+                            )
                         )
-                    )
-                }
-                else if (link.contains(".dev")) {
-                    callback.invoke(
-                        ExtractorLink(
-                            name,
-                            "$name - $header",
-                            link,
-                            "",
-                            getIndexQuality(header),
+                    }
+                    link.contains(".dev") -> {
+                        callback.invoke(
+                            ExtractorLink(
+                                name,
+                                "$name - $header",
+                                link,
+                                "",
+                                quality,
+                            )
                         )
-                    )
-                }
-                else if (link.contains("fastdl.lol"))
-                {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[Download]",
-                            "$name[Download] - $header",
-                            link,
-                            "",
-                            getIndexQuality(header),
+                    }
+                    link.contains("fastdl.lol") -> {
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[Download]",
+                                "$name[Download] - $header",
+                                link,
+                                "",
+                                quality,
+                            )
                         )
-                    )
-                }
-                else if (link.contains("hubcdn.xyz"))
-                {
-                    callback.invoke(
-                        ExtractorLink(
-                            name,
-                            "$name - $header",
-                            link,
-                            "",
-                            getIndexQuality(header),
+                    }
+                    link.contains("hubcdn.xyz") -> {
+                        callback.invoke(
+                            ExtractorLink(
+                                name,
+                                "$name - $header",
+                                link,
+                                "",
+                                quality,
+                            )
                         )
-                    )
-                }
-                else if (link.contains("gofile.io"))
-                {
-                    loadExtractor(link,"",subtitleCallback, callback)
-                }
-                else if (link.contains("pixeldrain"))
-                {
-                    loadExtractor(link,"",subtitleCallback, callback)
-                }
-                else
-                {
-                    //Nothing
+                    }
+                    link.contains("gofile.io") -> {
+                        loadExtractor(link, "", subtitleCallback, callback)
+                    }
+                    link.contains("pixeldrain") -> {
+                        loadExtractor(link, "", subtitleCallback, callback)
+                    }
+                    else -> {
+                        //Nothing
+                    }
                 }
             }
         }
@@ -325,7 +322,7 @@ open class HubCloud : ExtractorApi() {
         val text = app.get(url).text
         val newLink = text.substringAfter("url=").substringBefore("\"")
         val newDoc = app.get(newLink).document
-        var gamerLink : String
+        val gamerLink : String
 
         if(newLink.contains("drive")) {
             val scriptTag = newDoc.selectFirst("script:containsData(url)")?.toString() ?: ""
@@ -341,77 +338,74 @@ open class HubCloud : ExtractorApi() {
         val header = document.select("div.card-header").text() ?: ""
         div?.select("h2 a.btn")?.apmap {
             val link = it.attr("href")
+            val quality = getIndexQuality(header)
 
-            if (link.contains("technorozen.workers.dev"))
-            {
-                val iframe = getGBurl(link)
-                callback.invoke(
-                    ExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] - $header",
-                        iframe,
-                        "",
-                        getIndexQuality(header),
+            when {
+                link.contains("technorozen.workers.dev") -> {
+                    val iframe = getGBurl(link)
+                    callback.invoke(
+                        ExtractorLink(
+                            "$name[Download]",
+                            "$name[Download] - $header",
+                            iframe,
+                            "",
+                            quality,
+                        )
                     )
-                )
-            }
-            else if (link.contains("pixeldra.in")) {
-                callback.invoke(
-                    ExtractorLink(
-                        "Pixeldrain",
-                        "Pixeldrain - $header",
-                        link,
-                        "",
-                        getIndexQuality(header),
+                }
+                link.contains("pixeldra.in") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "Pixeldrain",
+                            "Pixeldrain - $header",
+                            link,
+                            "",
+                            quality,
+                        )
                     )
-                )
-            }
-            else if (link.contains(".dev")) {
-                callback.invoke(
-                    ExtractorLink(
-                        name,
-                        "$name - $header",
-                        link,
-                        "",
-                        getIndexQuality(header),
+                }
+                link.contains(".dev") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            name,
+                            "$name - $header",
+                            link,
+                            "",
+                            quality,
+                        )
                     )
-                )
-            }
-            else if (link.contains("fastdl.lol"))
-            {
-                callback.invoke(
-                    ExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] - $header",
-                        link,
-                        "",
-                        getIndexQuality(header),
+                }
+                link.contains("fastdl.lol") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "$name[Download]",
+                            "$name[Download] - $header",
+                            link,
+                            "",
+                            quality,
+                        )
                     )
-                )
-            }
-            else if (link.contains("hubcdn.xyz"))
-            {
-                callback.invoke(
-                    ExtractorLink(
-                        name,
-                        "$name - $header",
-                        link,
-                        "",
-                        getIndexQuality(header),
+                }
+                link.contains("hubcdn.xyz") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            name,
+                            "$name - $header",
+                            link,
+                            "",
+                            quality,
+                        )
                     )
-                )
-            }
-            else if (link.contains("gofile.io"))
-            {
-                loadExtractor(link,"",subtitleCallback, callback)
-            }
-            else if (link.contains("pixeldrain"))
-            {
-                loadExtractor(link,"",subtitleCallback, callback)
-            }
-            else
-            {
-                //Nothing
+                }
+                link.contains("gofile.io") -> {
+                    loadExtractor(link, "", subtitleCallback, callback)
+                }
+                link.contains("pixeldrain") -> {
+                    loadExtractor(link, "", subtitleCallback, callback)
+                }
+                else -> {
+                    //Nothing
+                }
             }
         }
     }
@@ -464,6 +458,7 @@ open class GDFlix : ExtractorApi() {
             )
             {
                 val link=it.attr("href")
+                val quality = getIndexQuality(fileName)
                 if(link.contains("mkv") || link.contains("mp4")) {
                     callback.invoke(
                         ExtractorLink(
@@ -471,7 +466,7 @@ open class GDFlix : ExtractorApi() {
                             "GDFLix[Fast Cloud] - $fileName",
                             link,
                             "",
-                            getIndexQuality(fileName),
+                            quality,
                         )
                     )
                 }
@@ -483,7 +478,7 @@ open class GDFlix : ExtractorApi() {
                             "GDFLix[Fast Cloud] - $fileName",
                             trueurl,
                             "",
-                            getIndexQuality(fileName)
+                            quality
                         )
                     )
                 }
@@ -616,7 +611,7 @@ class FastLinks : ExtractorApi() {
     ) {
         val res = app.get(url)
         val ssid = res.cookies["PHPSESSID"].toString()
-        val cookies = mapOf("PHPSESSID" to "$ssid")
+        val cookies = mapOf("PHPSESSID" to ssid)
         val formBody = FormBody.Builder()
             .add("_csrf_token_645a83a41868941e4692aa31e7235f2", "8afaabe2fa563a3cd17780e9b832ba4fdc778a9e")
             .build()
@@ -702,7 +697,7 @@ class WLinkFast : ExtractorApi() {
         var downloadLink = doc.selectFirst("a#downloadButton")?.attr("href").toString()
 
         if(downloadLink.isEmpty()) {
-           downloadLink = Regex("""window\.location\.href\s*=\s*['"]([^'"]+)['"];""").find(doc.html())?.groupValues?.get(1).toString()
+            downloadLink = Regex("""window\.location\.href\s*=\s*['"]([^'"]+)['"];""").find(doc.html())?.groupValues?.get(1).toString()
         }
 
         callback.invoke (

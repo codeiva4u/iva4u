@@ -1,5 +1,5 @@
 // use an integer for version numbers
-version = 3
+version = 4
 
 cloudstream {
     //description = "Movie website in Bangladesh"
@@ -18,7 +18,7 @@ cloudstream {
         "Movie",
         "TvSeries",
     )
-    language = "Hindi"
+    language = "hi"
 
     iconUrl = "https://www.hdhub4u.com.mx/templates/favicon.ico"
 }
