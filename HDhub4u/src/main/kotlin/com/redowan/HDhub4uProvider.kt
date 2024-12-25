@@ -49,16 +49,16 @@ class HDhub4uProvider : MainAPI() {
             headers = headers,
             allowRedirects = true
         ).document
-        val home = doc.select("article.post").mapNotNull { toResult(it) }
+        val home = doc.select("li.thumb.col-md-2.col-sm-4.col-xs-6").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
     private fun toResult(post: Element): SearchResponse? {
-        val titleElement = post.selectFirst(".entry-title a") ?: return null
+        val titleElement = post.selectFirst("figcaption a") ?: return null
         val title = titleElement.text()
         val check = post.select(".video-label").text()
         val url = titleElement.attr("href")
-        val posterUrl = post.selectFirst(".post-thumbnail img")?.attr("src")
+        val posterUrl = post.selectFirst("figure img")?.attr("src")
 
         return newAnimeSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = posterUrl
@@ -70,7 +70,7 @@ class HDhub4uProvider : MainAPI() {
         val doc = app.get(
             "$mainUrl/search.php?q=$query", cacheTime = 60, headers = headers
         ).document
-        return doc.select("article.post").mapNotNull { toResult(it) }
+        return doc.select("li.thumb.col-md-2.col-sm-4.col-xs-6").mapNotNull { toResult(it) }
     }
 
     private val regex = Regex("(?<=\\)\\s).*")
