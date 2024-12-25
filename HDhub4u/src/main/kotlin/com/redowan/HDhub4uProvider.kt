@@ -49,7 +49,7 @@ class HDhub4uProvider : MainAPI() {
             headers = headers,
             allowRedirects = true
         ).document
-        val home = doc.select("li.thumb.col-md-2.col-sm-4.col-xs-6").mapNotNull { toResult(it) }
+          val home = doc.select("li.thumb.col-md-2.col-sm-4.col-xs-6").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
@@ -58,13 +58,13 @@ class HDhub4uProvider : MainAPI() {
         val title = titleElement.text()
         val check = post.select(".video-label").text()
         val url = titleElement.attr("href")
-        val posterUrl = post.selectFirst("figure img")?.attr("src")
-
+         val posterUrl = post.selectFirst("figure img")?.attr("src") ?: post.selectFirst("img")?.attr("src")
         return newAnimeSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = posterUrl
-            this.quality = getSearchQuality(check)
+             this.quality = getSearchQuality(check)
         }
     }
+
 
     override suspend fun search(query: String): List<SearchResponse> {
         val doc = app.get(
