@@ -83,14 +83,14 @@ class HDhub4uProvider : MainAPI() {
         val year = doc.select(".entry-meta > div:nth-child(9) > div:nth-child(2)")
             .text().toIntOrNull()
         
-         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
+        val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
         
         return if (isMovie) {
-            val links = doc.select(".downloads-btns-div").joinToString(" ; ") { link ->
+             val links = doc.select(".downloads-btns-div a").joinToString(" ; ") { link ->
                 val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
                 val extractedText = matchResult?.value
-                extractedText + " ## " + (link.selectFirst("a")?.attr("href") ?: "")
+                extractedText + " ## " + (link.attr("href") ?: "")
             }
             newMovieLoadResponse(title, url, TvType.Movie, links) {
                 this.posterUrl = image
