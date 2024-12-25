@@ -31,11 +31,10 @@ class HDhub4uProvider : MainAPI() {
     )
     override val mainPage = mainPageOf(
         "/" to "Latest",
-        "/category/Bollywood-movies/" to "Bollywood",
-        "/category/Hollywood-hindi-dubbed-movies/" to "Hollywood Hindi Movies",
-        "/category/South-indian-hindi-movies/" to " South Indian Hindi Movies",
-        "/category/Hindi-Web-Series/" to "Hindi Web Series",
-        "/category/Hollywood-Hindi-Dubbed-Web-Series/" to "Hollywood Web Series"
+        "/category/hollywood-movies/" to "Hollywood Hindi Movies",
+        "/category/south-hindi-movies/" to " South Indian Hindi Movies",
+         "/category/bollywood-movies/" to "Bollywood",
+        "/category/category/web-series/" to "Hindi Web Series",
     )
     private val headers =
         mapOf("user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
