@@ -8,5 +8,8 @@ import android.content.Context
 class HDhub4uPlugin: Plugin() {
     override fun load(context: Context) {
         registerMainAPI(HDhub4uProvider())
+        registerExtractorAPI(AllSetLol())
+        registerExtractorAPI(VeryFastDownload())
+        registerExtractorAPI(HCloud())
     }
 }
