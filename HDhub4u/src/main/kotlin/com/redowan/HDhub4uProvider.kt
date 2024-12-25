@@ -77,13 +77,21 @@ class HDhub4uProvider : MainAPI() {
         val doc = app.get(
             url, cacheTime = 60, headers = headers
         ).document
-        val title = doc.select(".entry-meta > div:nth-child(3) > div:nth-child(2)").text()
+        val title = doc.select(".entry-title").text().replace("Download","").trim()
         val image = doc.select(".post-thumbnail > img:nth-child(1)").attr("src")
-        val plot = doc.selectFirst(".entry-meta > p:nth-child(14)")?.text()
+        var plot = doc.selectFirst(".entry-content > p")?.text()
+         if(plot.isNullOrEmpty()){
+             doc.select(".thecontent.clearfix").children().forEach { child->
+                 if(child.text().lowercase().contains("storyline"))
+                 {
+                     plot = child.nextElementSibling()?.text()
+                 }
+             }
+         }
         val year = doc.select(".entry-meta > div:nth-child(9) > div:nth-child(2)")
             .text().toIntOrNull()
         
-         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
+        val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
         
         return if (isMovie) {
             val links = doc.select(".downloads-btns-div a").mapNotNull { link ->
@@ -137,6 +145,7 @@ class HDhub4uProvider : MainAPI() {
             }
         }
     }
+
 
     override suspend fun loadLinks(
         data: String,
