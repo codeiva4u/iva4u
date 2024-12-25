@@ -19,17 +19,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import org.jsoup.nodes.Element
 
-//suspend fun main() {
-//    val providerTester = com.lagradost.cloudstreamtest.ProviderTester(HDhub4uProvider())
-////    providerTester.testAll()
-////    providerTester.testMainPage(verbose = true)
-//    providerTester.testSearch(query = "gun",verbose = true)
-////    providerTester.testLoad("https://www.hdhub4u.com.mx/The-guns-of-navarone-1961-hindi-english-full-movie-3270.html")
-////    providerTester.testLoad("https://www.hdhub4u.com.mx/Mirzapur-2018-2024-hindi-web-series-21143.html")
-////    providerTester.testLoad("https://www.hdhub4u.com.mx/Vedaa-2024-hindi-full-movie-22487.html")
-////    providerTester.testLoadLinks("480p.mkv {Hindi} [427.26 MB] ## https://allset.lol/viEw1MjAzNDM/ ; 720p.mkv {Hindi} [1.46 GB] ## https://allset.lol/viEw1MjAzNDI/ ; 1080p.mkv {Hindi} [2.2 GB] ## https://allset.lol/viEw1MjAzNDE/")
-//}
-
 class HDhub4uProvider : MainAPI() {
     override var mainUrl = "https://hdhub4u.cat/"
     override var name = "HDhub4u"
@@ -65,14 +54,16 @@ class HDhub4uProvider : MainAPI() {
     }
 
     private fun toResult(post: Element): SearchResponse {
-        val title = post.select(".entry-title > a:nth-child(1)").text()
+        val title = post.select(".entry-title a").text()
         val check = post.select(".video-label").text()
-        val url = post.select(".entry-title > a:nth-child(1)").attr("href")
+        val url = post.select(".entry-title a").attr("href")
+        val posterUrl = post.select(".post-thumbnail img").attr("src")
         return newAnimeSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = post.select(".post-thumbnail > img:nth-child(3)").attr("src")
+            this.posterUrl = posterUrl
             this.quality = getSearchQuality(check)
         }
     }
+
 
     override suspend fun search(query: String): List<SearchResponse> {
         val doc = app.get(
