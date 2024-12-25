@@ -83,15 +83,16 @@ class HDhub4uProvider : MainAPI() {
         val year = doc.select(".entry-meta > div:nth-child(9) > div:nth-child(2)")
             .text().toIntOrNull()
         
-        val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
+         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
         
         return if (isMovie) {
-             val links = doc.select(".downloads-btns-div a").joinToString(" ; ") { link ->
+            val links = doc.select(".downloads-btns-div a").mapNotNull { link ->
                 val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
                 val extractedText = matchResult?.value
-                extractedText + " ## " + (link.attr("href") ?: "")
-            }
+                val href = link.attr("href")
+                if (href.isNullOrBlank()) null else "$extractedText ## $href"
+            }.joinToString(" ; ")
             newMovieLoadResponse(title, url, TvType.Movie, links) {
                 this.posterUrl = image
                 this.year = year
@@ -145,28 +146,30 @@ class HDhub4uProvider : MainAPI() {
     ): Boolean {
         data.split(" ; ").forEach {
             val (quality, link) = it.split(" ## ")
-            callback.invoke(
-                ExtractorLink(
-                    mainUrl,
-                    "$quality 1",
-                    url = "$link?download=main",
-                    mainUrl,
-                    quality = getVideoQuality(quality),
-                    isM3u8 = false,
-                    isDash = false
+            if (link.contains("allset.lol")) {
+                loadExtractor(link, subtitleCallback, callback)
+            }
+            else if (link.contains("veryfastdownload"))
+            {
+                VeryFastDownload().getUrl(link,null,subtitleCallback,callback)
+            }
+             else if (link.contains("hcloud"))
+            {
+               HCloud().getUrl(link,null,subtitleCallback,callback)
+            }
+            else{
+                callback.invoke(
+                    ExtractorLink(
+                        mainUrl,
+                        "$quality 1",
+                        url = "$link?download=main",
+                        mainUrl,
+                        quality = getVideoQuality(quality),
+                        isM3u8 = false,
+                        isDash = false
+                    )
                 )
-            )
-            callback.invoke(
-                ExtractorLink(
-                    mainUrl,
-                    "$quality 2",
-                    url = "$link?download=main",
-                    mainUrl,
-                    quality = getVideoQuality(quality),
-                    isM3u8 = false,
-                    isDash = false
-                )
-            )
+            }
         }
         return true
     }
