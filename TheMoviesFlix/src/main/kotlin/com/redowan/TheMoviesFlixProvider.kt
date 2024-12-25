@@ -1,6 +1,5 @@
 package com.redowan
 
-
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -27,7 +26,7 @@ class TheMoviesFlixProvider : MainAPI() {
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val hasQuickSearch = false
-    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries,TvType.NSFW)
+    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.NSFW)
     override val mainPage = mainPageOf(
         "" to "Latest Updates",
         "/category/hindi-dubbed-movies" to "Hindi Dubbed Movies",
@@ -43,22 +42,22 @@ class TheMoviesFlixProvider : MainAPI() {
         "/category/amazon-prime-video" to "Amazon Prime Video",
         "/category/hulu" to "Hulu",
         "/category/the-cw" to "The CW",
-        )
+    )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
 
-        val doc = app.get("$mainUrl${request.data}/page/$page",allowRedirects = true, timeout = 30).document
+        val doc = app.get("$mainUrl${request.data}/page/$page", allowRedirects = true, timeout = 30).document
         val home = doc.select(".latestPost.excerpt").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, hasNext = true)
     }
 
     private fun toResult(post: Element): SearchResponse {
         val url = post.select(".title.front-view-title a").attr("href")
-        val title = post.select(".title.front-view-title a").text();
-        val imageUrl =post.select(".featured-thumbnail img").attr("src")
+        val title = post.select(".title.front-view-title a").text()
+        val imageUrl = post.select(".featured-thumbnail img").attr("src")
         val imageWithUrl = url + "+" + imageUrl
         return newMovieSearchResponse(title, imageWithUrl, TvType.Movie) {
             this.posterUrl = imageUrl
@@ -66,127 +65,111 @@ class TheMoviesFlixProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val doc = app.get("$mainUrl/?s=$query",allowRedirects = true, timeout = 30).document
+        val doc = app.get("$mainUrl/?s=$query", allowRedirects = true, timeout = 30).document
         val searchResponse = doc.select(".latestPost.excerpt ")
         return searchResponse.mapNotNull { toResult(it) }
     }
 
     override suspend fun load(url: String): LoadResponse {
         val urls = url.split("+");
-        val doc = app.get(urls[0],allowRedirects = true, timeout = 30).document
-        val title = doc.select(".title.single-title.entry-title").text().replace("Download","").trim()
+        val doc = app.get(urls[0], allowRedirects = true, timeout = 30).document
+        val title = doc.select(".title.single-title.entry-title").text().replace("Download", "").trim()
         val imageUrl = urls[1];
         var plot = ""
         val sRegex2 = "[Ss](\\d{1,2})"
-        doc.selectFirst(".thecontent.clearfix").children().forEach { child->
-            if(child.text().lowercase().contains("storyline"))
-            {
-                plot = child.nextElementSibling().text()
+        doc.selectFirst(".thecontent.clearfix")?.children()?.forEach { child ->
+            if (child.text().lowercase().contains("storyline")) {
+                plot = child.nextElementSibling()?.text().orEmpty()
             }
         }
 
-        if(!title.lowercase().contains("season") && !title.lowercase().contains("series") && !sRegex2.toRegex().containsMatchIn(title))
-        {
+        if (!title.lowercase().contains("season") && !title.lowercase().contains("series") && !sRegex2.toRegex().containsMatchIn(
+                title
+            )
+        ) {
             val linkList = mutableListOf<String>()
             val links = doc.select(".maxbutton-6.maxbutton.maxbutton-post-button-1");
-            links.forEach { item->
+            links.forEach { item ->
                 val link = item.attr("href")
-                val doc = app.get(link, timeout = 30, allowRedirects = true).document
-                val buttons = doc.select(".maxbutton")
-                buttons.forEach { button->
+                val innerDoc = app.get(link, timeout = 30, allowRedirects = true).document
+                val buttons = innerDoc.select(".maxbutton")
+                buttons.forEach { button ->
                     linkList.add(button.attr("href"))
                 }
             }
             return newMovieLoadResponse(title, url, TvType.Movie, linkList.joinToString("+")) {
                 this.posterUrl = imageUrl
-                if (plot != null) {
-                    this.plot = plot.trim()
-                }
+                this.plot = plot.trim()
             }
-        }
-        else
-        {
-            var elements = doc.selectFirst(".thecontent.clearfix")
+        } else {
+            val elements = doc.selectFirst(".thecontent.clearfix")
             val seasonRegex = "(\\d) – (\\d)"
             val seasonRegex2 = "(\\d)-(\\d)"
             val sRegex = "Season\\s+(\\d{1,2})"
             val isMultiSeason = seasonRegex.toRegex().containsMatchIn(title) || seasonRegex2.toRegex().containsMatchIn(title)
             val isMultiWordSeason = sRegex.toRegex().findAll(title).count() > 1
-            var startSeason:Int? = 1
-            var endSeason:Int? = 1
-            var seasonEpisodeMap = mutableMapOf<String,MutableMap<String,MutableList<String>>>()
-            if(isMultiSeason) {
+            var startSeason: Int? = 1
+            var endSeason: Int? = 1
+            val seasonEpisodeMap = mutableMapOf<String, MutableMap<String, MutableList<String>>>()
+            if (isMultiSeason) {
                 if (seasonRegex.toRegex().containsMatchIn(title)) {
-                    startSeason = seasonRegex.toRegex().find(title)?.groups?.get(1)?.value?.toInt()
-                    endSeason = seasonRegex.toRegex().find(title)?.groups?.get(2)?.value?.toInt()
+                    startSeason = seasonRegex.toRegex().find(title)?.groups?.get(1)?.value?.toIntOrNull()
+                    endSeason = seasonRegex.toRegex().find(title)?.groups?.get(2)?.value?.toIntOrNull()
+                } else if (seasonRegex2.toRegex().containsMatchIn(title)) {
+                    startSeason = seasonRegex2.toRegex().find(title)?.groups?.get(1)?.value?.toIntOrNull()
+                    endSeason = seasonRegex2.toRegex().find(title)?.groups?.get(2)?.value?.toIntOrNull()
                 }
-                else if(seasonRegex2.toRegex().containsMatchIn(title))
-                {
-                    startSeason = seasonRegex2.toRegex().find(title)?.groups?.get(1)?.value?.toInt()
-                    endSeason = seasonRegex2.toRegex().find(title)?.groups?.get(2)?.value?.toInt()
-                }
-            }
-            else if (isMultiWordSeason)
-            {
+            } else if (isMultiWordSeason) {
                 endSeason = sRegex.toRegex().findAll(title).count()
             }
-            if(startSeason != null && endSeason != null)
-            {
-                for (i in startSeason..endSeason)
-                {
+            if (startSeason != null && endSeason != null) {
+                for (i in startSeason..endSeason) {
                     var currentSeason = "Season $i"
-                    if(startSeason == 1 && endSeason == 1)
-                    {
-                        if(sRegex.toRegex().containsMatchIn(title))
-                        {
-                            currentSeason = "Season " + sRegex.toRegex().find(title)?.groups?.get(1)?.value.toString()
-                        }
-                        else if (sRegex2.toRegex().containsMatchIn(title))
-                        {
-                            currentSeason = "S" + sRegex2.toRegex().find(title)?.groups?.get(1)?.value.toString()
+                    if (startSeason == 1 && endSeason == 1) {
+                        if (sRegex.toRegex().containsMatchIn(title)) {
+                            currentSeason =
+                                "Season " + sRegex.toRegex().find(title)?.groups?.get(1)?.value.toString()
+                        } else if (sRegex2.toRegex().containsMatchIn(title)) {
+                            currentSeason =
+                                "S" + sRegex2.toRegex().find(title)?.groups?.get(1)?.value.toString()
                         }
                     }
-                    for(j in 0..(elements.children().size - 1))
-                    {
-                        val item = elements.children()[j]
+                    elements?.children()?.forEachIndexed { _, item ->
                         var seasonTxt = ""
-                        if(sRegex.toRegex().containsMatchIn(item.text()) && item.nextElementSibling().tagName() == "p")
-                        {
-                            seasonTxt = "Season " + sRegex.toRegex().find(item.text())?.groups?.get(1)?.value.toString()
+                        if (sRegex.toRegex().containsMatchIn(item.text()) && item.nextElementSibling()?.tagName() == "p") {
+                            seasonTxt =
+                                "Season " + sRegex.toRegex().find(item.text())?.groups?.get(1)?.value.toString()
+
+                        } else if (sRegex2.toRegex().containsMatchIn(item.text()) && item.nextElementSibling()?.tagName() == "p") {
+                            seasonTxt =
+                                "Season " + Integer.parseInt(sRegex2.toRegex().find(item.text())?.groups?.get(1)?.value.toString())
 
                         }
-                        else if (sRegex2.toRegex().containsMatchIn(item.text()) && item.nextElementSibling().tagName() == "p")
-                        {
-                            seasonTxt = "Season " + Integer.parseInt(sRegex2.toRegex().find(item.text())?.groups?.get(1)?.value.toString())
-
-                        }
-                        if((item.tagName() == "h3" || item.tagName() == "h4" || (item.tagName() == "p" && item.className().contains("has-medium-font-size"))) && (seasonTxt.contains(currentSeason)) && item.nextElementSibling().tagName() == "p")
-                        {
-                            var episodeMap = mutableMapOf<String,MutableList<String>>()
-                            if(!seasonEpisodeMap[currentSeason].isNullOrEmpty())
-                            {
+                        if ((item.tagName() == "h3" || item.tagName() == "h4" || (item.tagName() == "p" && item.className().contains(
+                                "has-medium-font-size"
+                            ))) && (seasonTxt.contains(currentSeason)) && item.nextElementSibling()?.tagName() == "p"
+                        ) {
+                            var episodeMap = mutableMapOf<String, MutableList<String>>()
+                            if (!seasonEpisodeMap[currentSeason].isNullOrEmpty()) {
                                 episodeMap = seasonEpisodeMap[currentSeason]!!
                             }
 
                             var nextSibling = item.nextElementSibling()
-                            while (nextSibling.tagName() == "p" && nextSibling.children().size == 0)
-                            {
+                            while (nextSibling?.tagName() == "p" && nextSibling.children().isEmpty()) {
                                 nextSibling = nextSibling.nextElementSibling()
                             }
-                            var buttons = nextSibling.select("a")
+                            val buttons = nextSibling?.select("a")
 
-                            buttons.forEach { element->
-                                val doc = app.get(element.attr("href"), timeout = 30).document
-                                val links = doc.select(".wp-block-heading.has-text-align-center.has-text-color")
-                                links.forEach { item->
-                                    val link = item.select("a").attr("href")
-                                    var episodeName = item.text().trim()
-                                    if(!episodeMap[episodeName].isNullOrEmpty()) {
+                            buttons?.forEach { element ->
+                                val innerDoc = app.get(element.attr("href"), timeout = 30).document
+                                val links = innerDoc.select(".wp-block-heading.has-text-align-center.has-text-color")
+                                links.forEach { linkElement ->
+                                    val link = linkElement.select("a").attr("href")
+                                    val episodeName = linkElement.text().trim()
+                                    if (!episodeMap[episodeName].isNullOrEmpty()) {
                                         episodeMap[episodeName]?.add(link)
-                                    }
-                                    else
-                                    {
-                                        var list = mutableListOf<String>()
+                                    } else {
+                                        val list = mutableListOf<String>()
                                         list.add(link)
                                         episodeMap[episodeName] = list
                                     }
@@ -201,28 +184,25 @@ class TheMoviesFlixProvider : MainAPI() {
             }
             val episodeData = mutableListOf<Episode>()
 
-            for((k,v) in seasonEpisodeMap)
-            {
+            for ((k, v) in seasonEpisodeMap) {
                 val episodeMap = v
-                for((index, entry) in episodeMap.entries.withIndex())
-                {
+                for ((index, entry) in episodeMap.entries.withIndex()) {
                     var episodeName = entry.key
-                    if(!episodeName.lowercase().contains("episode"))
-                    {
+                    if (!episodeName.lowercase().contains("episode")) {
                         episodeName = "Full Season/Episode (Server ${index + 1})"
                     }
-                    episodeData.add(Episode(
-                        data = entry.value.joinToString("+"),
-                        name = episodeName,
-                        season = sRegex.toRegex().find(k)?.groups?.get(1)?.value?.toInt()
-                    ))
+                    episodeData.add(
+                        Episode(
+                            data = entry.value.joinToString("+"),
+                            name = episodeName,
+                            season = sRegex.toRegex().find(k)?.groups?.get(1)?.value?.toIntOrNull()
+                        )
+                    )
                 }
             }
             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodeData) {
                 this.posterUrl = imageUrl
-                if (plot != null) {
-                    this.plot = plot.trim()
-                }
+                this.plot = plot.trim()
             }
         }
 
@@ -237,24 +217,23 @@ class TheMoviesFlixProvider : MainAPI() {
     ): Boolean {
 
         val links = data.split("+")
-        links.forEach { link->
-                if(link.lowercase().contains("veryfastdownload"))
-                {
-                    val downloadLink = link.replace("watch2","download2")
-                    val html = app.get(downloadLink, timeout = 30).document.html()
-                    val gLink = "openInNewTab\\(\\\\'(.*)\\\\'\\);\"".toRegex().find(html)?.groups?.get(1)?.value.toString()
-                    callback.invoke(ExtractorLink(
+        links.forEach { link ->
+            if (link.lowercase().contains("veryfastdownload")) {
+                val downloadLink = link.replace("watch2", "download2")
+                val html = app.get(downloadLink, timeout = 30).document.html()
+                val gLink = "openInNewTab\\(\\\\'(.*)\\\\'\\);\"".toRegex().find(html)?.groups?.get(1)?.value.toString()
+                callback.invoke(
+                    ExtractorLink(
                         "G-Direct",
                         "G-Direct",
                         url = gLink,
                         "",
                         quality = Qualities.Unknown.value,
-                    ))
-                }
-            else
-                {
-                    loadExtractor(link,subtitleCallback,callback)
-                }
+                    )
+                )
+            } else {
+                loadExtractor(link, subtitleCallback, callback)
+            }
         }
         return true
     }

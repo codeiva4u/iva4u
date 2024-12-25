@@ -1,6 +1,5 @@
 package com.redowan
 
-import com.lagradost.api.Log
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.StreamSB
 import com.lagradost.cloudstream3.extractors.StreamTape
@@ -16,10 +15,11 @@ open class EmbedPk : ExtractorApi() {
 
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        with(app.get(url)) {
-            getAndUnpack(this.text).let { unpackedText ->
+        return try {
+            with(app.get(url)) {
+                getAndUnpack(this.text).let { unpackedText ->
                     val finalLink = unpackedText.substringAfter("sources:[{src:\"").substringBefore("\",")
-                    return listOf(
+                    listOf(
                         ExtractorLink(
                             name,
                             name,
@@ -28,12 +28,12 @@ open class EmbedPk : ExtractorApi() {
                             Qualities.Unknown.value,
                         )
                     )
+                }
             }
+        } catch (e: Exception) {
+            null
         }
-        return null
     }
-
-
 }
 
 class TapeAdvertisement : StreamTape() {
