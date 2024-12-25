@@ -33,7 +33,7 @@ class HDhub4uProvider : MainAPI() {
         "/" to "Latest",
         "/category/hollywood-movies/" to "Hollywood Hindi Movies",
         "/category/south-hindi-movies/" to " South Indian Hindi Movies",
-         "/category/bollywood-movies/" to "Bollywood",
+        "/category/bollywood-movies/" to "Bollywood",
         "/category/category/web-series/" to "Hindi Web Series",
     )
     private val headers =
@@ -82,14 +82,17 @@ class HDhub4uProvider : MainAPI() {
         val plot = doc.selectFirst(".entry-meta > p:nth-child(14)")?.text()
         val year = doc.select(".entry-meta > div:nth-child(9) > div:nth-child(2)")
             .text().toIntOrNull()
-        if (doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null) {
+        
+         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
+        
+        return if (isMovie) {
             val links = doc.select(".downloads-btns-div").joinToString(" ; ") { link ->
                 val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
                 val extractedText = matchResult?.value
                 extractedText + " ## " + (link.selectFirst("a")?.attr("href") ?: "")
             }
-            return newMovieLoadResponse(title, url, TvType.Movie, links) {
+            newMovieLoadResponse(title, url, TvType.Movie, links) {
                 this.posterUrl = image
                 this.year = year
                 this.plot = plot
@@ -126,7 +129,7 @@ class HDhub4uProvider : MainAPI() {
                 seasonNum++
             }
 
-            return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesData) {
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesData) {
                 this.posterUrl = image
                 this.year = year
                 this.plot = plot
