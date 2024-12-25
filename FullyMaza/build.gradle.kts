@@ -17,10 +17,8 @@ cloudstream {
     tvTypes = listOf(
         "Movie",
         "TvSeries",
-        "AnimeMovie",
-        "Cartoon"
     )
-    language = "en"
+    language = "hi"
 
     iconUrl = "https://fibwatch.online/themes/default/img/fibwatch-logo-new.png"
 }
