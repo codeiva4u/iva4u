@@ -17,7 +17,6 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class HDhub4uProvider : MainAPI() {
@@ -82,7 +81,7 @@ class HDhub4uProvider : MainAPI() {
         val image = doc.select(".post-thumbnail > img:nth-child(1)").attr("src")
         var plot = doc.selectFirst(".entry-content > p")?.text()
          if(plot.isNullOrEmpty()){
-             doc.select(".thecontent.clearfix").children().forEach { child->
+             doc.selectFirst(".thecontent.clearfix")?.children()?.forEach { child ->
                  if(child.text().lowercase().contains("storyline"))
                  {
                      plot = child.nextElementSibling()?.text()
@@ -94,7 +93,7 @@ class HDhub4uProvider : MainAPI() {
         
         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
         
-        return if (isMovie) {
+         return if (isMovie) {
             val links = doc.select(".downloads-btns-div a").mapNotNull { link ->
                 val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
@@ -156,7 +155,7 @@ class HDhub4uProvider : MainAPI() {
     ): Boolean {
         data.split(" ; ").forEach {
             val (quality, link) = it.split(" ## ")
-             if (link.contains("allset.lol")) {
+            if (link.contains("allset.lol")) {
                 loadExtractor(link, subtitleCallback, callback)
             }
             else if (link.contains("veryfastdownload"))
