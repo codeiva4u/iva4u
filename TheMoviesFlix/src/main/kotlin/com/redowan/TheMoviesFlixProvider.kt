@@ -20,7 +20,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class TheMoviesFlixProvider : MainAPI() {
-    override var mainUrl = "https://themoviesflix.ae.org"
+    override var mainUrl = "https://themoviesflix.lat/"
     override var name = "TheMoviesFlix"
     override var lang = "hi"
     override val hasMainPage = true
@@ -29,19 +29,13 @@ class TheMoviesFlixProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.NSFW)
     override val mainPage = mainPageOf(
         "" to "Latest Updates",
-        "/category/hindi-dubbed-movies" to "Hindi Dubbed Movies",
         "/category/latest-released" to "Latest Released Movies",
+        "/category/hindi-dubbed-movies" to "Hindi Dubbed Movies",
         "/category/hollywood-movies" to "Hollywood Movies",
-        "/category/english-movies" to "English Movies",
-        "/category/adult-movies" to "Adult Movies",
-        "/category/dual-audio" to "Dual Audio Movies",
-        "/category/multi-audio" to "Multi Audio Movies",
         "/category/hindi-dubbed-series" to "Hindi Dubbed Series",
-        "/category/english" to "English Series",
         "/category/netflix" to "Netflix",
         "/category/amazon-prime-video" to "Amazon Prime Video",
         "/category/hulu" to "Hulu",
-        "/category/the-cw" to "The CW",
     )
 
     override suspend fun getMainPage(

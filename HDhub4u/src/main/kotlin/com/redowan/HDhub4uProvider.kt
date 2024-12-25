@@ -33,7 +33,7 @@ import org.jsoup.nodes.Element
 class HDhub4uProvider : MainAPI() {
     override var mainUrl = "https://hdhub4u.cat/"
     override var name = "HDhub4u"
-    override var lang = "en"
+    override var lang = "hi"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val hasQuickSearch = false
@@ -44,9 +44,6 @@ class HDhub4uProvider : MainAPI() {
         "/" to "Latest",
         "/category/Bollywood-movies/" to "Bollywood",
         "/category/Hollywood-hindi-dubbed-movies/" to "Hollywood Hindi Movies",
-        "/category/Hollywood-english-movies/" to "Hollywood English Movies",
-        "/category/Hollywood-cartoon-movies/" to "Hollywood Cartoon Movies",
-        "/category/Bengali-movies/" to "Bengali Movies",
         "/category/South-indian-hindi-movies/" to " South Indian Hindi Movies",
         "/category/Hindi-Web-Series/" to "Hindi Web Series",
         "/category/Hollywood-Hindi-Dubbed-Web-Series/" to "Hollywood Web Series"
