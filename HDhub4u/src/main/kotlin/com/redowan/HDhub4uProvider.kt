@@ -33,11 +33,12 @@ class HDhub4uProvider : MainAPI() {
         "/" to "Latest",
         "/category/Bollywood-movies/" to "Bollywood",
         "/category/Hollywood-hindi-dubbed-movies/" to "Hollywood Hindi Movies",
-        "/category/South-indian-hindi-movies/" to "South Indian Hindi Movies",
+        "/category/South-indian-hindi-movies/" to " South Indian Hindi Movies",
         "/category/Hindi-Web-Series/" to "Hindi Web Series",
         "/category/Hollywood-Hindi-Dubbed-Web-Series/" to "Hollywood Web Series"
     )
-    private val headers = mapOf("user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+    private val headers =
+        mapOf("user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
 
     override suspend fun getMainPage(
         page: Int, request: MainPageRequest
@@ -52,11 +53,13 @@ class HDhub4uProvider : MainAPI() {
         return newHomePageResponse(request.name, home, true)
     }
 
-    private fun toResult(post: Element): SearchResponse {
-        val title = post.select(".entry-title > a").text()
+    private fun toResult(post: Element): SearchResponse? {
+        val titleElement = post.selectFirst(".entry-title a") ?: return null
+        val title = titleElement.text()
         val check = post.select(".video-label").text()
-        val url = post.select(".entry-title > a").attr("href")
-        val posterUrl = post.select(".post-thumbnail img").attr("src")
+        val url = titleElement.attr("href")
+        val posterUrl = post.selectFirst(".post-thumbnail img")?.attr("src")
+
         return newAnimeSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = getSearchQuality(check)
@@ -71,22 +74,21 @@ class HDhub4uProvider : MainAPI() {
     }
 
     private val regex = Regex("(?<=\\)\\s).*")
-    override suspend fun load(url: String): LoadResponse {
+    override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(
             url, cacheTime = 60, headers = headers
         ).document
-        val title = doc.select(".entry-title").text()
-        val image = doc.select(".post-thumbnail img").attr("src")
-        val plot = doc.selectFirst(".entry-content p")?.text()
+        val title = doc.select(".entry-meta > div:nth-child(3) > div:nth-child(2)").text()
+        val image = doc.select(".post-thumbnail > img:nth-child(1)").attr("src")
+        val plot = doc.selectFirst(".entry-meta > p:nth-child(14)")?.text()
         val year = doc.select(".entry-meta > div:nth-child(9) > div:nth-child(2)")
             .text().toIntOrNull()
-
         if (doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null) {
             val links = doc.select(".downloads-btns-div").joinToString(" ; ") { link ->
                 val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
                 val extractedText = matchResult?.value
-                "$extractedText ## ${link.selectFirst("a")?.attr("href") ?: ""}"
+                extractedText + " ## " + (link.selectFirst("a")?.attr("href") ?: "")
             }
             return newMovieLoadResponse(title, url, TvType.Movie, links) {
                 this.posterUrl = image
@@ -167,6 +169,12 @@ class HDhub4uProvider : MainAPI() {
         return true
     }
 
+    /**
+     * Determines the search quality based on the presence of specific keywords in the input string.
+     *
+     * @param check The string to check for keywords.
+     * @return The corresponding `SearchQuality` enum value, or `null` if no match is found.
+     */
     private fun getSearchQuality(check: String?): SearchQuality? {
         val lowercaseCheck = check?.lowercase()
         if (lowercaseCheck != null) {
@@ -190,6 +198,12 @@ class HDhub4uProvider : MainAPI() {
         return null
     }
 
+    /**
+     * Extracts the video resolution (in pixels) from a string.
+     *
+     * @param string The input string containing the resolution (e.g., "720p", "1080P").
+     * @return The resolution as an integer, or `Qualities.Unknown.value` if no resolution is found.
+     */
     private fun getVideoQuality(string: String?): Int {
         return getVideoQualityRegex.find(string ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
