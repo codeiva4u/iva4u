@@ -25,5 +25,5 @@ cloudstream {
         "Movie",
         "TvSeries",
     )
-    iconUrl = "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png"
+    iconUrl = "https://www.uptoplay.net/imagescropped/hdmovies4udownloadandwatchmoviesicon128.jpgplus.webp"
 }
