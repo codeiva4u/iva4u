@@ -82,7 +82,7 @@ class HDhub4uProvider : MainAPI() {
         val image = doc.select(".post-thumbnail > img:nth-child(1)").attr("src")
         var plot = doc.selectFirst(".entry-meta > p:nth-child(14)")?.text()
          if(plot.isNullOrEmpty()){
-             doc.selectFirst(".thecontent.clearfix")?.children()?.forEach { child->
+             doc.selectFirst(".thecontent.clearfix")?.children()?.forEach { child ->
                  if(child.text().lowercase().contains("storyline"))
                  {
                      plot = child.nextElementSibling()?.text()
@@ -94,9 +94,9 @@ class HDhub4uProvider : MainAPI() {
         
         val isMovie = doc.selectFirst("div.download-links-div > div:nth-child(2) > a[href*=allset.lol/archive/]") == null
         
-        return if (isMovie) {
-            val links = doc.select(".entry-content a").mapNotNull { link ->
-                 val quality = link.previousElementSibling()?.text() ?: ""
+         return if (isMovie) {
+             val links = doc.select(".entry-content a").mapNotNull { link ->
+                val quality = link.previousElementSibling()?.text() ?: ""
                 val matchResult = regex.find(quality)
                 val extractedText = matchResult?.value
                 val href = link.attr("href")
@@ -147,6 +147,7 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -165,6 +166,22 @@ class HDhub4uProvider : MainAPI() {
              else if (link.contains("hcloud"))
             {
                HCloud().getUrl(link,null,subtitleCallback,callback)
+            }
+            else if (link.contains("hblinks.pro"))
+            {
+                val doc = app.get(link,allowRedirects = true).document
+                doc.select(".entry-content a").forEach {
+                    val url = it.attr("href")
+                    callback.invoke(
+                        ExtractorLink(
+                            name,
+                            "$name - $quality",
+                            url,
+                            mainUrl,
+                            getVideoQuality(quality)
+                        )
+                    )
+                }
             }
             else{
                 callback.invoke(
