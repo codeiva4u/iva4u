@@ -13,10 +13,12 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
@@ -34,12 +36,15 @@ class HDMovies4uProvider : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/category/1080p-movies/" to "1080p Movies",
-        "$mainUrl/category/720p-movies/" to "720p Movies",
-        "$mainUrl/category/bollywood-720p/" to "Bollywood 720p",
-        "$mainUrl/category/hollywood-movies-720p/" to "Hollywood Movies 720p",
-        "$mainUrl/category/dual-audio-720p/" to "Dual Audio 720p",
-        "$mainUrl/category/tv-shows/" to "TV Shows"
+        "$mainUrl/category/hollywood-movies-1080p/" to "Hollywood Movies",
+        "$mainUrl/category/south-hindi-dubbed-720p/" to "South Hindi Dubbed Movies",
+        "$mainUrl/category/bollywood-1080p/" to "Bollywood",
+        "$mainUrl/category/netflix/" to "Netflix",
+        "$mainUrl/category/amazon-prime-video/" to "Amazon Prime Video",
+        "$mainUrl/category/disney-plus-hotstar/" to "Disney+ Hotstar",
+        "$mainUrl/category/jio-cinema/" to " Jio Cinema",
+        "$mainUrl/category/zee5/" to "Zee5",
+        "$mainUrl/category/category/sonyliv/" to "SonyLIV",
     )
 
     override suspend fun getMainPage(
@@ -149,28 +154,22 @@ class HDMovies4uProvider : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("main.page-body p a[href*=drivetot]").map {
-            val link = it.attr("href")
-            loadExtractor(link, data, subtitleCallback, callback)
+        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish]").map {
+            safeApiCall {
+                val link = it.attr("href")
+                loadExtractor(link, data, subtitleCallback, callback)
+            }
         }
         document.select("main.page-body iframe[src*=vanoe]").map {
-            val link = it.attr("src")
-            loadExtractor(link, data, subtitleCallback, callback)
+            safeApiCall {
+                val link = it.attr("src")
+                loadExtractor(link, data, subtitleCallback, callback)
+            }
         }
         return true
     }
 
     private fun getSearchQualityFromString(text: String?): SearchQuality? {
-        return when {
-            text.isNullOrBlank() -> null
-            text.contains("2160", ignoreCase = true) -> SearchQuality.UHD
-            text.contains("1080", ignoreCase = true) -> SearchQuality.HD
-            text.contains("720", ignoreCase = true) -> SearchQuality.HD
-            text.contains("480", ignoreCase = true) -> SearchQuality.SD
-            else -> null
-        }
-    }
-    private fun getQualityFromString(text: String?): SearchQuality? {
         return when {
             text.isNullOrBlank() -> null
             text.contains("2160", ignoreCase = true) -> SearchQuality.UHD
