@@ -1,11 +1,79 @@
-package com.redowan
-
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.getAndUnpack
+import com.lagradost.cloudstream3.utils.getQualityFromName
+
+open class Voe : ExtractorApi() {
+    override val name = "Voe"
+    override val mainUrl = "https://voe.sx"
+    override val requiresReferer = true
+
+    private val linkRegex =
+        "(http|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
+    private val base64Regex = Regex("'.*'")
+    private val redirectRegex = Regex("""window.location.href = '([^']+)';""")
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val res = app.get(url, referer = referer).document
+
+        val script =
+            if (!res.select("script").firstOrNull() { it.data().contains("sources =") }?.data()
+                    .isNullOrEmpty()
+            ) {
+                res.select("script").find { it.data().contains("sources =") }?.data()
+            } else {
+                redirectRegex.find(res.data())?.groupValues?.get(1)?.let { redirectUrl ->
+                    app.get(
+                        redirectUrl,
+                        referer = referer
+                    ).document.select("script").find { it.data().contains("sources =") }?.data()
+                }
+            }
+
+        val link =
+            Regex("[\"']hls[\"']:\\s*[\"'](.*)[\"']").find(script ?: return)?.groupValues?.get(1)
+
+        val videoLinks = mutableListOf<String>()
+
+        if (!link.isNullOrBlank()) {
+            videoLinks.add(
+                when {
+                    linkRegex.matches(link) -> link
+                    else -> base64Decode(link)
+                }
+            )
+        } else {
+            val link2 = base64Regex.find(script)?.value ?: return
+            val decoded = base64Decode(link2)
+            val videoLinkDTO = parseJson<WcoSources>(decoded)
+            videoLinkDTO.let { videoLinks.add(it.toString()) }
+        }
+
+        videoLinks.forEach { videoLink ->
+            M3u8Helper.generateM3u8(
+                name,
+                videoLink,
+                "$mainUrl/",
+                headers = mapOf("Origin" to "$mainUrl/")
+            ).forEach(callback)
+        }
+    }
+
+    data class WcoSources(
+        @JsonProperty("VideoLinkDTO") val VideoLinkDTO: String,
+    )
+}
 
 class AllSetLol : ExtractorApi() {
     override var name = "AllSet.lol"
@@ -28,21 +96,16 @@ class AllSetLol : ExtractorApi() {
                     "$name - $quality",
                     link,
                     mainUrl,
-                    getVideoQuality(quality)
+                    getQualityFromName(quality)
                 )
             )
         }
     }
-    private fun getVideoQuality(string: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(string ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
-    }
 }
 
-
-class VeryFastDownload : ExtractorApi() {
-    override var name = "VeryFastDownload"
-    override var mainUrl = "https://veryfastdownload.com"
+open class DoodStream : ExtractorApi() {
+    override val name = "DoodStream"
+    override val mainUrl = "https://doodstream.com"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -51,33 +114,24 @@ class VeryFastDownload : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-         if(url.lowercase().contains("veryfastdownload"))
-        {
-            val downloadLink = url.replace("watch2","download2")
-            val html = app.get(downloadLink, timeout = 30).document.html()
-             val gLink = "openInNewTab\\(\\\\'(.*)\\\\'\\);\"".toRegex().find(html)?.groups?.get(1)?.value.toString()
-            callback.invoke(ExtractorLink(
-                "G-Direct",
-                "G-Direct",
-                url = gLink,
-                "",
-                quality = Qualities.Unknown.value,
-            ))
-        }
+        val doc = app.get(url, referer = referer).document
+        val script = doc.select("script").find {
+            it.data().contains("eval(function(p,a,c,k,e,d)")
+        }?.data()
+        val unpacked = getAndUnpack(script ?: return)
+
+        val (videoUrl, quality) = Regex(""""file":"(.*?)","label":"(.*?)"""").find(unpacked)?.destructured ?: return
+        callback.invoke(
+            ExtractorLink(
+                name,
+                name,
+                videoUrl,
+                referer = url,
+                quality = getQualityFromName(quality),
+            )
+        )
     }
-}
 
-class HCloud : ExtractorApi() {
-    override var name = "H-Cloud"
-    override var mainUrl = "https://hcloud.gg/"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        loadExtractor(url, subtitleCallback, callback)
+    companion object {
     }
 }
