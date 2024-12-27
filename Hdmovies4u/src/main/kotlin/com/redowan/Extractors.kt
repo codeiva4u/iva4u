@@ -217,6 +217,8 @@ class Wishonly : ExtractorApi() {
                 ?: Qualities.Unknown.value
         }
 
+        val thumbnailUrl = extractThumbnailUrl(doc)
+
         if (videoUrl != null) {
             callback.invoke(
                 ExtractorLink(
@@ -224,7 +226,7 @@ class Wishonly : ExtractorApi() {
                     "Wishonly Player",
                     videoUrl,
                     referer ?: mainUrl,
-                    quality ?: Qualities.Unknown.value
+                    quality ?: Qualities.Unknown.value,
                 )
             )
         }
@@ -232,5 +234,9 @@ class Wishonly : ExtractorApi() {
 
     private fun extractVideoUrl(doc: Document): String? {
         return doc.selectFirst("video.jw-video")?.attr("src")
+    }
+
+    private fun extractThumbnailUrl(doc: Document): String? {
+        return doc.selectFirst("div.jw-preview")?.attr("style")?.substringAfter("url(\"")?.substringBefore("\")")
     }
 }

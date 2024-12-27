@@ -23,6 +23,7 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class Hdmovies4u : MainAPI() {
@@ -168,27 +169,29 @@ class Hdmovies4u : MainAPI() {
                             println("Drivetot link detected: $link")
                             Drivetot().getUrl(link, data, subtitleCallback, callback)
                         }
+
                         link.contains("wishonly") -> {
                             println("Wishonly link detected: $link")
-                            Wishonly().getUrl(link, data, subtitleCallback,  { customLink -> // Update callback
-                                callback.invoke(customLink)
-                            })
+                            loadExtractor(link, data, subtitleCallback, callback)
                         }
+
                         link.contains("pixeldra.in") -> {
                             println("PixelDrain link detected: $link")
                             PixelDrain().getUrl(link, data, subtitleCallback, callback)
                         }
+
                         link.contains("token=") -> {
                             println("HubCloud Direct link Detected: $link")
                             // Extract the token value from the URL
                             val tokenUrl = it.attr("href")
-                            val hubCloudDirectLink = fixUrl(app.get(tokenUrl).document.selectFirst("center a.btn")?.attr("href").toString())
+                            val hubCloudDirectLink = fixUrl(
+                                app.get(tokenUrl).document.selectFirst("center a.btn")?.attr("href")
+                                    .toString()
+                            )
 
                             if (hubCloudDirectLink.isNullOrBlank()) {
                                 println("HubCloud Direct link is null $hubCloudDirectLink")
-                            }
-                            else
-                            {
+                            } else {
                                 callback.invoke(
                                     ExtractorLink(
                                         "HubCloud Direct",
@@ -202,7 +205,8 @@ class Hdmovies4u : MainAPI() {
                             }
 
                         }
-                        else ->{
+
+                        else -> {
                             println("No Extractor Matched ")
                         }
                     }
