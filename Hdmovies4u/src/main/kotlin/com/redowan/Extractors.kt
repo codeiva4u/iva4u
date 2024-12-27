@@ -1,90 +1,19 @@
 package com.redowan
 
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
-import okhttp3.FormBody
-import org.json.JSONObject
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.getAndUnpack
+import com.lagradost.cloudstream3.utils.getPacked
+import com.lagradost.cloudstream3.utils.getQualityFromName
 
-class Driveleech : Driveseed() {
-    override val name: String = "Driveleech"
-    override val mainUrl: String = "https://driveleech.org"
-}
-
-open class Driveseed : ExtractorApi() {
-    override val name: String = "Driveseed"
-    override val mainUrl: String = "https://driveseed.org"
+open class DoodStream : ExtractorApi() {
+    override val name = "DoodStream"
+    override val mainUrl = "https://doodstream.com" //  मुख्य URL बदल सकता है
     override val requiresReferer = false
-
-    private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
-            ?: Qualities.Unknown.value
-    }
-
-    private suspend fun CFType1(url: String): List<String> {
-        val document = app.get(url+"?type=1").document
-        val links = document.select("a.btn-success").mapNotNull { it.attr("href") }
-        return links
-    }
-
-    private suspend fun resumeCloudLink(url: String): String {
-        val resumeCloudUrl = mainUrl + url
-        val document = app.get(resumeCloudUrl).document
-        val link = document.selectFirst("a.btn-success")?.attr("href").toString()
-        return link
-    }
-
-    private suspend fun resumeBot(url : String): String {
-        val resumeBotResponse = app.get(url)
-        val resumeBotDoc = resumeBotResponse.document.toString()
-        val ssid = resumeBotResponse.cookies["PHPSESSID"]
-        val resumeBotToken = Regex("formData\\.append\\('token', '([a-f0-9]+)'\\)").find(resumeBotDoc)?.groups?.get(1)?.value
-        val resumeBotPath = Regex("fetch\\('/download\\?id=([a-zA-Z0-9/+]+)'").find(resumeBotDoc)?.groups?.get(1)?.value
-        val resumeBotBaseUrl = url.split("/download")[0]
-        val requestBody = FormBody.Builder()
-            .addEncoded("token", "$resumeBotToken")
-            .build()
-
-        val jsonResponse = app.post(resumeBotBaseUrl + "/download?id=" + resumeBotPath,
-            requestBody = requestBody,
-            headers = mapOf(
-                "Accept" to "*/*",
-                "Origin" to resumeBotBaseUrl,
-                "Sec-Fetch-Site" to "same-origin"
-            ),
-            cookies = mapOf("PHPSESSID" to "$ssid"),
-            referer = url
-        ).text
-        val jsonObject = JSONObject(jsonResponse)
-        val link = jsonObject.getString("url")
-        return link
-    }
-
-    private suspend fun instantLink(finallink: String): String {
-        val url = if(finallink.contains("video-leech")) "video-leech.xyz" else "video-seed.xyz"
-        val token = finallink.substringAfter("https://$url/?url=")
-        val downloadlink = app.post(
-            url = "https://$url/api",
-            data = mapOf(
-                "keys" to token
-            ),
-            referer = finallink,
-            headers = mapOf(
-                "x-token" to url,
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
-            )
-        )
-        val finaldownloadlink =
-            downloadlink.toString().substringAfter("url\":\"")
-                .substringBefore("\",\"name")
-                .replace("\\/", "/")
-        val link = finaldownloadlink
-        return link
-    }
-
 
     override suspend fun getUrl(
         url: String,
@@ -92,66 +21,127 @@ open class Driveseed : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val document = app.get(url).document
-        val quality = document.selectFirst("li.list-group-item")?.text() ?: ""
-        val fileName = quality.replace("Name : ", "")
-        document.select("div.text-center > a").amap { element ->
-            val text = element.text()
-            val href = element.attr("href")
-            when {
-                text.contains("Instant Download") -> {
-                    val instant = instantLink(href)
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name Instant(Download)",
-                            "$name Instant(Download) - $fileName",
-                            instant,
-                            "",
-                            getIndexQuality(quality)
-                        )
+        val response = app.get(url, referer = referer)
+        val packedText = getPacked(response.text)
+
+        if (packedText != null) {
+            val unpacked = getAndUnpack(packedText)
+
+            val videoUrl = Regex("""file:\s*"([^"]+)"""").find(unpacked)?.groupValues?.get(1)
+            val quality = Regex("""label:\s*"([^"]+)"""").find(unpacked)?.groupValues?.get(1)
+
+            if (videoUrl != null) {
+                callback.invoke(
+                    ExtractorLink(
+                        name,
+                        name,
+                        videoUrl,
+                        referer ?: url,
+                        quality = getQualityFromName(quality),
+                        isM3u8 = videoUrl.contains(".m3u8")
                     )
-                }
-                text.contains("Resume Worker Bot") -> {
-                    val resumeLink = resumeBot(href)
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name ResumeBot(VLC)",
-                            "$name ResumeBot(VLC) - $fileName",
-                            resumeLink,
-                            "",
-                            getIndexQuality(quality)
-                        )
-                    )
-                }
-                text.contains("Direct Links") -> {
-                    val link = mainUrl + href
-                    CFType1(link).forEach {
-                        callback.invoke(
-                            ExtractorLink(
-                                "$name CF Type1",
-                                "$name CF Type1 - $fileName",
-                                it,
-                                "",
-                                getIndexQuality(quality)
-                            )
-                        )
-                    }
-                }
-                text.contains("Resume Cloud") -> {
-                    val resumeCloud = resumeCloudLink(href)
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name ResumeCloud",
-                            "$name ResumeCloud - $fileName",
-                            resumeCloud,
-                            "",
-                            getIndexQuality(quality)
-                        )
-                    )
-                }
-                else -> {
-                }
+                )
             }
         }
+    }
+}
+
+class Drivetot : ExtractorApi() {
+    override var name = "Drivetot"
+    override var mainUrl = "https://drivetot.dad" // मुख्य URL बदल सकता है, वेबसाइट चेक करें
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // 1. Drivetot पेज प्राप्त करें
+        val response = app.get(url, referer = referer)
+
+        // 2. HTML में वीडियो URL खोजें
+        //    आपको Regex या Jsoup का उपयोग करके वीडियो URL निकालना होगा।
+        //    ध्यान दें कि Drivetot अपनी वेबसाइट बदलता रहता है, इसलिए
+        //    आपको HTML का  निरीक्षण करके  URL निकालने का तरीका अपडेट करते रहना होगा।
+        //
+        //    यहाँ एक उदाहरण दिया गया है जो 24 दिसंबर 2024 तक काम करता है:
+        val videoUrlRegex = Regex("source src=\"(.*?)\" type=")
+        val videoUrl = videoUrlRegex.find(response.text)?.groupValues?.get(1) ?: return
+
+        // 3. गुणवत्ता निकालें (यदि उपलब्ध हो)
+        val quality = getQualityFromName(videoUrl)
+
+        // 4. ExtractorLink ऑब्जेक्ट बनाएं और लौटाएं
+        callback.invoke(
+            ExtractorLink(
+                source = name,
+                name = name,
+                url = videoUrl,
+                referer = "$mainUrl/",
+                quality = quality,
+                isM3u8 = videoUrl.contains(".m3u8") // अगर लिंक m3u8 है तो true
+            )
+        )
+    }
+}
+
+open class StreamWish : ExtractorApi() {
+    override val name = "Streamwish"
+    override val mainUrl = "https://streamwish.to" // मुख्य URL बदल सकता है
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val headers = mapOf(
+            "Accept" to "*/*",
+            "Connection" to "keep-alive",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "cross-site",
+            "Origin" to "$mainUrl/",
+            "User-Agent" to USER_AGENT
+        )
+        val response = app.get(url, referer = referer)
+
+        val script = response.document.select("script:containsData(sources:)")
+            .firstOrNull()?.data()
+        val m3u8 =
+            Regex("file:\\s*\"(.*?m3u8.*?)\"").find(script ?: return)?.groupValues?.getOrNull(1)
+
+        M3u8Helper.generateM3u8(
+            name,
+            m3u8 ?: return,
+            referer ?: url,
+            headers = headers
+        ).forEach(callback)
+    }
+}
+
+open class Voe : ExtractorApi() {
+    override val name = "Voe"
+    override val mainUrl = "https://voe.sx"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val document = app.get(url, referer = referer).document
+
+        val script = document.select("script:containsData(sources:)").firstOrNull()?.data() ?: return
+        val m3u8Url = Regex("""file:\s*"(.*?)"""").find(script)?.groupValues?.get(1) ?: return
+
+        M3u8Helper.generateM3u8(
+            name,
+            m3u8Url,
+            referer ?: url
+        ).forEach(callback)
     }
 }

@@ -13,7 +13,9 @@ class Hdmovies4uPlugin: Plugin() {
         registerMainAPI(Hdmovies4u())
         registerExtractorAPI(Voe())
         registerExtractorAPI(StreamWishExtractor())
-        registerExtractorAPI(Driveleech())
-        registerExtractorAPI(Driveseed())
+        registerExtractorAPI(DoodStream())
+        registerExtractorAPI(StreamWish())
+        registerExtractorAPI(Drivetot())
+
     }
 }
