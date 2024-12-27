@@ -1,14 +1,61 @@
 package com.redowan
 
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import org.jsoup.nodes.Document
+import com.lagradost.cloudstream3.amap
 import okhttp3.FormBody
 import org.json.JSONObject
-import org.jsoup.nodes.Document
+
+class Wishonly : ExtractorApi() {
+    override val name = "Wishonly"
+    override val mainUrl = "https://wishonly.site"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val res = app.get(url, referer = referer ?: mainUrl)
+        val doc = res.document
+
+        // Extract the video URL from the source tag.
+        val videoUrl = extractVideoUrl(doc)
+        val quality = videoUrl?.let { url ->
+            Regex("(\\d{3,4})[pP]").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: Qualities.Unknown.value
+        }
+
+        val thumbnailUrl = extractThumbnailUrl(doc)
+
+        if (videoUrl != null) {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Wishonly Player",
+                    videoUrl,
+                    referer ?: mainUrl,
+                    quality ?: Qualities.Unknown.value,
+                    isM3u8 = videoUrl.contains(".m3u8"),
+                    headers = mapOf("thumbnail" to (thumbnailUrl ?: ""))
+                )
+            )
+        }
+    }
+
+    private fun extractVideoUrl(doc: Document): String? {
+        return doc.selectFirst("video.jw-video")?.attr("src")
+    }
+
+    private fun extractThumbnailUrl(doc: Document): String? {
+        return doc.selectFirst("div.jw-preview")?.attr("style")?.substringAfter("url(\"")?.substringBefore("\")")
+    }
+}
 
 // Drivetot Extractor
 open class Drivetot : ExtractorApi() {
@@ -82,7 +129,6 @@ open class Drivetot : ExtractorApi() {
         val link = finaldownloadlink
         return link
     }
-
 
     override suspend fun getUrl(
         url: String,
@@ -159,7 +205,6 @@ open class Drivetot : ExtractorApi() {
     }
 }
 
-// PixelDrain Extractor
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
     override val mainUrl = "https://pixeldrain.com"
@@ -193,52 +238,5 @@ class PixelDrain : ExtractorApi() {
                 )
             )
         }
-    }
-}
-
-class Wishonly : ExtractorApi() {
-    override val name = "Wishonly"
-    override val mainUrl = "https://wishonly.site"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val res = app.get(url, referer = referer ?: mainUrl)
-        val doc = res.document
-
-        // Extract the video URL from the source tag.
-        val videoUrl = extractVideoUrl(doc)
-        val quality = videoUrl?.let { url ->
-            Regex("(\\d{3,4})[pP]").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                ?: Qualities.Unknown.value
-        }
-
-        val thumbnailUrl = extractThumbnailUrl(doc)
-
-        if (videoUrl != null) {
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    "Wishonly Player",
-                    videoUrl,
-                    referer ?: mainUrl,
-                    quality ?: Qualities.Unknown.value,
-                    isM3u8 = videoUrl.contains(".m3u8"),
-                    headers = mapOf("thumbnail" to (thumbnailUrl ?: ""))
-                )
-            )
-        }
-    }
-
-    private fun extractVideoUrl(doc: Document): String? {
-        return doc.selectFirst("video.jw-video")?.attr("src")
-    }
-
-    private fun extractThumbnailUrl(doc: Document): String? {
-        return doc.selectFirst("div.jw-preview")?.attr("style")?.substringAfter("url(\"")?.substringBefore("\")")
     }
 }
