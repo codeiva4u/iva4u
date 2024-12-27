@@ -1,12 +1,8 @@
 package com.redowan
 
 import android.content.Context
-import com.lagradost.cloudstream3.extractors.PixelDrain
-import com.lagradost.cloudstream3.extractors.Voe
-import com.lagradost.cloudstream3.extractors.Wishonly
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin
-import com.megix.HubCloud
 
 @Suppress("unused")
 @CloudstreamPlugin
@@ -14,10 +10,11 @@ class Hdmovies4uPlugin : Plugin() {
     override fun load(context: Context) {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Hdmovies4u())
-        registerExtractorAPI(Voe())
+        registerExtractorAPI(GDFlix())
         registerExtractorAPI(Drivetot())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(Wishonly())
+        registerExtractorAPI(HubCloudlol())
+        registerExtractorAPI(HubCloudClub())
         registerExtractorAPI(PixelDrain())
 
     }
