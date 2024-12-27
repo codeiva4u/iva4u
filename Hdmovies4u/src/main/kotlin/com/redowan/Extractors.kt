@@ -1,14 +1,14 @@
 package com.redowan
 
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
-import org.jsoup.nodes.Document
-import com.lagradost.cloudstream3.amap
 import okhttp3.FormBody
 import org.json.JSONObject
+import org.jsoup.nodes.Document
 
 class Wishonly : ExtractorApi() {
     override val name = "Wishonly"

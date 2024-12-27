@@ -106,7 +106,14 @@ class Hdmovies4u : MainAPI() {
             ?.substringAfter(",")
             ?.trim()
             ?.toIntOrNull()
-        val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
+        // Extract the description from different locations
+        var description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
+        if (description.isNullOrBlank()) {
+            description = document.selectFirst("div.imdbwp__teaser")?.text()?.trim()
+        }
+        if (description.isNullOrBlank()) {
+            description = document.selectFirst("meta[name=description]")?.attr("content")?.trim()
+        }
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
         val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
@@ -148,7 +155,6 @@ class Hdmovies4u : MainAPI() {
             }
         }
     }
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -218,25 +224,17 @@ class Hdmovies4u : MainAPI() {
                 when {
                     decodedUrl.contains("hubcloud.club") -> {
                         // Handle HubCloud link
-                        Log.d("Hdmovies4u","Hubcloud link detected: $link")
+                        Log.d("Hdmovies4u","HubCloud link detected: $decodedUrl")
                         loadExtractor(decodedUrl, data, subtitleCallback, callback)
                     }
                     decodedUrl.contains("filebee.xyz") -> {
                         // Handle FilePress link
-                        Log.d("Hdmovies4u","Filebee link detected: $link")
-                        callback.invoke(
-                            ExtractorLink(
-                                "FilePress",
-                                "FilePress",
-                                decodedUrl,
-                                data,
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
+                        Log.d("Hdmovies4u","FilePress link detected: $decodedUrl")
+                        loadExtractor(decodedUrl, data, subtitleCallback, callback)
                     }
                     decodedUrl.contains("telegram.me") -> {
                         // Handle Telegram link
+                        Log.d("Hdmovies4u","Telegram link detected: $decodedUrl")
                         callback.invoke(
                             ExtractorLink(
                                 "Telegram",
