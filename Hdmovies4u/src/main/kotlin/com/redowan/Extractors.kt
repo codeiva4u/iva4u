@@ -81,7 +81,7 @@ open class DoodStream : ExtractorApi() {
 // Streamwish
 open class StreamWish : ExtractorApi() {
     override val name = "Streamwish"
-    override val mainUrl = "https://streamwish.to" // मुख्य URL बदल सकता है
+    override val mainUrl = "https://streamwish.com/" // मुख्य URL बदल सकता है
     override val requiresReferer = true
 
     override suspend fun getUrl(
