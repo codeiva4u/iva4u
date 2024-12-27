@@ -5,10 +5,10 @@ import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.M3u8Helper
 import com.lagradost.cloudstream3.utils.getAndUnpack
 import com.lagradost.cloudstream3.utils.getPacked
-import com.lagradost.cloudstream3.utils.getQualityFromName
 
 // Drivetot
 class Drivetot : ExtractorApi() {
@@ -77,7 +77,6 @@ open class DoodStream : ExtractorApi() {
         }
     }
 }
-
 // Streamwish
 open class StreamWish : ExtractorApi() {
     override val name = "Streamwish"
@@ -96,9 +95,9 @@ open class StreamWish : ExtractorApi() {
             "Sec-Fetch-Dest" to "empty",
             "Sec-Fetch-Mode" to "cors",
             "Sec-Fetch-Site" to "cross-site",
-            "Origin" to "$mainUrl/",
+            "Origin" to mainUrl,
             "User-Agent" to USER_AGENT,
-            "Referer" to url
+            "Referer" to (referer ?: url) // Updated this line
         )
         val response = app.get(url, referer = referer, headers = headers)
 
@@ -108,33 +107,33 @@ open class StreamWish : ExtractorApi() {
         M3u8Helper.generateM3u8(
             name,
             m3u8 ?: return,
-            referer ?: url,
+            referer ?: url, // No change here
             headers = headers
         ).forEach(callback)
     }
 }
-
 // Voe
-open class Voe : ExtractorApi() {
-    override val name = "Voe"
-    override val mainUrl = "https://voe.sx"
-    override val requiresReferer = true
+    open class Voe : ExtractorApi() {
+        override val name = "Voe"
+        override val mainUrl = "https://voe.sx"
+        override val requiresReferer = true
 
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val document = app.get(url, referer = referer).document
+        override suspend fun getUrl(
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
+        ) {
+            val document = app.get(url, referer = referer).document
 
-        val script = document.select("script:containsData(sources:)").firstOrNull()?.data() ?: return
-        val m3u8Url = Regex("""file:\s*"(.*?)"""").find(script)?.groupValues?.get(1) ?: return
+            val script =
+                document.select("script:containsData(sources:)").firstOrNull()?.data() ?: return
+            val m3u8Url = Regex("""file:\s*"(.*?)"""").find(script)?.groupValues?.get(1) ?: return
 
-        M3u8Helper.generateM3u8(
-            name,
-            m3u8Url,
-            referer ?: url
-        ).forEach(callback)
+            M3u8Helper.generateM3u8(
+                name,
+                m3u8Url,
+                referer ?: url
+            ).forEach(callback)
+        }
     }
-}

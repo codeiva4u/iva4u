@@ -1,5 +1,6 @@
 package com.redowan
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -10,8 +11,6 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.mvvm.safeApiCall
@@ -35,15 +34,12 @@ class Hdmovies4u : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/category/hollywood-movies-1080p/" to "Hollywood Movies",
-        "$mainUrl/category/south-hindi-dubbed-720p/" to "South Hindi Dubbed Movies",
-        "$mainUrl/category/bollywood-1080p/" to "Bollywood",
-        "$mainUrl/category/netflix/" to "Netflix",
-        "$mainUrl/category/amazon-prime-video/" to "Amazon Prime Video",
-        "$mainUrl/category/disney-plus-hotstar/" to "Disney+ Hotstar",
-        "$mainUrl/category/jio-cinema/" to " Jio Cinema",
-        "$mainUrl/category/zee5/" to "Zee5",
-        "$mainUrl/category/category/sonyliv/" to "SonyLIV",
+        "$mainUrl/category/1080p-movies/" to "1080p Movies",
+        "$mainUrl/category/720p-movies/" to "720p Movies",
+        "$mainUrl/category/bollywood-720p/" to "Bollywood 720p",
+        "$mainUrl/category/hollywood-movies-720p/" to "Hollywood Movies 720p",
+        "$mainUrl/category/dual-audio-720p/" to "Dual Audio 720p",
+        "$mainUrl/category/tv-shows/" to "TV Shows"
     )
 
     override suspend fun getMainPage(
@@ -67,7 +63,7 @@ class Hdmovies4u : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = this.select("span.absolute").text().trim().let { getQualityFromString(it) }
+        val quality = getQualityFromString(this.select("span.absolute").text().toString())
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -106,8 +102,7 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
-            ?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
@@ -154,34 +149,67 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish], main.page-body p a[href*=voe.sx]")
-            .map {
-                safeApiCall {
-                    val link = it.attr("href")
-                    val extractor = when {
-                        link.contains("drivetot") -> Drivetot()
-                        link.contains("doodstream") -> DoodStream()
-                        link.contains("streamwish") -> StreamWish()
-                        link.contains("voe.sx") -> Voe()
-                        else -> null
-                    }
-
-                    extractor?.getUrl(link, data, subtitleCallback, callback)
+        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish], main.page-body p a[href*=voe.sx]").map {
+            safeApiCall {
+                val link = it.attr("href")
+                val extractor = when {
+                    link.contains("drivetot") -> Drivetot()
+                    link.contains("doodstream") -> DoodStream()
+                    link.contains("streamwish") -> StreamWish()
+                    link.contains("voe.sx") -> Voe()
+                    else -> null
                 }
+                // Fix: Remove mainUrl reassignment for extractors
+                extractor?.getUrl(link, data, subtitleCallback, callback)
             }
-        document.select("main.page-body iframe[src*=vanoe], main.page-body iframe[src*=voe.sx]")
-            .map {
-                safeApiCall {
-                    val link = it.attr("src")
-                    val extractor = when {
-                        link.contains("vanoe") -> Voe()
-                        link.contains("voe.sx") -> Voe()
-                        else -> null
-                    }
-
-                    extractor?.getUrl(link, data, subtitleCallback, callback)
+        }
+        document.select("main.page-body iframe[src*=vanoe], main.page-body iframe[src*=voe.sx]").map {
+            safeApiCall {
+                val link = it.attr("src")
+                val extractor = when {
+                    link.contains("vanoe") -> Voe()
+                    link.contains("voe.sx") -> Voe()
+                    else -> null
                 }
+                // Fix: Remove mainUrl reassignment for extractors
+                extractor?.getUrl(link, data, subtitleCallback, callback)
             }
+        }
         return true
     }
+
+    fun fixUrl(url: String?): String {
+        if (url == null) return ""
+        return if (url.startsWith("http")) {
+            url
+        } else {
+            val regex = Regex("^(//)(.*)")
+            val matchResult = regex.find(url)
+            if (matchResult != null) {
+                "https:" + matchResult.groupValues[0]
+            } else {
+                "https://$url"
+            }
+        }
+    }
+
+    fun fixUrlNull(url: String?): String? {
+        if (url == null) return null
+        return if (url.startsWith("http")) {
+            url
+        } else {
+            val regex = Regex("^(//)(.*)")
+            val matchResult = regex.find(url)
+            if (matchResult != null) {
+                "https:" + matchResult.groupValues[0]
+            } else {
+                "https://$url"
+            }
+        }
+    }
 }
+
+data class TrailerUrl(
+    @JsonProperty("embed_url") val embed_url: String?,
+    @JsonProperty("type") val type: String?
+)
