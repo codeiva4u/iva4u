@@ -2,6 +2,7 @@ package com.redowan
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.mvvm.safeApiCall
@@ -10,6 +11,7 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getQualityFromName
+import com.lagradost.cloudstream3.utils.M3u8Helper
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
@@ -27,7 +29,8 @@ open class Drivetot : ExtractorApi() {
     private fun String.toDrivetot(): String =
         base64Decode(this.substringAfterLast('/'))
 
-    // Data class to hold the response from the POST request
+    // Data class to hold the response from the POST request (if needed)
+    // Update this if the API response format changes
     data class Drivetot(
         @JsonProperty("file_code") val file_code: String,
         @JsonProperty("file_name") val file_name: String,
@@ -41,25 +44,79 @@ open class Drivetot : ExtractorApi() {
         referer: String,
         callback: (ExtractorLink) -> Unit
     ) {
-        val token = getDocument(url, referer = referer).select("input[name=arun]").attr("value")
-        val postUrl = "$source/dl"
-        val response = app.post(
-            postUrl,
-            referer = referer,
-            data = mapOf("arun" to token),
-            headers = mapOf("x-requested-with" to "XMLHttpRequest")
-        ).text
-        val data = parseJson<Drivetot>(response)
-        callback.invoke(
-            ExtractorLink(
-                name,
-                name,
-                "https://dl.drivetot.dad/get_direct_link/${data.file_code}/${data.file_name.replace(" ", "%20")}",
-                referer,
-                Qualities.Unknown.value,
-                false
+        // First GET request to /scanjs
+        val response1 = app.get(url, referer = referer)
+        println("DrivetotResolver: First response code: ${response1.code}")
+        println("DrivetotResolver: First response: ${response1.text}")
+
+        // Check if the response is a redirect (status code 3xx)
+        if (response1.code in 300..399) {
+            val redirectUrl = response1.headers["location"]
+            println("DrivetotResolver: Redirect URL: $redirectUrl")
+
+            // Check if redirect URL is a Telegram link, HubCloud or FileBee
+            if (redirectUrl?.contains("telegram.me") == true) {
+                println("DrivetotResolver: Telegram link detected")
+                callback.invoke(
+                    ExtractorLink(
+                        name,
+                        "Telegram",
+                        redirectUrl,
+                        referer,
+                        Qualities.Unknown.value,
+                        isM3u8 = false
+                    )
+                )
+                return // Stop further processing for Telegram links
+            } else if (redirectUrl?.contains("hubcloud.club") == true) {
+                println("DrivetotResolver: HubCloud link detected")
+                callback.invoke(
+                    ExtractorLink(
+                        name,
+                        "HubCloud",
+                        redirectUrl,
+                        referer,
+                        Qualities.Unknown.value,
+                        isM3u8 = false
+                    )
+                )
+                return
+            } else if (redirectUrl?.contains("filebee.xyz") == true) {
+                println("DrivetotResolver: FileBee link detected")
+                callback.invoke(
+                    ExtractorLink(
+                        name,
+                        "FileBee",
+                        redirectUrl,
+                        referer,
+                        Qualities.Unknown.value,
+                        isM3u8 = false
+                    )
+                )
+                return
+            } else {
+                println("DrivetotResolver: Unsupported redirect URL: $redirectUrl")
+            }
+        } else if (response1.code == 200 && url.contains("https://wishonly.site/player")) {
+            println("DrivetotResolver: wishonly.site detected")
+            val doc = response1.document
+            // val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return
+            // val master = Regex("file: \"(.*?)\"").find(script)?.groupValues?.get(1) ?: return
+
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Wishonly",
+                    url,
+                    referer,
+                    Qualities.Unknown.value,
+                    isM3u8 = true
+                )
             )
-        )
+
+        } else {
+            println("DrivetotResolver: No redirect found")
+        }
     }
 
     override suspend fun getUrl(
@@ -81,9 +138,9 @@ open class Drivetot : ExtractorApi() {
     }
 }
 
-open class Voe : ExtractorApi() {
-    override var name = "Voe"
-    override var mainUrl = "https://voe.sx"
+open class HubCloud : ExtractorApi() {
+    override var name = "HubCloud"
+    override var mainUrl = "https://hubcloud.club"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -93,30 +150,18 @@ open class Voe : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val doc = getDocument(url, referer = referer)
+        val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return
+        val playlistUrl = Regex("file:\"(.*?)\"").find(script)?.groupValues?.get(1)
+        println("HubCloud: Playlist URL: $playlistUrl")
 
-        doc.select("source").firstOrNull()?.let {
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    name,
-                    it.attr("src"),
-                    referer ?: mainUrl,
-                    getQualityFromName(it.attr("label")),
-                )
-            )
-        }
-
-        doc.select("li.linkserver").firstOrNull { it.attr("data-video").contains(".m3u8") }?.let {
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    name,
-                    it.attr("data-video"),
-                    referer ?: mainUrl,
-                    Qualities.Unknown.value,
-                    it.attr("data-video").contains(".m3u8")
-                )
-            )
+        if (playlistUrl != null) {
+            M3u8Helper.generateM3u8(
+                name,
+                playlistUrl,
+                referer ?: url
+            ).forEach(callback)
+        } else {
+            println("HubCloud: Playlist URL not found")
         }
     }
 }
