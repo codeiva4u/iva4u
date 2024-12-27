@@ -1,8 +1,4 @@
-import org.jetbrains.kotlin.konan.properties.Properties
 
-dependencies {
-    implementation(project(":MoviesDrive"))
-}
 version = 3
 
 cloudstream {

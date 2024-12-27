@@ -1,6 +1,5 @@
 package com.redowan
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
@@ -25,14 +24,6 @@ open class Drivetot : ExtractorApi() {
     // Helper function to decode the URL
     private fun String.toDrivetot(): String =
         base64Decode(this.substringAfterLast('/'))
-
-    // Data class to hold the response from the POST request (if needed)
-    // Update this if the API response format changes
-    data class Drivetot(
-        @JsonProperty("file_code") val file_code: String,
-        @JsonProperty("file_name") val file_name: String,
-        @JsonProperty("success") val success: Boolean
-    )
 
     // Function to resolve the actual download link
     private suspend fun drivetotResolver(
@@ -97,14 +88,14 @@ open class Drivetot : ExtractorApi() {
         } else if (response1.code == 200 && url.contains("https://wishonly.site/player")) {
             println("DrivetotResolver: wishonly.site detected")
             val doc = response1.document
-            // val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return
-            // val master = Regex("file: \"(.*?)\"").find(script)?.groupValues?.get(1) ?: return
+            val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return
+            val master = Regex("file: \"(.*?)\"").find(script)?.groupValues?.get(1) ?: return
 
             callback.invoke(
                 ExtractorLink(
                     name,
                     "Wishonly",
-                    url,
+                    master,
                     referer,
                     Qualities.Unknown.value,
                     isM3u8 = true
@@ -146,19 +137,21 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = getDocument(url, referer = referer)
-        val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return
-        val playlistUrl = Regex("file:\"(.*?)\"").find(script)?.groupValues?.get(1)
-        println("HubCloud: Playlist URL: $playlistUrl")
+        safeApiCall {
+            val doc = getDocument(url, referer = referer)
+            val script = doc.select("script:containsData(jwplayerOptions)").firstOrNull()?.data() ?: return@safeApiCall
+            val playlistUrl = Regex("file:\"(.*?)\"").find(script)?.groupValues?.get(1)
+            println("HubCloud: Playlist URL: $playlistUrl")
 
-        if (playlistUrl != null) {
-            M3u8Helper.generateM3u8(
-                name,
-                playlistUrl,
-                referer ?: url
-            ).forEach(callback)
-        } else {
-            println("HubCloud: Playlist URL not found")
+            if (playlistUrl != null) {
+                M3u8Helper.generateM3u8(
+                    name,
+                    playlistUrl,
+                    referer ?: url
+                ).forEach(callback)
+            } else {
+                println("HubCloud: Playlist URL not found")
+            }
         }
     }
 }

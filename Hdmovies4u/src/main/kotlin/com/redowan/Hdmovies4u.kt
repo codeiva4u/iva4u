@@ -23,6 +23,7 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.Qualities
 import org.jsoup.nodes.Element
 
 class Hdmovies4u : MainAPI() {
@@ -169,7 +170,16 @@ class Hdmovies4u : MainAPI() {
                         Wishonly().getUrl(link, data, subtitleCallback, callback)
                     } else if (link.contains("pixeldra.in")) {
                         println("PixelDrain link detected: $link")
-                        PixelDrain().getUrl(link, data, subtitleCallback, callback)
+                        callback.invoke(
+                            ExtractorLink(
+                                "PixelDrain",
+                                "PixelDrain",
+                                link,
+                                data,
+                                Qualities.Unknown.value,
+                                false
+                            )
+                        )
                     }
                 }
             }
