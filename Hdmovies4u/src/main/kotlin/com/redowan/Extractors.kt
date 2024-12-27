@@ -217,7 +217,7 @@ class Wishonly : ExtractorApi() {
                 ?: Qualities.Unknown.value
         }
 
-        extractThumbnailUrl(doc)
+        val thumbnailUrl = extractThumbnailUrl(doc)
 
         if (videoUrl != null) {
             callback.invoke(
@@ -227,6 +227,8 @@ class Wishonly : ExtractorApi() {
                     videoUrl,
                     referer ?: mainUrl,
                     quality ?: Qualities.Unknown.value,
+                    isM3u8 = videoUrl.contains(".m3u8"),
+                    headers = mapOf("thumbnail" to (thumbnailUrl ?: ""))
                 )
             )
         }
