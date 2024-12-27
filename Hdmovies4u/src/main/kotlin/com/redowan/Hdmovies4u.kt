@@ -154,36 +154,34 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("main.page-body p a[href*=drivetot]").map {
-            safeApiCall {
-                val link = it.attr("href")
-                Drivetot().getUrl(link, data)?.forEach {
-                    callback.invoke(it)
+        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish], main.page-body p a[href*=voe.sx]")
+            .map {
+                safeApiCall {
+                    val link = it.attr("href")
+                    val extractor = when {
+                        link.contains("drivetot") -> Drivetot()
+                        link.contains("doodstream") -> DoodStream()
+                        link.contains("streamwish") -> StreamWish()
+                        link.contains("voe.sx") -> Voe()
+                        else -> null
+                    }
+
+                    extractor?.getUrl(link, data, subtitleCallback, callback)
                 }
             }
-        }
+        document.select("main.page-body iframe[src*=vanoe], main.page-body iframe[src*=voe.sx]")
+            .map {
+                safeApiCall {
+                    val link = it.attr("src")
+                    val extractor = when {
+                        link.contains("vanoe") -> Voe()
+                        link.contains("voe.sx") -> Voe()
+                        else -> null
+                    }
 
-        document.select("main.page-body p a[href*=doodstream]").map {
-            safeApiCall {
-                val link = it.attr("href")
-                DoodStream().getUrl(link, data, subtitleCallback, callback)
+                    extractor?.getUrl(link, data, subtitleCallback, callback)
+                }
             }
-        }
-
-        document.select("main.page-body p a[href*=streamwish]").map {
-            safeApiCall {
-                val link = it.attr("href")
-                StreamWish().getUrl(link, data, subtitleCallback, callback)
-            }
-        }
-
-        document.select("main.page-body iframe[src*=voe.sx]").map {
-            safeApiCall {
-                val link = it.attr("src")
-                Voe().getUrl(link, data, subtitleCallback, callback)
-            }
-        }
-
         return true
     }
 }
