@@ -154,12 +154,14 @@ class Hdmovies4u : MainAPI() {
         document.select("main.page-body h4 a[href*=drivetot]").map {
             safeApiCall {
                 val link = it.attr("href")
+                println("Drivetot link: $link") // Print Drivetot link
                 Drivetot().getUrl(link, data, subtitleCallback, callback)
             }
         }
-        document.select("main.page-body iframe[src*=vanoe325lpp]").map {
+        document.select("main.page-body iframe[src*=vanoe]").map {
             safeApiCall {
                 val link = it.attr("src")
+                println("Voe link: $link") // Print Voe link
                 Voe().getUrl(link, data, subtitleCallback, callback)
             }
         }
