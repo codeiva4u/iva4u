@@ -7,26 +7,25 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchQuality
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
-class HDMovies4uProvider : MainAPI() {
+class Hdmovies4u : MainAPI() {
     override var mainUrl = "https://hdmovies4u.cx"
-    override var name = "HDMovies4u"
+    override var name = "Hdmovies4u"
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true
@@ -68,7 +67,7 @@ class HDMovies4uProvider : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = getQualityFromString(this.select("span.absolute").text().toString())
+        val quality = this.select("span.absolute").text().trim().let{getQualityFromString(it)}
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -106,7 +105,7 @@ class HDMovies4uProvider : MainAPI() {
             ?.toIntOrNull()
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
-        val trailer: String? = null // Explicitly set trailer to null
+        val trailer: String? = null
         val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
         val duration = null
         val actors = null
@@ -129,7 +128,7 @@ class HDMovies4uProvider : MainAPI() {
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
-                trailer?.let { addTrailer(it, null) } // Explicitly call addTrailer with String?
+                trailer?.let { addTrailer(it, null) }
             }
         } else {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, arrayListOf()) {
@@ -141,7 +140,7 @@ class HDMovies4uProvider : MainAPI() {
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
-                trailer?.let { addTrailer(it, null) } // Explicitly call addTrailer with String?
+                trailer?.let { addTrailer(it, null) }
             }
         }
     }
@@ -154,30 +153,19 @@ class HDMovies4uProvider : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish]").map {
+        document.select("main.page-body p a[href*=drivetot], main.page-body p a[href*=doodstream], main.page-body p a[href*=streamwish], main.page-body p a[href*=voe.sx]").map {
             safeApiCall {
                 val link = it.attr("href")
                 loadExtractor(link, data, subtitleCallback, callback)
             }
         }
-        document.select("main.page-body iframe[src*=vanoe]").map {
+        document.select("main.page-body iframe[src*=vanoe], main.page-body iframe[src*=voe.sx]").map {
             safeApiCall {
                 val link = it.attr("src")
                 loadExtractor(link, data, subtitleCallback, callback)
             }
         }
         return true
-    }
-
-    private fun getSearchQualityFromString(text: String?): SearchQuality? {
-        return when {
-            text.isNullOrBlank() -> null
-            text.contains("2160", ignoreCase = true) -> SearchQuality.UHD
-            text.contains("1080", ignoreCase = true) -> SearchQuality.HD
-            text.contains("720", ignoreCase = true) -> SearchQuality.HD
-            text.contains("480", ignoreCase = true) -> SearchQuality.SD
-            else -> null
-        }
     }
 
     fun fixUrl(url: String?): String {
