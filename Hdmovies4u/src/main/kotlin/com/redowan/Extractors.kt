@@ -217,7 +217,7 @@ class Wishonly : ExtractorApi() {
                 ?: Qualities.Unknown.value
         }
 
-        val thumbnailUrl = extractThumbnailUrl(doc)
+        extractThumbnailUrl(doc)
 
         if (videoUrl != null) {
             callback.invoke(
