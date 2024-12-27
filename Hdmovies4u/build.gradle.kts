@@ -1,5 +1,8 @@
 import org.jetbrains.kotlin.konan.properties.Properties
-// use an integer for version numbers
+
+dependencies {
+    implementation(project(":MoviesDrive"))
+}
 version = 3
 
 cloudstream {
