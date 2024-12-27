@@ -157,7 +157,129 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // Select all the buttons including the "Generate Direct Download Link"
+        // 1. Direct Download Links (FSL, PixelDrain, 10Gbps)
+        document.select("main.page-body a[href*='fsl.fastdl.lol'], main.page-body a[href*='pixeldra.in/api/file/'], main.page-body a[href*='technorozen.workers.dev']")
+            .map {
+                safeApiCall {
+                    val link = it.attr("href")
+                    println("Direct Download Link found: $link")
+                    when {
+                        link.contains("fsl.fastdl.lol") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    "FSL Server",
+                                    "FSL Server",
+                                    link,
+                                    "",
+                                    Qualities.Unknown.value,
+                                    false
+                                )
+                            )
+                        }
+
+                        link.contains("pixeldra.in/api/file/") -> {
+                            // Extract ID from the link
+                            val id =
+                                link.substringAfter("pixeldra.in/api/file/").substringBefore("?")
+
+                            callback.invoke(
+                                ExtractorLink(
+                                    "PixelDrain",
+                                    "PixelServer:2",
+                                    "https://pixeldrain.com/api/file/$id?download",
+                                    "",
+                                    Qualities.Unknown.value,
+                                    false
+                                )
+                            )
+                        }
+
+                        link.contains("technorozen.workers.dev") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    "10Gbps Server",
+                                    "10Gbps Server",
+                                    link,
+                                    "",
+                                    Qualities.Unknown.value,
+                                    false
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+        // 2. Drivetot Links
+        document.select("div.mt-3.mb-3.d-flex.flex-column a[href*='drivetot.dad/scanjs/']").map {
+            safeApiCall {
+                val link = it.attr("href")
+                println("Drivetot ScanJS link detected: $link")
+                val encodedUrl = link.substringAfter("drivetot.dad/scanjs/")
+                val decodedUrl =
+                    String(android.util.Base64.decode(encodedUrl, android.util.Base64.DEFAULT))
+                println("Decoded URL: $decodedUrl")
+
+                when {
+                    decodedUrl.contains("hubcloud.club") -> {
+                        // Handle HubCloud link
+                        // You might need to adjust the logic here based on how HubCloud links are handled
+                        val hubCloudLink = fixUrl(
+                            app.get(decodedUrl).document.selectFirst("center a.btn")?.attr("href")
+                                .toString()
+                        )
+                        if (hubCloudLink.isNullOrBlank()) {
+                            println("HubCloud link is null")
+                        } else {
+                            callback.invoke(
+                                ExtractorLink(
+                                    "HubCloud",
+                                    "HubCloud",
+                                    hubCloudLink,
+                                    data,
+                                    Qualities.Unknown.value,
+                                    false
+                                )
+                            )
+                        }
+                    }
+
+                    decodedUrl.contains("filebee.xyz") -> {
+                        // Handle FilePress link
+                        callback.invoke(
+                            ExtractorLink(
+                                "FilePress",
+                                "FilePress",
+                                decodedUrl,
+                                data,
+                                Qualities.Unknown.value,
+                                false
+                            )
+                        )
+                    }
+
+                    decodedUrl.contains("telegram.me") -> {
+                        // Handle Telegram link
+                        callback.invoke(
+                            ExtractorLink(
+                                "Telegram",
+                                "Telegram",
+                                decodedUrl,
+                                data,
+                                Qualities.Unknown.value,
+                                false
+                            )
+                        )
+                    }
+
+                    else -> {
+                        println("Unknown decoded URL: $decodedUrl")
+                    }
+                }
+            }
+        }
+
+        // 3. Other Extractors (Wishonly, PixelDrain as is)
         document.select("main.page-body a[href*=drivetot], main.page-body a[href*=wishonly], main.page-body a[href*=pixeldra.in], main.page-body a[href*='token=']")
             .map {
                 safeApiCall {
@@ -212,6 +334,7 @@ class Hdmovies4u : MainAPI() {
                     }
                 }
             }
+
         return true
     }
 }
