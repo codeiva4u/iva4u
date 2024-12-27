@@ -10,7 +10,6 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.extractors.Wishonly
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -157,29 +156,53 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("main.page-body a[href*=drivetot], main.page-body a[href*=wishonly], main.page-body a[href*=pixeldra.in]")
+        // Select all the buttons including the "Generate Direct Download Link"
+        document.select("main.page-body a[href*=drivetot], main.page-body a[href*=wishonly], main.page-body a[href*=pixeldra.in], main.page-body a[href*='token=']")
             .map {
                 safeApiCall {
                     val link = it.attr("href")
                     println("Link found: $link")
-                    if (link.contains("drivetot")) {
-                        println("Drivetot link detected: $link")
-                        Drivetot().getUrl(link, data, subtitleCallback, callback)
-                    } else if (link.contains("wishonly")) {
-                        println("Wishonly link detected: $link")
-                        Wishonly().getUrl(link, data, subtitleCallback, callback)
-                    } else if (link.contains("pixeldra.in")) {
-                        println("PixelDrain link detected: $link")
-                        callback.invoke(
-                            ExtractorLink(
-                                "PixelDrain",
-                                "PixelDrain",
-                                link,
-                                data,
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
+
+                    when {
+                        link.contains("drivetot") -> {
+                            println("Drivetot link detected: $link")
+                            Drivetot().getUrl(link, data, subtitleCallback, callback)
+                        }
+                        link.contains("wishonly") -> {
+                            println("Wishonly link detected: $link")
+                            Wishonly().getUrl(link, data, subtitleCallback, callback)
+                        }
+                        link.contains("pixeldra.in") -> {
+                            println("PixelDrain link detected: $link")
+                            PixelDrain().getUrl(link, data, subtitleCallback, callback)
+                        }
+                        link.contains("token=") -> {
+                            println("HubCloud Direct link Detected: $link")
+                            // Extract the token value from the URL
+                            val tokenUrl = it.attr("href")
+                            val hubCloudDirectLink = fixUrl(app.get(tokenUrl).document.selectFirst("center a.btn")?.attr("href").toString())
+
+                            if (hubCloudDirectLink.isNullOrBlank()) {
+                                println("HubCloud Direct link is null $hubCloudDirectLink")
+                            }
+                            else
+                            {
+                                callback.invoke(
+                                    ExtractorLink(
+                                        "HubCloud Direct",
+                                        "HubCloud Direct",
+                                        hubCloudDirectLink,
+                                        data,
+                                        Qualities.Unknown.value,
+                                        false
+                                    )
+                                )
+                            }
+
+                        }
+                        else ->{
+                            println("No Extractor Matched ")
+                        }
                     }
                 }
             }

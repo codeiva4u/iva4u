@@ -10,11 +10,8 @@ class Hdmovies4uPlugin : Plugin() {
     override fun load(context: Context) {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Hdmovies4u())
-        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(Wishonly())
         registerExtractorAPI(Drivetot())
-        registerExtractorAPI(HubCloud())
-        registerExtractorAPI(HubCloudlol())
-        registerExtractorAPI(HubCloudClub())
         registerExtractorAPI(PixelDrain())
 
     }
