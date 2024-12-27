@@ -1,4 +1,4 @@
-package com.megix
+package com.redowan
 
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
@@ -48,8 +48,7 @@ open class Driveseed : ExtractorApi() {
             .addEncoded("token", "$resumeBotToken")
             .build()
 
-        val jsonResponse = app.post(
-            "$resumeBotBaseUrl/download?id=$resumeBotPath",
+        val jsonResponse = app.post(resumeBotBaseUrl + "/download?id=" + resumeBotPath,
             requestBody = requestBody,
             headers = mapOf(
                 "Accept" to "*/*",
