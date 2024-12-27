@@ -12,8 +12,6 @@ class Hdmovies4uPlugin : Plugin() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Hdmovies4u())
         registerExtractorAPI(Voe())
-        registerExtractorAPI(DoodStream())
-        registerExtractorAPI(StreamWish())
         registerExtractorAPI(Drivetot())
 
     }

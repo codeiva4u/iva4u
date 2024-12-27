@@ -1,50 +1,89 @@
 package com.redowan
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.mvvm.safeApiCall
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getQualityFromName
-import com.lagradost.cloudstream3.utils.M3u8Helper
-import com.lagradost.cloudstream3.utils.getAndUnpack
-import com.lagradost.cloudstream3.utils.getPacked
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 
-// Drivetot
-class Drivetot : ExtractorApi() {
-    override var name = "Drivetot"
-    override var mainUrl = "https://drivetot.dad" // मुख्य URL बदल सकता है, वेबसाइट चेक करें
+// Helper function to get the document
+private suspend fun getDocument(url: String, referer: String? = null, headers: Map<String, String> = mapOf()): Document {
+    return Jsoup.parse(app.get(url, referer = referer, headers = headers).text)
+}
+
+open class Drivetot : ExtractorApi() {
+    override var name: String = "DriveTOT"
+    override var mainUrl: String = "https://drivetot.dad"
     override val requiresReferer = false
 
-    override suspend fun getUrl(
+    // Helper function to decode the URL
+    private fun String.toDrivetot(): String =
+        base64Decode(this.substringAfterLast('/'))
+
+    // Data class to hold the response from the POST request
+    data class Drivetot(
+        @JsonProperty("file_code") val file_code: String,
+        @JsonProperty("file_name") val file_name: String,
+        @JsonProperty("success") val success: Boolean
+    )
+
+    // Function to resolve the actual download link
+    private suspend fun drivetotResolver(
         url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
+        source: String,
+        referer: String,
         callback: (ExtractorLink) -> Unit
     ) {
-        val response = app.get(url, referer = referer)
-
-        val videoUrl = response.document.select("video#myVideo source").attr("src")
-
-        if (videoUrl.isNullOrBlank()) return
-
+        val token = getDocument(url, referer = referer).select("input[name=arun]").attr("value")
+        val postUrl = "$source/dl"
+        val response = app.post(
+            postUrl,
+            referer = referer,
+            data = mapOf("arun" to token),
+            headers = mapOf("x-requested-with" to "XMLHttpRequest")
+        ).text
+        val data = parseJson<Drivetot>(response)
         callback.invoke(
             ExtractorLink(
-                source = name,
-                name = name,
-                url = videoUrl,
-                referer = url,
-                quality = getQualityFromName(videoUrl),
-                isM3u8 = videoUrl.contains(".m3u8")
+                name,
+                name,
+                "https://dl.drivetot.dad/get_direct_link/${data.file_code}/${data.file_name.replace(" ", "%20")}",
+                referer,
+                Qualities.Unknown.value,
+                false
             )
         )
     }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val source = when {
+            url.contains("drivetot.dad") -> "https://drivetot.dad"
+            url.contains("drivetot.in") -> "https://drivetot.in"
+            else -> "https://drivetot.mom"
+        }
+        safeApiCall {
+            val base64 = url.toDrivetot()
+            val getUrl = "$source/scanjs/$base64"
+            drivetotResolver(getUrl, source, referer ?: getUrl, callback)
+        }
+    }
 }
 
-// Doodstream
-open class DoodStream : ExtractorApi() {
-    override val name = "DoodStream"
-    override val mainUrl = "https://doodstream.com" // मुख्य URL बदल सकता है
+open class Voe : ExtractorApi() {
+    override var name = "Voe"
+    override var mainUrl = "https://voe.sx"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -53,87 +92,31 @@ open class DoodStream : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val response = app.get(url, referer = referer)
-        val packedText = getPacked(response.text)
+        val doc = getDocument(url, referer = referer)
 
-        if (packedText != null) {
-            val unpacked = getAndUnpack(packedText)
-
-            val videoUrl = Regex("file:\\s*\"(.*?)\"").find(unpacked)?.groupValues?.get(1)
-            val quality = Regex("""label:\s*"([^"]+)"""").find(unpacked)?.groupValues?.get(1)
-
-            if (videoUrl != null) {
-                callback.invoke(
-                    ExtractorLink(
-                        name,
-                        name,
-                        videoUrl,
-                        referer ?: url,
-                        quality = getQualityFromName(quality),
-                        isM3u8 = videoUrl.contains(".m3u8")
-                    )
+        doc.select("source").firstOrNull()?.let {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    name,
+                    it.attr("src"),
+                    referer ?: mainUrl,
+                    getQualityFromName(it.attr("label")),
                 )
-            }
+            )
+        }
+
+        doc.select("li.linkserver").firstOrNull { it.attr("data-video").contains(".m3u8") }?.let {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    name,
+                    it.attr("data-video"),
+                    referer ?: mainUrl,
+                    Qualities.Unknown.value,
+                    it.attr("data-video").contains(".m3u8")
+                )
+            )
         }
     }
 }
-// Streamwish
-open class StreamWish : ExtractorApi() {
-    override val name = "Streamwish"
-    override val mainUrl = "https://streamwish.to" // मुख्य URL बदल सकता है
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val headers = mapOf(
-            "Accept" to "*/*",
-            "Connection" to "keep-alive",
-            "Sec-Fetch-Dest" to "empty",
-            "Sec-Fetch-Mode" to "cors",
-            "Sec-Fetch-Site" to "cross-site",
-            "Origin" to mainUrl,
-            "User-Agent" to USER_AGENT,
-            "Referer" to (referer ?: url) // Updated this line
-        )
-        val response = app.get(url, referer = referer, headers = headers)
-
-        val script = response.document.select("script:containsData(sources:)").firstOrNull()?.data()
-        val m3u8 = Regex("file:\\s*\"(.*?m3u8.*?)\"").find(script ?: return)?.groupValues?.getOrNull(1)
-
-        M3u8Helper.generateM3u8(
-            name,
-            m3u8 ?: return,
-            referer ?: url, // No change here
-            headers = headers
-        ).forEach(callback)
-    }
-}
-// Voe
-    open class Voe : ExtractorApi() {
-        override val name = "Voe"
-        override val mainUrl = "https://voe.sx"
-        override val requiresReferer = true
-
-        override suspend fun getUrl(
-            url: String,
-            referer: String?,
-            subtitleCallback: (SubtitleFile) -> Unit,
-            callback: (ExtractorLink) -> Unit
-        ) {
-            val document = app.get(url, referer = referer).document
-
-            val script =
-                document.select("script:containsData(sources:)").firstOrNull()?.data() ?: return
-            val m3u8Url = Regex("""file:\s*"(.*?)"""").find(script)?.groupValues?.get(1) ?: return
-
-            M3u8Helper.generateM3u8(
-                name,
-                m3u8Url,
-                referer ?: url
-            ).forEach(callback)
-        }
-    }

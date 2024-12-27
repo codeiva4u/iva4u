@@ -10,8 +10,6 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.mvvm.safeApiCall
@@ -106,8 +104,7 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
-            ?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
@@ -154,28 +151,48 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // Fix: Update selectors to match the provided HTML structure
         document.select("main.page-body h4 a[href*=drivetot]").map {
             safeApiCall {
                 val link = it.attr("href")
-                val extractor = when {
-                    link.contains("drivetot") -> Drivetot()
-                    else -> null
-                }
-                extractor?.getUrl(link, data, subtitleCallback, callback)
+                Drivetot().getUrl(link, data, subtitleCallback, callback)
             }
         }
         document.select("main.page-body iframe[src*=vanoe325lpp]").map {
             safeApiCall {
                 val link = it.attr("src")
-                val extractor = when {
-                    link.contains("vanoe") -> Voe()
-                    link.contains("voe.sx") -> Voe()
-                    else -> null
-                }
-                extractor?.getUrl(link, data, subtitleCallback, callback)
+                Voe().getUrl(link, data, subtitleCallback, callback)
             }
         }
         return true
+    }
+
+    fun fixUrl(url: String?): String {
+        if (url == null) return ""
+        return if (url.startsWith("http")) {
+            url
+        } else {
+            val regex = Regex("^(//)(.*)")
+            val matchResult = regex.find(url)
+            if (matchResult != null) {
+                "https:" + matchResult.groupValues[0]
+            } else {
+                "https://$url"
+            }
+        }
+    }
+
+    fun fixUrlNull(url: String?): String? {
+        if (url == null) return null
+        return if (url.startsWith("http")) {
+            url
+        } else {
+            val regex = Regex("^(//)(.*)")
+            val matchResult = regex.find(url)
+            if (matchResult != null) {
+                "https:" + matchResult.groupValues[0]
+            } else {
+                "https://$url"
+            }
+        }
     }
 }
