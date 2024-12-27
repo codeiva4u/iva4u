@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import okhttp3.FormBody
 import org.json.JSONObject
+import org.jsoup.nodes.Document
 
 // Drivetot Extractor
 open class Drivetot : ExtractorApi() {
@@ -194,7 +195,7 @@ class PixelDrain : ExtractorApi() {
         }
     }
 }
-// Wishonly Extractor
+
 class Wishonly : ExtractorApi() {
     override val name = "Wishonly"
     override val mainUrl = "https://wishonly.site"
@@ -208,21 +209,28 @@ class Wishonly : ExtractorApi() {
     ) {
         val res = app.get(url, referer = referer ?: mainUrl)
         val doc = res.document
-        val videoUrl = doc.selectFirst("source")?.attr("src")
-        if(videoUrl.isNullOrBlank()) return
-        val quality = videoUrl.let { url ->
+
+        // Extract the video URL from the source tag.
+        val videoUrl = extractVideoUrl(doc)
+        val quality = videoUrl?.let { url ->
             Regex("(\\d{3,4})[pP]").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()
                 ?: Qualities.Unknown.value
         }
 
-        callback.invoke(
-            ExtractorLink(
-                name,
-                name,
-                videoUrl,
-                referer ?: mainUrl,
-                quality
+        if (videoUrl != null) {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Wishonly Player",
+                    videoUrl,
+                    referer ?: mainUrl,
+                    quality ?: Qualities.Unknown.value
+                )
             )
-        )
+        }
+    }
+
+    private fun extractVideoUrl(doc: Document): String? {
+        return doc.selectFirst("video.jw-video")?.attr("src")
     }
 }

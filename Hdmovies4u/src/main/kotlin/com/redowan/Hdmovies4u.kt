@@ -170,7 +170,9 @@ class Hdmovies4u : MainAPI() {
                         }
                         link.contains("wishonly") -> {
                             println("Wishonly link detected: $link")
-                            Wishonly().getUrl(link, data, subtitleCallback, callback)
+                            Wishonly().getUrl(link, data, subtitleCallback,  { customLink -> // Update callback
+                                callback.invoke(customLink)
+                            })
                         }
                         link.contains("pixeldra.in") -> {
                             println("PixelDrain link detected: $link")
