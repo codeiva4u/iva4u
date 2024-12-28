@@ -158,23 +158,16 @@ class Hdmovies4u : MainAPI() {
         // 1. Extract links from "a.btn" (for download links)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
-            if (link.startsWith("https://fsl.fastdl.lol") ||
-                link.startsWith("https://pixeldra.in/api/file/") ||
-                link.startsWith("https://gpdl2.technorozen.workers.dev")
-            ) {
-                safeApiCall {
-                    loadExtractor(link, data, subtitleCallback, callback)
-                }
+            safeApiCall {
+                loadExtractor(link, data, subtitleCallback, callback)
             }
         }
 
         // 2. Extract iframe links (for embeds)
         document.select("iframe").mapNotNull { element ->
             val link = fixUrl(element.attr("src"))
-            if (link.startsWith("https://pixeldrain.com/u/")) {
-                safeApiCall {
-                    loadExtractor(link, data, subtitleCallback, callback)
-                }
+            safeApiCall {
+                loadExtractor(link, data, subtitleCallback, callback)
             }
         }
 
