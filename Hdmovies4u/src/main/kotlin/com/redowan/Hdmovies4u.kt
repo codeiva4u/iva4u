@@ -166,16 +166,20 @@ class Hdmovies4u : MainAPI() {
                 safeApiCall {
                     val newUrl = app.get(link, allowRedirects = false).headers["location"]
                     if (newUrl != null) {
-                        if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life")) {
+                        // **सभी संभावित डोमेन की जांच करें**
+                        if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life") || newUrl.contains(
+                                "driveseed.org"
+                            ) || newUrl.contains("driveleech.org")
+                        ) {
                             if (loadExtractor(newUrl, data, subtitleCallback, callback)) linkFound =
                                 true
                         }
                     }
                 }
             }
-            // HubCloud, FilePress, और अन्य एक्सट्रैक्टर्स के लिए
-            else if (link.contains("hubcloud") || link.contains("driveseed") || link.contains("driveleech") || link.contains(
-                    "filepress.life"
+            // HubCloud, FilePress, DriveLeech, Driveseed और अन्य एक्सट्रैक्टर्स के लिए (सीधे लिंक)
+            else if (link.contains("hubcloud") || link.contains("filepress.life") || link.contains("driveseed") || link.contains(
+                    "driveleech"
                 )
             ) {
                 safeApiCall {
