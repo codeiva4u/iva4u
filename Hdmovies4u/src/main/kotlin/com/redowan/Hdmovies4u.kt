@@ -158,23 +158,31 @@ class Hdmovies4u : MainAPI() {
 
         // ... (आपके मौजूदा कोड, जैसे कि "a.btn" और "a.uploadever" से लिंक निकालना)
 
-        // HubCloud के लिए (अपडेटेड)
+        // a.btn से लिंक निकालें
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
-            if (link.contains("hubcloud") || link.contains("driveseed") || link.contains("driveleech")) { // सभी संभावित डोमेन शामिल करें
+            // drivetot के रीडायरेक्ट को संभालें
+            if (link.contains("drivetot.dad/scanjs/")) {
                 safeApiCall {
-                    if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
+                    val newUrl = app.get(link, allowRedirects = false).headers["location"]
+                    if (newUrl != null) {
+                        if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life")) {
+                            if (loadExtractor(newUrl, data, subtitleCallback, callback)) linkFound =
+                                true
+                        }
+                    }
                 }
             }
-        }
-
-        // FilePress के लिए (इसे यहाँ रखना ज़रूरी है, क्योंकि FilePress लिंक "a.btn" में भी हो सकते हैं)
-        document.select("a.btn").mapNotNull { element ->
-            val link = fixUrl(element.attr("href"))
-            if (link.contains("filepress.life")) {
+            // HubCloud, FilePress, और अन्य एक्सट्रैक्टर्स के लिए
+            else if (link.contains("hubcloud") || link.contains("driveseed") || link.contains("driveleech") || link.contains(
+                    "filepress.life"
+                )
+            ) {
                 safeApiCall {
                     if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
                 }
+            } else {
+
             }
         }
 
