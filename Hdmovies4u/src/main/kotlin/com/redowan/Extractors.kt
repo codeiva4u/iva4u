@@ -7,13 +7,14 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import org.jsoup.Jsoup
 
+// FsLFastDl Extractor
 class FsLFastDl : ExtractorApi() {
     override val name = "FsLFastDl"
     override val mainUrl = "https://fsl.fastdl.lol"
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val document = Jsoup.parse(app.get(url).text)
+        val document = Jsoup.parse(app.get(url, referer = referer).text)
         val extractorLinks = mutableListOf<ExtractorLink>()
 
         val fslLink = document.select("a.btn")
@@ -23,11 +24,11 @@ class FsLFastDl : ExtractorApi() {
         if (fslLink != null && fslLink.startsWith(mainUrl)) {
             extractorLinks.add(
                 ExtractorLink(
-                    name,
-                    "FSL Server",
-                    fslLink,
-                    referer ?: url,
-                    quality = getQualityFromName(fslLink), // You might need to refine quality extraction
+                    source = name,
+                    name = "FSL Server",
+                    url = fslLink,
+                    referer = referer ?: url,
+                    quality =  Qualities.Unknown.value,
                     isM3u8 = false
                 )
             )
@@ -37,13 +38,14 @@ class FsLFastDl : ExtractorApi() {
     }
 }
 
+// PixelDrain Extractor
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
     override val mainUrl = "https://pixeldrain.com"
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val document = Jsoup.parse(app.get(url).text)
+        val document = Jsoup.parse(app.get(url, referer = referer).text)
         val extractorLinks = mutableListOf<ExtractorLink>()
 
         // Iframe Embed Link Extraction
@@ -52,12 +54,13 @@ class PixelDrain : ExtractorApi() {
         if (iframeLink != null && iframeLink.startsWith(mainUrl)) {
             extractorLinks.add(
                 ExtractorLink(
-                    name,
-                    "PixelDrain Embed",
-                    iframeLink,
-                    referer ?: url,
+                    source = name,
+                    name = "PixelDrain Embed",
+                    url = iframeLink,
+                    referer = referer ?: url,
                     quality = Qualities.Unknown.value,
-                    isM3u8 = false
+                    isM3u8 = false,
+                    isDash = false
                 )
             )
         }
@@ -70,11 +73,11 @@ class PixelDrain : ExtractorApi() {
         if (downloadLink != null && downloadLink.startsWith("https://pixeldra.in/api/file/")) {
             extractorLinks.add(
                 ExtractorLink(
-                    name,
-                    "PixelDrain Download",
-                    downloadLink,
-                    referer ?: url,
-                    quality = Qualities.Unknown.value, // You might need to refine quality extraction
+                    source = name,
+                    name = "PixelDrain Download",
+                    url = downloadLink,
+                    referer = referer ?: url,
+                    quality = getQualityFromName(downloadLink),
                     isM3u8 = false
                 )
             )
@@ -84,13 +87,14 @@ class PixelDrain : ExtractorApi() {
     }
 }
 
+// Technorozen Extractor
 class Technorozen : ExtractorApi() {
     override val name = "Technorozen"
     override val mainUrl = "https://gpdl2.technorozen.workers.dev"
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val document = Jsoup.parse(app.get(url).text)
+        val document = Jsoup.parse(app.get(url, referer = referer).text)
         val extractorLinks = mutableListOf<ExtractorLink>()
 
         val downloadLink = document.select("a.btn")
@@ -100,11 +104,11 @@ class Technorozen : ExtractorApi() {
         if (downloadLink != null && downloadLink.startsWith(mainUrl)) {
             extractorLinks.add(
                 ExtractorLink(
-                    name,
-                    "Technorozen Download",
-                    downloadLink,
-                    referer ?: url,
-                    quality = Qualities.Unknown.value, // You might need to refine quality extraction
+                    source = name,
+                    name = "Technorozen Download",
+                    url = downloadLink,
+                    referer = referer ?: url,
+                    quality = Qualities.Unknown.value,
                     isM3u8 = false
                 )
             )
