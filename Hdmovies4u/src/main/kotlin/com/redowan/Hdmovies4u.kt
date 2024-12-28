@@ -156,35 +156,29 @@ class Hdmovies4u : MainAPI() {
         var linkFound = false
         val document = app.get(data).document
 
-        // 1. Extract links from "a.btn" (for potential direct download links and DriveTot links)
+        // ... (आपके मौजूदा कोड)
+
+        // HubCloud के लिए
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
-            safeApiCall {
-                if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-            }
-        }
-
-        // 2. Extract links from "a.uploadever" (for DriveTot links)
-        document.select("a.uploadever").mapNotNull { element ->
-            val link = fixUrl(element.attr("href"))
-            safeApiCall {
-                if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-            }
-        }
-
-        // 3. Extract iframe links (for embeds)
-        document.select("iframe").mapNotNull { element ->
-            val link = fixUrl(element.attr("src"))
-            when {
-                link.startsWith("https://v1.sdsp.xyz/embed/") -> {
-                    safeApiCall {
-                        if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-                    }
+            if (link.contains("hubcloud.club")) {
+                safeApiCall {
+                    if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
                 }
-                // ... अन्य iframe providers के लिए यहाँ केस जोड़ें
-                else -> {}
             }
         }
+
+        // FilePress के लिए
+        document.select("a.btn").mapNotNull { element ->
+            val link = fixUrl(element.attr("href"))
+            if (link.contains("filepress.life")) {
+                safeApiCall {
+                    if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
+                }
+            }
+        }
+
+        // ... (आपके मौजूदा कोड)
 
         return linkFound
     }
