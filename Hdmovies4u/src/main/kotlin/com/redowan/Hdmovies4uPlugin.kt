@@ -8,10 +8,10 @@ import com.lagradost.cloudstream3.plugins.Plugin
 @CloudstreamPlugin
 class Hdmovies4uPlugin : Plugin() {
     override fun load(context: Context) {
-        // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Hdmovies4u())
         registerExtractorAPI(wishonly())
-      //  registerExtractorAPI(PixelDrain())
-
+        registerExtractorAPI(FsLFastDl())
+        registerExtractorAPI(PixelDrain())
+        registerExtractorAPI(Technorozen())
     }
 }
