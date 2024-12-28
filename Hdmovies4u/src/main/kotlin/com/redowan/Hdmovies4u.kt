@@ -1,6 +1,6 @@
 package com.redowan
 
-import android.util.Log
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -22,7 +23,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
@@ -157,155 +157,15 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // 1. Direct Download Links (FSL, PixelDrain, 10Gbps)
-        document.select("main.page-body a[href*='fsl.fastdl.lol'], main.page-body a[href*='pixeldra.in/api/file/'], main.page-body a[href*='technorozen.workers.dev']").map {
+        document.select("div.nx-href a").mapNotNull { element ->
+            val link = element.attr("href")
             safeApiCall {
-                val link = it.attr("href")
-                Log.d("Hdmovies4u","Direct Download Link found: $link")
-                when {
-                    link.contains("fsl.fastdl.lol") -> {
-                        callback.invoke(
-                            ExtractorLink(
-                                "FSL Server",
-                                "FSL Server",
-                                link,
-                                "",
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
-                    }
-                    link.contains("pixeldra.in/api/file/") -> {
-                        // Extract ID from the link
-                        val id = link.substringAfter("pixeldra.in/api/file/").substringBefore("?")
-
-                        callback.invoke(
-                            ExtractorLink(
-                                "PixelDrain",
-                                "PixelServer:2",
-                                "https://pixeldrain.com/api/file/$id?download",
-                                "",
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
-                    }
-                    link.contains("technorozen.workers.dev") -> {
-                        callback.invoke(
-                            ExtractorLink(
-                                "10Gbps Server",
-                                "10Gbps Server",
-                                link,
-                                "",
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
-                    }
+                val success = loadExtractor(link, data, subtitleCallback, callback)
+                if (!success) {
+                    Log.w(name, "loadExtractor failed for link: $link")
                 }
             }
         }
-
-        // 2. Drivetot Links
-        document.select("div.mt-3.mb-3.d-flex.flex-column a[href*='drivetot.dad/scanjs/']").map {
-            safeApiCall {
-                val link = it.attr("href")
-                Log.d("Hdmovies4u","Drivetot ScanJS link detected: $link")
-                val encodedUrl = link.substringAfter("drivetot.dad/scanjs/")
-                val decodedUrl = String(android.util.Base64.decode(encodedUrl, android.util.Base64.DEFAULT))
-                Log.d("Hdmovies4u","Decoded URL: $decodedUrl")
-
-                when {
-                    decodedUrl.contains("hubcloud.club") -> {
-                        // Handle HubCloud link
-                        Log.d("Hdmovies4u","Hubcloud link detected: $link")
-                        loadExtractor(decodedUrl, data, subtitleCallback, callback)
-                    }
-                    decodedUrl.contains("filebee.xyz") -> {
-                        // Handle FilePress link
-                        Log.d("Hdmovies4u","Filebee link detected: $link")
-                        callback.invoke(
-                            ExtractorLink(
-                                "FilePress",
-                                "FilePress",
-                                decodedUrl,
-                                data,
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
-                    }
-                    decodedUrl.contains("telegram.me") -> {
-                        // Handle Telegram link
-                        callback.invoke(
-                            ExtractorLink(
-                                "Telegram",
-                                "Telegram",
-                                decodedUrl,
-                                data,
-                                Qualities.Unknown.value,
-                                false
-                            )
-                        )
-                    }
-                    else -> {
-                        Log.d("Hdmovies4u","Unknown decoded URL: $decodedUrl")
-                    }
-                }
-            }
-        }
-
-        // 3. Other Extractors (Wishonly, PixelDrain as is)
-        document.select("main.page-body a[href*=drivetot], main.page-body a[href*=wishonly], main.page-body a[href*=pixeldra.in], main.page-body a[href*='token=']")
-            .map {
-                safeApiCall {
-                    val link = it.attr("href")
-                    Log.d("Hdmovies4u","Link found: $link")
-
-                    when {
-                        link.contains("drivetot") -> {
-                            Log.d("Hdmovies4u","Drivetot link detected: $link")
-                            Drivetot().getUrl(link, data, subtitleCallback, callback)
-                        }
-                        link.contains("wishonly") -> {
-                            Log.d("Hdmovies4u","Wishonly link detected: $link")
-                            loadExtractor(link, data, subtitleCallback, callback)
-                        }
-                        link.contains("pixeldra.in") -> {
-                            Log.d("Hdmovies4u","PixelDrain link detected: $link")
-                            PixelDrain().getUrl(link, data, subtitleCallback, callback)
-                        }
-                        link.contains("token=") -> {
-                            Log.d("Hdmovies4u","HubCloud Direct link Detected: $link")
-                            // Extract the token value from the URL
-                            val tokenUrl = it.attr("href")
-                            val hubCloudDirectLink = fixUrl(
-                                app.get(tokenUrl).document.selectFirst("center a.btn")?.attr("href")
-                                    .toString()
-                            )
-
-                            if (hubCloudDirectLink.isNullOrBlank()) {
-                                Log.d("Hdmovies4u","HubCloud Direct link is null $hubCloudDirectLink")
-                            } else {
-                                callback.invoke(
-                                    ExtractorLink(
-                                        "HubCloud Direct",
-                                        "HubCloud Direct",
-                                        hubCloudDirectLink,
-                                        data,
-                                        Qualities.Unknown.value,
-                                        false
-                                    )
-                                )
-                            }
-
-                        }
-                        else -> {
-                            Log.d("Hdmovies4u","No Extractor Matched ")
-                        }
-                    }
-                }
-            }
 
         return true
     }
