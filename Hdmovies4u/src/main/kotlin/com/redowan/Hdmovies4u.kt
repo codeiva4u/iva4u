@@ -153,13 +153,14 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        var linkFound = false
         val document = app.get(data).document
 
         // 1. Extract links from "a.btn" (for potential direct download links and DriveTot links)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
             safeApiCall {
-                loadExtractor(link, data, subtitleCallback, callback)
+                if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
             }
         }
 
@@ -167,20 +168,24 @@ class Hdmovies4u : MainAPI() {
         document.select("a.uploadever").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
             safeApiCall {
-                loadExtractor(link, data, subtitleCallback, callback)
+                if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
             }
         }
 
         // 3. Extract iframe links (for embeds)
         document.select("iframe").mapNotNull { element ->
             val link = fixUrl(element.attr("src"))
-            if (link.startsWith("https://pixeldrain.com/u/")) {
-                safeApiCall {
-                    loadExtractor(link, data, subtitleCallback, callback)
+            when {
+                link.startsWith("https://v1.sdsp.xyz/embed/") -> {
+                    safeApiCall {
+                        if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
+                    }
                 }
+                // ... अन्य iframe providers के लिए यहाँ केस जोड़ें
+                else -> {}
             }
         }
 
-        return true
+        return linkFound
     }
 }

@@ -106,7 +106,7 @@ open class HubCloud : ExtractorApi() {
                             source = this.name,
                             url = linkUrl,
                             referer = url,
-                            quality = getQualityFromName(linkText),
+                            quality = getQualityFromName(linkText) ?: Qualities.Unknown.value,
                             isM3u8 = linkUrl.contains(".m3u8")
                         )
                     )
@@ -116,8 +116,8 @@ open class HubCloud : ExtractorApi() {
     }
 
     // FSL (fsl.fastdl.lol) Extractor
-    private class FSLE : ExtractorApi() {
-        override val name = "FSLE"
+    private class FSLExtractor : ExtractorApi() {
+        override val name = "FSL"
         override val mainUrl = "https://fsl.fastdl.lol"
         override val requiresReferer = false
 
@@ -145,10 +145,11 @@ open class HubCloud : ExtractorApi() {
     }
 
     // AWSE (aws-es.mixis94992.workers.dev) Extractor
-    private class AWSE : ExtractorApi() {
+    private class AWSEExtractor : ExtractorApi() {
         override val name = "AWSE"
         override val mainUrl = "https://aws-es.mixis94992.workers.dev"
         override val requiresReferer = false
+
         override suspend fun getUrl(
             url: String,
             referer: String?,
@@ -173,10 +174,11 @@ open class HubCloud : ExtractorApi() {
     }
 
     // GPDL (gpdl2.technorozen.workers.dev) Extractor
-    private class GPDL : ExtractorApi() {
+    private class GPDLExtractor : ExtractorApi() {
         override val name = "GPDL"
         override val mainUrl = "https://gpdl2.technorozen.workers.dev"
         override val requiresReferer = false
+
         override suspend fun getUrl(
             url: String,
             referer: String?,
@@ -240,7 +242,7 @@ class FilePress : ExtractorApi() {
                     // अन्य प्रकार के लिंक्स को हैंडल करें, यदि आवश्यक हो, या उन्हें अनदेखा करें
                     println("FilePress: Found other link (not handled): $linkUrl")
                     // क्वालिटी निकालने का प्रयास करें
-                    val quality = getQualityFromName(linkText)
+                    val quality = getQualityFromName(linkText) ?: Qualities.Unknown.value
                     callback.invoke(
                         ExtractorLink(
                             name = "${this.name} $linkText",
