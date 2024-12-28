@@ -9,7 +9,7 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class Hdmovies4uPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Hdmovies4u())
-        registerExtractorAPI(wishonly())
+    //    registerExtractorAPI(wishonly())
         registerExtractorAPI(FsLFastDl())
         registerExtractorAPI(PixelDrain())
         registerExtractorAPI(Technorozen())

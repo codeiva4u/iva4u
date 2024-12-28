@@ -155,15 +155,7 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // 1. Extract links from "div.nx-href a" (original behavior)
-        document.select("div.nx-href a").mapNotNull { element ->
-            val link = fixUrl(element.attr("href")) // Use fixUrl to ensure absolute URL
-            safeApiCall {
-                loadExtractor(link, data, subtitleCallback, callback)
-            }
-        }
-
-        // 2. Extract links from "a.btn" (new behavior for download links)
+        // 1. Extract links from "a.btn" (for download links)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
             if (link.startsWith("https://fsl.fastdl.lol") ||
@@ -176,7 +168,7 @@ class Hdmovies4u : MainAPI() {
             }
         }
 
-        // 3. Extract iframe links (new behavior for embeds)
+        // 2. Extract iframe links (for embeds)
         document.select("iframe").mapNotNull { element ->
             val link = fixUrl(element.attr("src"))
             if (link.startsWith("https://pixeldrain.com/u/")) {
