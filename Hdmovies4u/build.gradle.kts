@@ -1,4 +1,6 @@
-
+dependencies {
+    implementation(project(":MoviesDrive"))
+}
 version = 3
 
 cloudstream {

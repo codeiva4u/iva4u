@@ -1,16 +1,28 @@
 package com.redowan
 
-import android.content.Context
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin
+import android.content.Context
 
-@Suppress("unused")
 @CloudstreamPlugin
-class Hdmovies4uPlugin : Plugin() {
+class ExtractorsPlugin: Plugin() {
     override fun load(context: Context) {
-        registerMainAPI(Hdmovies4u())
-        registerExtractorAPI(DriveTot())
+        // All providers should be added in this manner. Please don't edit the providers list directly.
+        registerMainAPI(Hdmovies4u()) // Your MainAPI
+        registerExtractorAPI(VCloud())
+        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(GDFlix5())
+        registerExtractorAPI(GDFlix4())
+        registerExtractorAPI(PixelDrain())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(FilePress())
+        registerExtractorAPI(HubCloudClub())
+        registerExtractorAPI(fastdlserver())
+        registerExtractorAPI(HubCloudlol())
+        registerExtractorAPI(Driveleech())
+        registerExtractorAPI(Driveseed())
+        registerExtractorAPI(WLinkFast())
+        registerExtractorAPI(FastLinks())
+        registerExtractorAPI(Sendcm())
+        registerExtractorAPI(Photolinx())
     }
 }
