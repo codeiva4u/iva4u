@@ -155,7 +155,7 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // 1. Extract links from "a.btn" (for download links)
+        // 1. Extract links from "a.btn" (for potential direct download links and hubcloud links)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
             safeApiCall {
@@ -166,6 +166,14 @@ class Hdmovies4u : MainAPI() {
         // 2. Extract iframe links (for embeds)
         document.select("iframe").mapNotNull { element ->
             val link = fixUrl(element.attr("src"))
+            safeApiCall {
+                loadExtractor(link, data, subtitleCallback, callback)
+            }
+        }
+
+        // 3. Extract links from "div.nx-href a" (for wishonly links)
+        document.select("div.nx-href a").mapNotNull { element ->
+            val link = fixUrl(element.attr("href"))
             safeApiCall {
                 loadExtractor(link, data, subtitleCallback, callback)
             }

@@ -10,8 +10,9 @@ class Hdmovies4uPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Hdmovies4u())
         registerExtractorAPI(wishonly())
-        registerExtractorAPI(FsLFastDl())
-        registerExtractorAPI(PixelDrain())
-        registerExtractorAPI(Technorozen())
+//        registerExtractorAPI(FsLFastDl())
+//        registerExtractorAPI(PixelDrain())
+//        registerExtractorAPI(Technorozen())
+        registerExtractorAPI(HubCloud())
     }
 }

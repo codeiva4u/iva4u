@@ -74,110 +74,33 @@ class wishonly : ExtractorApi() {
 }
 
 // FsLFastDl Extractor
-class FsLFastDl : ExtractorApi() {
-    override val name = "FsLFastDl"
-    override val mainUrl = "https://fsl.fastdl.lol"
+class HubCloud : ExtractorApi() {
+    override val name = "HubCloud"
+    override val mainUrl = "https://hubcloud.club"
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val document = Jsoup.parse(app.get(url, referer = referer).text)
         val extractorLinks = mutableListOf<ExtractorLink>()
 
-        val fslLink = document.select("a.btn")
-            .firstOrNull { it.text().contains("Download [FSL Server]") }
-            ?.attr("href")
-
-        if (fslLink != null && fslLink.startsWith(mainUrl)) {
-            extractorLinks.add(
-                ExtractorLink(
-                    source = name,
-                    name = "FSL Server",
-                    url = fslLink,
-                    referer = referer ?: url,
-                    quality =  Qualities.Unknown.value,
-                    isM3u8 = false
+        // Extract links from the page
+        document.select("a").mapNotNull { element ->
+            val link = element.attr("href")
+            if (link.startsWith("https://fsl.fastdl.lol") ||
+                link.startsWith("https://pixeldra.in/api/file/") ||
+                link.startsWith("https://gpdl2.technorozen.workers.dev")
+            ) {
+                extractorLinks.add(
+                    ExtractorLink(
+                        source = name,
+                        name = element.text(), // You might need to refine this
+                        url = link,
+                        referer = url, // Referer might be required
+                        quality = getQualityFromName(link), // You might need to refine quality extraction
+                        isM3u8 = false
+                    )
                 )
-            )
-        }
-
-        return extractorLinks.ifEmpty { null }
-    }
-}
-
-// PixelDrain Extractor
-class PixelDrain : ExtractorApi() {
-    override val name = "PixelDrain"
-    override val mainUrl = "https://pixeldrain.com"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val document = Jsoup.parse(app.get(url, referer = referer).text)
-        val extractorLinks = mutableListOf<ExtractorLink>()
-
-        // Iframe Embed Link Extraction
-        val iframeLink = document.select("iframe").firstOrNull()?.attr("src")
-
-        if (iframeLink != null && iframeLink.startsWith(mainUrl)) {
-            extractorLinks.add(
-                ExtractorLink(
-                    source = name,
-                    name = "PixelDrain Embed",
-                    url = iframeLink,
-                    referer = referer ?: url,
-                    quality = Qualities.Unknown.value,
-                    isM3u8 = false,
-                    isDash = false
-                )
-            )
-        }
-
-        // Direct Download Link Extraction from button
-        val downloadLink = document.select("a.btn")
-            .firstOrNull { it.text().contains("Download [PixelServer") }
-            ?.attr("href")
-
-        if (downloadLink != null && downloadLink.startsWith("https://pixeldra.in/api/file/")) {
-            extractorLinks.add(
-                ExtractorLink(
-                    source = name,
-                    name = "PixelDrain Download",
-                    url = downloadLink,
-                    referer = referer ?: url,
-                    quality = getQualityFromName(downloadLink),
-                    isM3u8 = false
-                )
-            )
-        }
-
-        return extractorLinks.ifEmpty { null }
-    }
-}
-
-// Technorozen Extractor
-class Technorozen : ExtractorApi() {
-    override val name = "Technorozen"
-    override val mainUrl = "https://gpdl2.technorozen.workers.dev"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val document = Jsoup.parse(app.get(url, referer = referer).text)
-        val extractorLinks = mutableListOf<ExtractorLink>()
-
-        val downloadLink = document.select("a.btn")
-            .firstOrNull { it.text().contains("Download [Server : 10Gbps]") }
-            ?.attr("href")
-
-        if (downloadLink != null && downloadLink.startsWith(mainUrl)) {
-            extractorLinks.add(
-                ExtractorLink(
-                    source = name,
-                    name = "Technorozen Download",
-                    url = downloadLink,
-                    referer = referer ?: url,
-                    quality = Qualities.Unknown.value,
-                    isM3u8 = false
-                )
-            )
+            }
         }
 
         return extractorLinks.ifEmpty { null }
