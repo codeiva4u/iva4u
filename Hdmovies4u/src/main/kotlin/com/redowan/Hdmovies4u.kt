@@ -156,19 +156,19 @@ class Hdmovies4u : MainAPI() {
         var linkFound = false
         val document = app.get(data).document
 
-        // ... (आपके मौजूदा कोड)
+        // ... (आपके मौजूदा कोड, जैसे कि "a.btn" और "a.uploadever" से लिंक निकालना)
 
-        // HubCloud के लिए
+        // HubCloud के लिए (अपडेटेड)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
-            if (link.contains("hubcloud.club")) {
+            if (link.contains("hubcloud") || link.contains("driveseed") || link.contains("driveleech")) { // सभी संभावित डोमेन शामिल करें
                 safeApiCall {
                     if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
                 }
             }
         }
 
-        // FilePress के लिए
+        // FilePress के लिए (इसे यहाँ रखना ज़रूरी है, क्योंकि FilePress लिंक "a.btn" में भी हो सकते हैं)
         document.select("a.btn").mapNotNull { element ->
             val link = fixUrl(element.attr("href"))
             if (link.contains("filepress.life")) {
@@ -178,7 +178,7 @@ class Hdmovies4u : MainAPI() {
             }
         }
 
-        // ... (आपके मौजूदा कोड)
+        // ... (आपके मौजूदा कोड, जैसे कि "iframe" से लिंक निकालना)
 
         return linkFound
     }

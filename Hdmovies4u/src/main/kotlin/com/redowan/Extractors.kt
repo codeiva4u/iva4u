@@ -56,20 +56,79 @@ open class HubCloud : ExtractorApi() {
         // "Download Link Generated" ढूंढें
         if (document.select("p.text-success").text().contains("Download Link Generated")) {
             // "Copy Share Link" बटन के पास इनपुट फील्ड से लिंक निकालें
-            val link = document.select("input#ilink").attr("value")
+            val shareLink = document.select("input#ilink").attr("value")
 
             // लिंक वैध है तो, उसे ExtractorLink के रूप में प्रदान करें
-            if (link.isNotBlank()) {
+            if (shareLink.isNotBlank()) {
                 callback.invoke(
                     ExtractorLink(
                         source = this.name,
                         name = "HubCloud",
-                        url = link,
+                        url = shareLink,
                         referer = url,
                         quality = Qualities.Unknown.value,
                         isM3u8 = false
                     )
                 )
+            }
+
+            // "a.btn" से अन्य डाउनलोड लिंक निकालें
+            document.select("a.btn").mapNotNull { element ->
+                val link = element.attr("href")
+                val linkText = element.text()
+
+                if (link.isNotBlank()) {
+                    when {
+                        link.contains("fsl.fastdl.lol") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = this.name,
+                                    name = "HubCloud - FSL Server",
+                                    url = link,
+                                    referer = url,
+                                    quality = Qualities.Unknown.value,
+                                    isM3u8 = link.contains(".m3u8")
+                                )
+                            )
+                        }
+                        link.contains("aws-es.mixis94992.workers.dev") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = this.name,
+                                    name = "HubCloud - AWS Server",
+                                    url = link,
+                                    referer = url,
+                                    quality = Qualities.Unknown.value,
+                                    isM3u8 = link.contains(".m3u8")
+                                )
+                            )
+                        }
+                        link.contains("gpdl2.technorozen.workers.dev") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = this.name,
+                                    name = "HubCloud - 10Gbps Server",
+                                    url = link,
+                                    referer = url,
+                                    quality = Qualities.Unknown.value,
+                                    isM3u8 = link.contains(".m3u8")
+                                )
+                            )
+                        }
+                        link.contains("driveseed.org") || link.contains("driveleech.org") -> {
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = this.name,
+                                    name = "HubCloud - DriveLeech",
+                                    url = link,
+                                    referer = url,
+                                    quality = Qualities.Unknown.value,
+                                    isM3u8 = link.contains(".m3u8")
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
     }
