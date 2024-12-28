@@ -1,5 +1,6 @@
 package com.redowan
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -68,7 +69,7 @@ class Hdmovies4u : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = getQualityFromString(this.select("span.absolute").text().toString())
+        val quality = this.select("span.absolute").text().trim().let{getQualityFromString(it)}
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -107,8 +108,7 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
-            ?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
