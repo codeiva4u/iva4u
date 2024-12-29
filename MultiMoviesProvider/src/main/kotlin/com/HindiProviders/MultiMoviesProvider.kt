@@ -236,6 +236,8 @@ class MultiMoviesProvider : MainAPI() {
         val document = app.get(data).document
         val videoUrl = document.selectFirst("iframe.rptss")?.attr("src")
         val videoUrl2 = document.selectFirst("div#videoPlayer > iframe")?.attr("src")
+        val downloadUrl = document.selectFirst("ul#videoLinks > li > a.dlvideoLinks")?.attr("href")
+
 
         if (videoUrl != null) {
             safeApiCall {
@@ -271,6 +273,20 @@ class MultiMoviesProvider : MainAPI() {
                         )
                     )
                 }
+            }
+            return true
+        } else if (downloadUrl != null) {
+            safeApiCall {
+                callback(
+                    ExtractorLink(
+                        name = "MultiMovies Download",
+                        source = "MultiMovies Download",
+                        url = downloadUrl,
+                        referer = "https://multimovies.lat/",
+                        quality = getQualityFromName(downloadUrl),
+                        isM3u8 = false
+                    )
+                )
             }
             return true
         }
