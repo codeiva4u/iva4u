@@ -7,7 +7,7 @@ import org.jsoup.Jsoup
 
 open class Multimovies : ExtractorApi() {
     override val name = "MultimoviesExtractor"
-    override val mainUrl = "https://multimovies.lat"
+    override val mainUrl = "https://multimovies.cloud"
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
