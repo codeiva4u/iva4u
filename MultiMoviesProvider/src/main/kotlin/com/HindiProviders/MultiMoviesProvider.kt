@@ -237,7 +237,7 @@ class MultiMoviesProvider : MainAPI() {
         val videoUrl = document.selectFirst("iframe.rptss")?.attr("src")
         val videoUrl2 = document.selectFirst("div#videoPlayer > iframe")?.attr("src")
         val downloadUrl = document.selectFirst("ul#videoLinks > li > a.dlvideoLinks")?.attr("href")
-
+        val otherSources = document.select("ul#videoLinks > li[data-link]")
 
         if (videoUrl != null) {
             safeApiCall {
@@ -246,7 +246,7 @@ class MultiMoviesProvider : MainAPI() {
                         name = "MultiMovies Player",
                         source = "MultiMovies Player",
                         url = videoUrl,
-                        referer = "https://multimovies.lat/",
+                        referer = "https://multimovies.cloud/",
                         quality = getQualityFromName(videoUrl),
                         isM3u8 = videoUrl.contains("m3u8")
                     )
@@ -267,7 +267,7 @@ class MultiMoviesProvider : MainAPI() {
                             name = "MultiMovies Player",
                             source = "MultiMovies Player",
                             url = videoUrl3,
-                            referer = "https://multimovies.lat/",
+                            referer = "https://multimovies.cloud/",
                             quality = getQualityFromName(videoUrl3),
                             isM3u8 = videoUrl3.contains("m3u8")
                         )
@@ -282,14 +282,33 @@ class MultiMoviesProvider : MainAPI() {
                         name = "MultiMovies Download",
                         source = "MultiMovies Download",
                         url = downloadUrl,
-                        referer = "https://multimovies.lat/",
+                        referer = "https://gdmirrorbot.nl/",
                         quality = getQualityFromName(downloadUrl),
                         isM3u8 = false
                     )
                 )
             }
             return true
+        } else {
+            otherSources.map {
+                val link = it.attr("data-link")
+                val sourceKey = it.attr("data-source-key")
+                if (link.isNotBlank()) {
+                    safeApiCall {
+                        callback(
+                            ExtractorLink(
+                                name = sourceKey,
+                                source = sourceKey,
+                                url = link,
+                                referer = "https://gdmirrorbot.nl/",
+                                quality = getQualityFromName(link),
+                                isM3u8 = link.contains("m3u8")
+                            )
+                        )
+                    }
+                }
+            }
+            return true
         }
-        return false
     }
 }
