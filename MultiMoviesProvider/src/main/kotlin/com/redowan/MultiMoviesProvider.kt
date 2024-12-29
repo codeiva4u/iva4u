@@ -40,7 +40,7 @@ class MultimoviesProvider : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = app.get("${request.data}page/$page/").document // Add pagination to URL
+        val doc = app.get("${request.data}$page/").document
         val items = doc.select("article.item").mapNotNull {
             it.toSearchResult()
         }
@@ -48,6 +48,7 @@ class MultimoviesProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
+        // Updated selectors based on the provided HTML structure
         val title = this.selectFirst("div.poster img")?.attr("alt") ?: return null
         val href = this.selectFirst("div.poster a")?.attr("href") ?: return null
         val posterUrl = this.selectFirst("div.poster img")?.attr("src")
@@ -56,9 +57,8 @@ class MultimoviesProvider : MainAPI() {
         }
     }
 
-
     override suspend fun search(query: String): List<SearchResponse> {
-        val doc = app.get("$mainUrl/search?q=$query").document // Updated search URL
+        val doc = app.get("$mainUrl/search?q=$query").document
         return doc.select("article.item").mapNotNull {
             it.toSearchResult()
         }
@@ -66,13 +66,18 @@ class MultimoviesProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
+
+        // Updated selectors based on the provided HTML structure
         val title = doc.selectFirst("h1.name-film")?.text() ?: ""
         val poster = doc.selectFirst("div.poster-film img")?.attr("src")
         val year = doc.select("ul.list-description li:contains(Año) span").text().toIntOrNull()
         val description = doc.selectFirst("blockquote.sinopsis-film")?.text()
         val actors = doc.select("ul.list-casts li a").map { it.text().trim() }
-        doc.select("ul.list-description li:contains(Director) span").text()
+        val director = doc.select("ul.list-description li:contains(Director) span").text()
         val isMovie = doc.select("ul.list-episode li").isEmpty()
+
+        // Tags (genres)
+        val tags = doc.select("div.sgeneros a").map { it.text() }
 
         if (isMovie) {
             return newMovieLoadResponse(title, url, TvType.Movie, url) {
@@ -80,8 +85,9 @@ class MultimoviesProvider : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.actors = actors.map { ActorData(Actor(it)) }
-                addActors(actors.map { Actor(it) })
+                addActors(actors.map{ Actor(it) })
                 this.recommendations = doc.select("article.item").mapNotNull { it.toSearchResult() }
+                this.tags = tags
             }
         } else {
             val episodes = doc.select("ul.list-episode li").mapNotNull {
@@ -98,18 +104,14 @@ class MultimoviesProvider : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.actors = actors.map { ActorData(Actor(it)) }
-                addActors(actors.map { Actor(it) })
+                addActors(actors.map{ Actor(it) })
                 this.recommendations = doc.select("article.item").mapNotNull { it.toSearchResult() }
+                this.tags = tags
             }
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val doc = app.get(data).document
 
         // Find the ul#videoLinks element
