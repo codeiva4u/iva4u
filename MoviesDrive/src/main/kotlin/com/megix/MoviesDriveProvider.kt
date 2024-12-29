@@ -93,9 +93,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.selectFirst("a:contains(IMDb)") ?. attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) == true ||
-            seasonRegex.containsMatchIn(title) ||
-            title.contains("series", ignoreCase = true) == true
+            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
         ) {
             "series"
         } else {

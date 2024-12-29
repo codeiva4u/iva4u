@@ -9,19 +9,21 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.megix.MoviesDriveProvider.EpisodeLink
 import org.jsoup.nodes.Element
 
 class Hdmovies4u : MainAPI() {
@@ -153,56 +155,11 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        var linkFound = false
-        val document = app.get(data).document
-
-        // a.btn से लिंक निकालें
-        document.select("a.btn").mapNotNull { element ->
-            val link = element.attr("href").let { if (it.startsWith("/")) "$mainUrl$it" else it }
-            // drivetot के रीडायरेक्ट को संभालें
-            if (link.contains("drivetot.dad/scanjs/")) {
-                val newUrl = app.get(link, allowRedirects = false).headers["location"]
-                if (newUrl != null) {
-                    // **सभी संभावित डोमेन की जांच करें**
-                    if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life") || newUrl.contains(
-                            "driveseed.org"
-                        ) || newUrl.contains("driveleech.org")
-                    ) {
-                        if (loadExtractor(newUrl, data, subtitleCallback, callback)) linkFound =
-                            true
-                    }
-                }
-            }
-            // HubCloud, FilePress, DriveLeech, Driveseed और अन्य एक्सट्रैक्टर्स के लिए (सीधे लिंक)
-            else if (link.contains("hubcloud") || link.contains("filepress.life") || link.contains("driveseed") || link.contains(
-                    "driveleech"
-                )
-            ) {
-                if (link.contains("hubcloud")) {
-                    // **HubCloud के लिए विशेष हैंडलिंग**
-                    safeApiCall {
-                        val hubCloud = HubCloud()
-                        hubCloud.getUrl(link, data, subtitleCallback, callback)
-                        linkFound = true
-                    }
-                } else {
-                    if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-                }
-            }
+        val sources = parseJson<ArrayList<EpisodeLink>>(data)
+        sources.amap {
+            val source = it.source
+            loadExtractor(source, subtitleCallback, callback)
         }
-
-        // a.uploadever से लिंक निकालें (आपके मौजूदा कोड)
-        document.select("a.uploadever").mapNotNull { element ->
-            val link = element.attr("href").let { if (it.startsWith("/")) "$mainUrl$it" else it }
-            if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-        }
-
-        // iframe से लिंक निकालें (आपके मौजूदा कोड)
-        document.select("iframe").mapNotNull { element ->
-            val link = element.attr("src").let { if (it.startsWith("/")) "$mainUrl$it" else it }
-            if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
-        }
-
-        return linkFound
+        return true
     }
 }
