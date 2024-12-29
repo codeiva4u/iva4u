@@ -1,6 +1,5 @@
 package com.redowan
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -69,7 +68,7 @@ class Hdmovies4u : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = this.select("span.absolute").text().trim().let{getQualityFromString(it)}
+        val quality = this.select("span.absolute").text().trim().let { getQualityFromString(it) }
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -108,7 +107,8 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
+            ?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
@@ -156,24 +156,20 @@ class Hdmovies4u : MainAPI() {
         var linkFound = false
         val document = app.get(data).document
 
-        // ... (आपके मौजूदा कोड, जैसे कि "a.btn" और "a.uploadever" से लिंक निकालना)
-
         // a.btn से लिंक निकालें
         document.select("a.btn").mapNotNull { element ->
-            val link = fixUrl(element.attr("href"))
+            val link = element.attr("href").let { if (it.startsWith("/")) "$mainUrl$it" else it }
             // drivetot के रीडायरेक्ट को संभालें
             if (link.contains("drivetot.dad/scanjs/")) {
-                safeApiCall {
-                    val newUrl = app.get(link, allowRedirects = false).headers["location"]
-                    if (newUrl != null) {
-                        // **सभी संभावित डोमेन की जांच करें**
-                        if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life") || newUrl.contains(
-                                "driveseed.org"
-                            ) || newUrl.contains("driveleech.org")
-                        ) {
-                            if (loadExtractor(newUrl, data, subtitleCallback, callback)) linkFound =
-                                true
-                        }
+                val newUrl = app.get(link, allowRedirects = false).headers["location"]
+                if (newUrl != null) {
+                    // **सभी संभावित डोमेन की जांच करें**
+                    if (newUrl.contains("hubcloud.club") || newUrl.contains("filepress.life") || newUrl.contains(
+                            "driveseed.org"
+                        ) || newUrl.contains("driveleech.org")
+                    ) {
+                        if (loadExtractor(newUrl, data, subtitleCallback, callback)) linkFound =
+                            true
                     }
                 }
             }
@@ -182,15 +178,30 @@ class Hdmovies4u : MainAPI() {
                     "driveleech"
                 )
             ) {
-                safeApiCall {
+                if (link.contains("hubcloud")) {
+                    // **HubCloud के लिए विशेष हैंडलिंग**
+                    safeApiCall {
+                        val hubCloud = HubCloud()
+                        hubCloud.getUrl(link, data, subtitleCallback, callback)
+                        linkFound = true
+                    }
+                } else {
                     if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
                 }
-            } else {
-
             }
         }
 
-        // ... (आपके मौजूदा कोड, जैसे कि "iframe" से लिंक निकालना)
+        // a.uploadever से लिंक निकालें (आपके मौजूदा कोड)
+        document.select("a.uploadever").mapNotNull { element ->
+            val link = element.attr("href").let { if (it.startsWith("/")) "$mainUrl$it" else it }
+            if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
+        }
+
+        // iframe से लिंक निकालें (आपके मौजूदा कोड)
+        document.select("iframe").mapNotNull { element ->
+            val link = element.attr("src").let { if (it.startsWith("/")) "$mainUrl$it" else it }
+            if (loadExtractor(link, data, subtitleCallback, callback)) linkFound = true
+        }
 
         return linkFound
     }
