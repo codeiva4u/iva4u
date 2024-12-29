@@ -34,18 +34,9 @@ class MultimoviesProvider : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/genero/accion/" to "Acción",
-        "$mainUrl/genero/comedia/" to "Comedia",
-        "$mainUrl/genero/drama/" to "Drama",
-        "$mainUrl/genero/ciencia-ficcion/" to "Ciencia Ficción",
-        "$mainUrl/genero/terror/" to "Terror",
-        "$mainUrl/genero/animacion/" to "Animación",
-        "$mainUrl/genero/suspenso/" to "Suspenso",
-        "$mainUrl/genero/romance/" to "Romance",
-        "$mainUrl/genero/aventura/" to "Aventura",
-        "$mainUrl/genero/fantasia/" to "Fantasia"
+        "$mainUrl/movies/" to "Latest Movies",
+        "$mainUrl/genre/south-indian/" to "South Indian",
 
-        // ... add more categories if needed
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
