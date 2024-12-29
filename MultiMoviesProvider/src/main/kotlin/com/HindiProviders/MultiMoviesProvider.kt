@@ -234,7 +234,8 @@ class MultiMoviesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
-        val videoUrl = document.selectFirst("div#vplayer > div > div > video")?.attr("src")
+        val videoUrl = document.selectFirst("iframe.rptss")?.attr("src")
+        val videoUrl2 = document.selectFirst("div#videoPlayer > iframe")?.attr("src")
 
         if (videoUrl != null) {
             safeApiCall {
@@ -248,6 +249,28 @@ class MultiMoviesProvider : MainAPI() {
                         isM3u8 = videoUrl.contains("m3u8")
                     )
                 )
+            }
+            return true
+        } else if (videoUrl2 != null) {
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0",
+                "referer" to "https://multimovies.lat/"
+            )
+            safeApiCall {
+                val res = app.get(videoUrl2, headers = headers).text
+                val videoUrl3 = Regex("source src=\"(.*?)\"").find(res)?.groupValues?.get(1)
+                if (videoUrl3 != null) {
+                    callback(
+                        ExtractorLink(
+                            name = "MultiMovies Player",
+                            source = "MultiMovies Player",
+                            url = videoUrl3,
+                            referer = "https://multimovies.lat/",
+                            quality = getQualityFromName(videoUrl3),
+                            isM3u8 = videoUrl3.contains("m3u8")
+                        )
+                    )
+                }
             }
             return true
         }
