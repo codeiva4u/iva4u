@@ -234,97 +234,56 @@ class MultiMoviesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
-        val videoUrl = document.selectFirst("iframe.rptss")?.attr("src")
-        val videoUrl2 = document.selectFirst("div#videoPlayer > iframe")?.attr("src")
-        val downloadUrl = document.selectFirst("ul#videoLinks > li > a.dlvideoLinks")?.attr("href")
-        val otherSources = document.select("ul#videoLinks > li[data-link]")
-
-        if (videoUrl != null) {
-            safeApiCall {
-                callback(
-                    ExtractorLink(
-                        name = "MultiMovies Player",
-                        source = "MultiMovies Player",
-                        url = videoUrl,
-                        referer = "https://multimovies.lat/",
-                        quality = getQualityFromName(videoUrl),
-                        isM3u8 = videoUrl.contains("m3u8")
-                    )
-                )
-            }
-            return true
-        } else if (videoUrl2 != null) {
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0",
-                "referer" to "https://multimovies.lat/"
+        document.select("ul#playeroptionsul li").map {
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
             )
-            safeApiCall {
-                val res = app.get(videoUrl2, headers = headers).text
-                val videoUrl3 = Regex("source src=\"(.*?)\"").find(res)?.groupValues?.get(1)
-                if (videoUrl3 != null) {
-                    callback(
-                        ExtractorLink(
-                            name = "MultiMovies Player",
-                            source = "MultiMovies Player",
-                            url = videoUrl3,
-                            referer = "https://multimovies.lat/",
-                            quality = getQualityFromName(videoUrl3),
-                            isM3u8 = videoUrl3.contains("m3u8")
-                        )
-                    )
+        }.apmap { (id, nume, type) ->
+            if (!nume.contains("trailer")) {
+                val source = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = mainUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                val link = source.substringAfter("\"").substringBefore("\"")
+                when {
+                    !link.contains("youtube") -> {
+                        if(link.contains("gdmirrorbot.nl"))
+                        {
+                            app.get(link, headers = mapOf("referer" to "https://multimovies.lat/")).document.select("ul#videoLinks li").map {
+                                @Suppress("NAME_SHADOWING") val link=it.attr("data-link")
+                                loadExtractor(link,referer = mainUrl,subtitleCallback, callback)
+                            }
+                        }
+                        else
+                            if (link.contains("deaddrive.xyz"))
+                            {
+                                app.get(link).document.select("ul.list-server-items > li").map {
+                                    val server = it.attr("data-video")
+                                    loadExtractor(server,referer = mainUrl,subtitleCallback, callback)
+                                }
+                            }
+                            else
+                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                    }
+                    else -> return@apmap
                 }
             }
-            return true
-        }  else if (downloadUrl != null) {
-            safeApiCall {
-                callback(
-                    ExtractorLink(
-                        name = "MultiMovies Download",
-                        source = "MultiMovies Download",
-                        url = downloadUrl,
-                        referer = "https://multimovies.lat/",
-                        quality = getQualityFromName(downloadUrl),
-                        isM3u8 = false
-                    )
-                )
-            }
-            return true
-        }else {
-            otherSources.map {
-                val link = it.attr("data-link")
-                val sourceKey = it.attr("data-source-key")
-                if (link.isNotBlank() && !link.contains("gdmirrorbot.nl")) {
-                    safeApiCall {
-                        callback(
-                            ExtractorLink(
-                                name = sourceKey,
-                                source = sourceKey,
-                                url = link,
-                                referer = "https://multimovies.lat/",
-                                quality = getQualityFromName(link),
-                                isM3u8 = link.contains("m3u8")
-                            )
-                        )
-                    }
-                } else if (link.contains("gdmirrorbot.nl")) {
-
-                    safeApiCall {
-                        callback(
-                            ExtractorLink(
-                                name = "gdmirrorbot",
-                                source = "gdmirrorbot",
-                                url = link,
-                                referer = "https://multimovies.lat/",
-                                quality = getQualityFromName(link),
-                                isM3u8 = false
-                            )
-                        )
-                    }
-                } else {
-
-                }
-            }
-            return true
         }
+        return true
     }
+
+    data class ResponseHash(
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("key") val key: String? = null,
+        @JsonProperty("type") val type: String? = null,
+    )
 }
