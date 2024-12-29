@@ -12,6 +12,7 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -41,25 +42,32 @@ class MultimoviesProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val doc = app.get("${request.data}$page/").document
-        val items = doc.select("article.item").mapNotNull {
+        // Updated selector for main page
+        val items = doc.select("div.items article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(request.name, items)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Updated selectors based on the provided HTML structure
+        // Updated selectors based on the actual website structure for the main page
         val title = this.selectFirst("div.poster img")?.attr("alt") ?: return null
         val href = this.selectFirst("div.poster a")?.attr("href") ?: return null
         val posterUrl = this.selectFirst("div.poster img")?.attr("src")
+
+        // থাম্বনেল URL
+        val quality = this.selectFirst("div.poster span.quality")?.text()
+
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
+            this.quality = getQualityFromString(quality)
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val doc = app.get("$mainUrl/search?q=$query").document
-        return doc.select("article.item").mapNotNull {
+        // Updated selector for search page
+        return doc.select("div.result-item article.item").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -67,7 +75,7 @@ class MultimoviesProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
 
-        // Updated selectors based on the provided HTML structure
+        // Selectors for movie details page
         val title = doc.selectFirst("h1.name-film")?.text() ?: ""
         val poster = doc.selectFirst("div.poster-film img")?.attr("src")
         val year = doc.select("ul.list-description li:contains(Año) span").text().toIntOrNull()
