@@ -246,7 +246,7 @@ class MultiMoviesProvider : MainAPI() {
                         name = "MultiMovies Player",
                         source = "MultiMovies Player",
                         url = videoUrl,
-                        referer = "https://multimovies.cloud/",
+                        referer = "https://multimovies.lat/",
                         quality = getQualityFromName(videoUrl),
                         isM3u8 = videoUrl.contains("m3u8")
                     )
@@ -267,7 +267,7 @@ class MultiMoviesProvider : MainAPI() {
                             name = "MultiMovies Player",
                             source = "MultiMovies Player",
                             url = videoUrl3,
-                            referer = "https://multimovies.cloud/",
+                            referer = "https://multimovies.lat/",
                             quality = getQualityFromName(videoUrl3),
                             isM3u8 = videoUrl3.contains("m3u8")
                         )
@@ -275,37 +275,53 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
             return true
-        } else if (downloadUrl != null) {
+        }  else if (downloadUrl != null) {
             safeApiCall {
                 callback(
                     ExtractorLink(
                         name = "MultiMovies Download",
                         source = "MultiMovies Download",
                         url = downloadUrl,
-                        referer = "https://gdmirrorbot.nl/",
+                        referer = "https://multimovies.lat/",
                         quality = getQualityFromName(downloadUrl),
                         isM3u8 = false
                     )
                 )
             }
             return true
-        } else {
+        }else {
             otherSources.map {
                 val link = it.attr("data-link")
                 val sourceKey = it.attr("data-source-key")
-                if (link.isNotBlank()) {
+                if (link.isNotBlank() && !link.contains("gdmirrorbot.nl")) {
                     safeApiCall {
                         callback(
                             ExtractorLink(
                                 name = sourceKey,
                                 source = sourceKey,
                                 url = link,
-                                referer = "https://gdmirrorbot.nl/",
+                                referer = "https://multimovies.lat/",
                                 quality = getQualityFromName(link),
                                 isM3u8 = link.contains("m3u8")
                             )
                         )
                     }
+                } else if (link.contains("gdmirrorbot.nl")) {
+
+                    safeApiCall {
+                        callback(
+                            ExtractorLink(
+                                name = "gdmirrorbot",
+                                source = "gdmirrorbot",
+                                url = link,
+                                referer = "https://multimovies.lat/",
+                                quality = getQualityFromName(link),
+                                isM3u8 = false
+                            )
+                        )
+                    }
+                } else {
+
                 }
             }
             return true
