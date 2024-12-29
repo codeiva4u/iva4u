@@ -26,7 +26,7 @@ class MultimoviesProvider : MainAPI() {
     override var mainUrl = "https://multimovies.lat"
     override var name = "Multimovies"
     override val hasMainPage = true
-    override var lang = "es" // Spanish
+    override var lang = "hi" // हिन्दी
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(
         TvType.Movie,
