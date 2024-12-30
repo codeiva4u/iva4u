@@ -1,9 +1,25 @@
 package com.redowan
 
-import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.fixUrl
+import com.lagradost.cloudstream3.fixUrlNull
+import com.lagradost.cloudstream3.getQualityFromString
+import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.mvvm.safeApiCall
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
@@ -28,7 +44,7 @@ class Hdmovies4u : MainAPI() {
         "$mainUrl/category/disney-plus-hotstar/" to "Disney+ Hotstar",
         "$mainUrl/category/jio-cinema/" to " Jio Cinema",
         "$mainUrl/category/zee5/" to "Zee5",
-        "$mainUrl/category/sonyliv/" to "SonyLIV",
+        "$mainUrl/category/category/sonyliv/" to "SonyLIV",
     )
 
     override suspend fun getMainPage(
@@ -52,7 +68,7 @@ class Hdmovies4u : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = this.select("span.absolute").text().trim().let { getQualityFromString(it) }
+        val quality = this.select("span.absolute").text().trim().let{getQualityFromString(it)}
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -75,11 +91,7 @@ class Hdmovies4u : MainAPI() {
         }
     }
 
-    private fun extractEpisodeLinks(document: org.jsoup.nodes.Document): List<String> {
-        // Extract episode links from the document
-        return document.select("a.episode-link").map { it.attr("abs:href") }
-    }
-
+    // डेटा प्राप्त करने के लिए संशोधित load फ़ंक्शन
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
 
@@ -96,31 +108,41 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
-            ?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
             it.toSearchResult()
         }
 
-        if (type == TvType.Movie) {
-            // Extract movie links
-            val movieLinks = extractEpisodeLinks(document)
+        // एपिसोड डेटा के लिए डेटा क्लास
+        data class EpisodeData(
+            val url: String,
+            val name: String?,
+            val season: Int?,
+            val episode: Int?,
+        )
 
-            // Create EpisodeLink objects
-            val movieData = movieLinks.map { link ->
-                EpisodeLink(source = link)
+        // यदि यह एक टीवी श्रृंखला है, तो एपिसोड डेटा निकालें
+        val episodes = if (type == TvType.TvSeries) {
+            document.select("div.gridxw").mapNotNull {
+                val episodeUrl = fixUrl(it.selectFirst("div.mt-2 a")?.attr("href").toString())
+                val episodeName = it.selectFirst("div.mt-2 a")?.text()?.trim()
+                val season = it.selectFirst("span.text-gray-600")?.text()?.trim()?.substringAfter("Season ")?.trim()?.toIntOrNull()
+                val episode = it.selectFirst("span.text-gray-600")?.text()?.trim()?.substringAfterLast("Episode ")?.trim()?.toIntOrNull()
+
+                EpisodeData(episodeUrl, episodeName, season, episode)
             }
+        } else {
+            emptyList()
+        }
 
-            // Encode data to JSON
-            val movieJsonData = movieData.toJson()
-
-            return newMovieLoadResponse(
+        return if (type == TvType.Movie) {
+            newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                movieJsonData
+                url
             ) {
                 this.posterUrl = poster
                 this.year = year
@@ -133,29 +155,14 @@ class Hdmovies4u : MainAPI() {
                 trailer?.let { addTrailer(it, null) }
             }
         } else {
-            // Extract episode links
-            val episodeLinks = extractEpisodeLinks(document)
-
-            // Create EpisodeLink objects
-            val data = episodeLinks.map { link ->
-                EpisodeLink(source = link)
-            }
-
-            // Encode data to JSON
-            data.toJson()
-
-            // Extract episode details
-            val episodes = episodeLinks.mapIndexed { index, link ->
-                Episode(
-                    link,
-                    "Episode ${index + 1}",
-                    season = 1,
-                    episode = index + 1,
-                    posterUrl = null
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes.map {
+                com.lagradost.cloudstream3.Episode(
+                    it.url,
+                    it.name,
+                    it.season,
+                    it.episode,
                 )
-            }
-
-            return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            }) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -169,22 +176,22 @@ class Hdmovies4u : MainAPI() {
         }
     }
 
+    // स्ट्रीमिंग लिंक प्राप्त करने के लिए संशोधित loadLinks फ़ंक्शन
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val sources = parseJson<ArrayList<EpisodeLink>>(data)
-        sources.amap {
-            val source = it.source
-            loadExtractor(source, subtitleCallback, callback)
+        val document = app.get(data).document
+
+        // "div.linkbox a" से लिंक निकालें
+        document.select("div.linkbox a").forEach { element ->
+            val link = element.attr("href")
+            safeApiCall {
+                loadExtractor(link, data, subtitleCallback, callback)
+            }
         }
         return true
     }
-
-    // Define the EpisodeLink class
-    data class EpisodeLink(
-        val source: String
-    )
 }
