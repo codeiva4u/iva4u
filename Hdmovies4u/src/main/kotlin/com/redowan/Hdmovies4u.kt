@@ -68,7 +68,7 @@ class Hdmovies4u : MainAPI() {
         val title = this.selectFirst("div.mt-2 a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val quality = this.select("span.absolute").text().trim().let{getQualityFromString(it)}
+        val quality = this.select("span.absolute").text().trim().let { getQualityFromString(it) }
 
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -91,7 +91,6 @@ class Hdmovies4u : MainAPI() {
         }
     }
 
-    // डेटा प्राप्त करने के लिए संशोधित load फ़ंक्शन
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
 
@@ -108,33 +107,12 @@ class Hdmovies4u : MainAPI() {
         val description = document.selectFirst("main.page-body p.seoone")?.text()?.trim()
         val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
         val trailer: String? = null
-        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")?.toRatingInt()
+        val rating = document.selectFirst("a[href*=imdb]")?.text()?.substringAfter("Ratings: ")
+            ?.toRatingInt()
         val duration = null
         val actors = null
         val recommendations = document.select("div.pt-4 > div.w-40").mapNotNull {
             it.toSearchResult()
-        }
-
-        // एपिसोड डेटा के लिए डेटा क्लास
-        data class EpisodeData(
-            val url: String,
-            val name: String?,
-            val season: Int?,
-            val episode: Int?,
-        )
-
-        // यदि यह एक टीवी श्रृंखला है, तो एपिसोड डेटा निकालें
-        val episodes = if (type == TvType.TvSeries) {
-            document.select("div.gridxw").mapNotNull {
-                val episodeUrl = fixUrl(it.selectFirst("div.mt-2 a")?.attr("href").toString())
-                val episodeName = it.selectFirst("div.mt-2 a")?.text()?.trim()
-                val season = it.selectFirst("span.text-gray-600")?.text()?.trim()?.substringAfter("Season ")?.trim()?.toIntOrNull()
-                val episode = it.selectFirst("span.text-gray-600")?.text()?.trim()?.substringAfterLast("Episode ")?.trim()?.toIntOrNull()
-
-                EpisodeData(episodeUrl, episodeName, season, episode)
-            }
-        } else {
-            emptyList()
         }
 
         return if (type == TvType.Movie) {
@@ -155,14 +133,7 @@ class Hdmovies4u : MainAPI() {
                 trailer?.let { addTrailer(it, null) }
             }
         } else {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes.map {
-                com.lagradost.cloudstream3.Episode(
-                    it.url,
-                    it.name,
-                    it.season,
-                    it.episode,
-                )
-            }) {
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, arrayListOf()) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -176,20 +147,23 @@ class Hdmovies4u : MainAPI() {
         }
     }
 
-    // स्ट्रीमिंग लिंक प्राप्त करने के लिए संशोधित loadLinks फ़ंक्शन
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-
-        // "div.linkbox a" से लिंक निकालें
-        document.select("div.linkbox a").forEach { element ->
-            val link = element.attr("href")
+        if (data.contains("wishonly.site")) {
             safeApiCall {
-                loadExtractor(link, data, subtitleCallback, callback)
+                val extractor = WishOnly()
+                val links = extractor.getUrl(data, data)
+                links?.forEach { link ->
+                    callback.invoke(link)
+                }
+            }
+        } else {
+            safeApiCall {
+                loadExtractor(data, data, subtitleCallback, callback)
             }
         }
         return true
