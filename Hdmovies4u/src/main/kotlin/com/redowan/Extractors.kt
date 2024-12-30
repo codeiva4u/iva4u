@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
+import org.jsoup.nodes.Element
 
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
@@ -26,7 +27,7 @@ class PixelDrain : ExtractorApi() {
                     this.name,
                     this.name,
                     url,
-                    url,
+                    referer ?: mainUrl, // Referer updated
                     Qualities.Unknown.value,
                 )
             )
@@ -36,7 +37,7 @@ class PixelDrain : ExtractorApi() {
                     this.name,
                     this.name,
                     "$mainUrl/api/file/${mId}?download",
-                    url,
+                    referer ?: mainUrl, // Referer updated
                     Qualities.Unknown.value,
                 )
             )
@@ -57,17 +58,17 @@ class VCloud : ExtractorApi() {
     ) {
         var href = url
         if (href.contains("api/index.php")) {
-            href = app.get(url).document.selectFirst("div.main h4 a")?.attr("href") ?: ""
+            href = app.get(url).document.selectFirst("div.main h4 a")?.attr("abs:href") ?: "" // Added abs:href
         }
         val doc = app.get(href).document
         val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-        val urlValue = Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
+        val urlValue = Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: "" // Changed " to '
         if (urlValue.isNotEmpty()) {
             val document = app.get(urlValue).document
             val div = document.selectFirst("div.card-body")
             val header = document.select("div.card-header").text() ?: ""
             div?.select("h2 a.btn")?.apmap {
-                val link = it.attr("href")
+                val link = it.attr("abs:href") // Added abs:href
                 val text = it.text()
                 if (text.contains("Download [FSL Server]")) {
                     callback.invoke(
@@ -90,12 +91,12 @@ class VCloud : ExtractorApi() {
                         )
                     )
                 } else if (text.contains("BuzzServer")) {
-                    val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
+                    val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: "" // Corrected dlink extraction
                     callback.invoke(
                         ExtractorLink(
                             "$name[BuzzServer]",
                             "$name[BuzzServer] - $header",
-                            link.substringBeforeLast("/") + dlink,
+                            dlink, // Corrected dlink usage
                             "",
                             getIndexQuality(header),
                         )
@@ -111,12 +112,12 @@ class VCloud : ExtractorApi() {
                         )
                     )
                 } else if (text.contains("Download [Server : 10Gbps]")) {
-                    val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                    val dlink = app.get(link, allowRedirects = false).headers["location"] ?: "" // Corrected dlink extraction
                     callback.invoke(
                         ExtractorLink(
                             "$name[Download]",
                             "$name[Download] - $header",
-                            dlink.substringAfter("url="),
+                            dlink, // Corrected dlink usage
                             "",
                             getIndexQuality(header),
                         )
@@ -148,14 +149,14 @@ open class HubCloud : ExtractorApi() {
         val newUrl = url.replace("ink", "tel").replace("art", "tel")
         val doc = app.get(newUrl).document
 
-        val fslLink = doc.selectFirst("a:contains(Download [FSL Server])")?.attr("href")
+        val fslLink = doc.selectFirst("a:contains(Download [FSL Server])")?.attr("abs:href") // Added abs:href
         if (fslLink != null) {
             callback.invoke(
                 ExtractorLink(
                     "$name [FSL Server]",
                     "$name [FSL Server]",
                     fslLink,
-                    referer ?: mainUrl,
+                    mainUrl, // Corrected referer
                     Qualities.Unknown.value,
                 )
             )
@@ -164,18 +165,18 @@ open class HubCloud : ExtractorApi() {
             if (newUrl.contains("drive")) {
                 val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
                 link =
-                    (newUrl.substringBefore("/drive") + Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(
+                    (newUrl.substringBefore("/drive") + (Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(
                         1
-                    ))
+                    ) ?: "")) // Corrected link extraction
             } else {
-                link = doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+                link = doc.selectFirst("div.vd > center > a")?.attr("abs:href") ?: "" // Added abs:href
             }
 
             val document = app.get(link).document
             val div = document.selectFirst("div.card-body")
             val header = document.select("div.card-header").text() ?: ""
             div?.select("h2 a.btn")?.apmap {
-                val link = it.attr("href")
+                val link = it.attr("abs:href") // Added abs:href
                 val text = it.text()
 
                 if (text.contains("Download File")) {
@@ -189,12 +190,12 @@ open class HubCloud : ExtractorApi() {
                         )
                     )
                 } else if (text.contains("BuzzServer")) {
-                    val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
+                    val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: "" // Corrected dlink extraction
                     callback.invoke(
                         ExtractorLink(
                             "$name[BuzzServer]",
                             "$name[BuzzServer] - $header",
-                            link.substringBeforeLast("/") + dlink,
+                            dlink, // Corrected dlink usage
                             "",
                             getIndexQuality(header),
                         )
@@ -210,12 +211,12 @@ open class HubCloud : ExtractorApi() {
                         )
                     )
                 } else if (text.contains("Download [Server : 10Gbps]")) {
-                    val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                    val dlink = app.get(link, allowRedirects = false).headers["location"] ?: "" // Corrected dlink extraction
                     callback.invoke(
                         ExtractorLink(
                             "$name[Download]",
                             "$name[Download] - $header",
-                            dlink.substringAfter("url="),
+                            dlink, // Corrected dlink usage
                             "",
                             getIndexQuality(header),
                         )

@@ -1,29 +1,11 @@
 package com.redowan
 
-import com.lagradost.cloudstream3.HomePageList
-import com.lagradost.cloudstream3.HomePageResponse
-import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
-import com.lagradost.cloudstream3.getQualityFromString
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.megix.MoviesDriveProvider.EpisodeLink
 import org.jsoup.nodes.Element
 
 class Hdmovies4u : MainAPI() {
@@ -46,7 +28,7 @@ class Hdmovies4u : MainAPI() {
         "$mainUrl/category/disney-plus-hotstar/" to "Disney+ Hotstar",
         "$mainUrl/category/jio-cinema/" to " Jio Cinema",
         "$mainUrl/category/zee5/" to "Zee5",
-        "$mainUrl/category/category/sonyliv/" to "SonyLIV",
+        "$mainUrl/category/sonyliv/" to "SonyLIV",
     )
 
     override suspend fun getMainPage(
@@ -93,6 +75,11 @@ class Hdmovies4u : MainAPI() {
         }
     }
 
+    private fun extractEpisodeLinks(document: org.jsoup.nodes.Document): List<String> {
+        // Extract episode links from the document
+        return document.select("a.episode-link").map { it.attr("abs:href") }
+    }
+
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
 
@@ -117,12 +104,23 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        return if (type == TvType.Movie) {
-            newMovieLoadResponse(
+        if (type == TvType.Movie) {
+            // Extract movie links
+            val movieLinks = extractEpisodeLinks(document)
+
+            // Create EpisodeLink objects
+            val movieData = movieLinks.map { link ->
+                EpisodeLink(source = link)
+            }
+
+            // Encode data to JSON
+            val movieJsonData = movieData.toJson()
+
+            return newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                url
+                movieJsonData
             ) {
                 this.posterUrl = poster
                 this.year = year
@@ -135,7 +133,29 @@ class Hdmovies4u : MainAPI() {
                 trailer?.let { addTrailer(it, null) }
             }
         } else {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, arrayListOf()) {
+            // Extract episode links
+            val episodeLinks = extractEpisodeLinks(document)
+
+            // Create EpisodeLink objects
+            val data = episodeLinks.map { link ->
+                EpisodeLink(source = link)
+            }
+
+            // Encode data to JSON
+            data.toJson()
+
+            // Extract episode details
+            val episodes = episodeLinks.mapIndexed { index, link ->
+                Episode(
+                    link,
+                    "Episode ${index + 1}",
+                    season = 1,
+                    episode = index + 1,
+                    posterUrl = null
+                )
+            }
+
+            return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -163,45 +183,7 @@ class Hdmovies4u : MainAPI() {
         return true
     }
 
-    data class Meta(
-        val id: String?,
-        val imdb_id: String?,
-        val type: String?,
-        val poster: String?,
-        val logo: String?,
-        val background: String?,
-        val moviedb_id: Int?,
-        val name: String?,
-        val description: String?,
-        val genre: List<String>?,
-        val releaseInfo: String?,
-        val status: String?,
-        val runtime: String?,
-        val cast: List<String>?,
-        val language: String?,
-        val country: String?,
-        val imdbRating: String?,
-        val slug: String?,
-        val year: String?,
-        val videos: List<EpisodeDetails>?
-    )
-
-    data class EpisodeDetails(
-        val id: String?,
-        val name: String?,
-        val title: String?,
-        val season: Int?,
-        val episode: Int?,
-        val released: String?,
-        val overview: String?,
-        val thumbnail: String?,
-        val moviedb_id: Int?
-    )
-
-    data class ResponseData(
-        val meta: Meta?
-    )
-
+    // Define the EpisodeLink class
     data class EpisodeLink(
         val source: String
     )
