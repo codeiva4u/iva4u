@@ -21,7 +21,7 @@ class WishOnly : ExtractorApi() {
             val m3u8Url = if (masterPlaylistUrl.startsWith("http")) {
                 masterPlaylistUrl
             } else {
-                "$mainUrl/video007/ind$masterPlaylistUrl"
+                "$mainUrl/video007/ind$masterPlaylistUrl" // संभावित बग फिक्स: सही URL निर्माण
             }
 
             M3u8Helper.generateM3u8(
