@@ -1,28 +1,15 @@
 package com.redowan
 
-import com.lagradost.cloudstream3.HomePageList
-import com.lagradost.cloudstream3.HomePageResponse
-import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
-import com.lagradost.cloudstream3.getQualityFromString
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.mvvm.safeApiCall
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.toRatingInt
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
+
+// Define the EpisodeLink data class outside the Hdmovies4u class
+data class EpisodeLink(
+    val source: String
+)
 
 class Hdmovies4u : MainAPI() {
     override var mainUrl = "https://hdmovies4u.cx"
@@ -153,23 +140,11 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val extractors = listOf(WishOnly(), SdSpXyz(), FilePressLife())
-
-        val supportedExtractor = extractors.firstOrNull()
-
-        if (supportedExtractor != null) {
-            safeApiCall {
-                supportedExtractor.getUrl(data, data)?.forEach { link ->
-                    callback.invoke(link)
-                }
-                return@safeApiCall true // यहाँ 'return true' ज़रूरी है
-            }
-        } else {
-            safeApiCall {
-                loadExtractor(data, data, subtitleCallback, callback)
-                return@safeApiCall true // यहाँ 'return true' ज़रूरी है
-            }
+        // Parse the JSON data into a list of EpisodeLink objects
+        val sources = parseJson<List<EpisodeLink>>(data)
+        sources.amap { episodeLink ->
+            loadExtractor(episodeLink.source, subtitleCallback, callback)
         }
-        return true // यह लाइन भी ज़रूरी है
+        return true
     }
 }
