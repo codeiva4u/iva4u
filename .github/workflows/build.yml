@@ -7,9 +7,8 @@ concurrency:
 
 on:
   workflow_dispatch:  # मैन्युअल ट्रिगर के लिए
-  push:
+  push:               # ऑटोमैटिक ट्रिगर के लिए
     branches:
-      # choose your default branch
       - master
       - main
     paths-ignore:
