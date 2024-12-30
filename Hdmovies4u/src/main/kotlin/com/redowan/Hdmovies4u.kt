@@ -172,6 +172,15 @@ class Hdmovies4u : MainAPI() {
                 }
             }
 
+            data.contains("new2.filepress.life") -> {
+                safeApiCall {
+                    val extractor = FilePressLife()
+                    extractor.getUrl(data, data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
+                }
+            }
+
             else -> {
                 safeApiCall {
                     loadExtractor(data, data, subtitleCallback, callback)

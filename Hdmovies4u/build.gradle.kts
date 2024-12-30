@@ -2,7 +2,8 @@
 version = 3
 
 cloudstream {
-    // All of these properties are optional, you can safely remove them
+    //description = "Movie website in Bangladesh"
+    authors = listOf("Redowan")
 
     description = "Hdmovies4u Provider"
     language = "hi"
