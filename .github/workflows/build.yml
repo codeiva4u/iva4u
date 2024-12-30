@@ -1,4 +1,4 @@
-name: Build
+name: Build Plugins 
 
 # https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
 concurrency:
@@ -6,6 +6,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  workflow_dispatch:  # मैन्युअल ट्रिगर के लिए
   push:
     branches:
       # choose your default branch
