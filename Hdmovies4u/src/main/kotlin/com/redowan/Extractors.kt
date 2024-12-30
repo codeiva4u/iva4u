@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.M3u8Helper
 
-
 class FilePressLife : ExtractorApi() {
     override val name = "FilePressLife"
     override val mainUrl = "https://new2.filepress.life"
