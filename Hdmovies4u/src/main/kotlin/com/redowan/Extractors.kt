@@ -54,3 +54,48 @@ class WishOnly : ExtractorApi() {
         return sources
     }
 }
+
+class SdSpXyz : ExtractorApi() {
+    override val name = "SdSpXyz"
+    override val mainUrl = "https://v1.sdsp.xyz"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
+        val response = app.get(url, referer = referer).text
+        val sources = mutableListOf<ExtractorLink>()
+
+        // Extract video URL from JavaScript code (this is specific to v1.sdsp.xyz)
+        val videoUrlRegex = Regex("file:\"(.*?)\",label:\"(.*?)\"")
+        videoUrlRegex.findAll(response).forEach { matchResult ->
+            val videoUrl = matchResult.groupValues[1].replace("\\/", "/")
+            val qualityName = matchResult.groupValues[2]
+            sources.add(
+                ExtractorLink(
+                    source = name,
+                    name = "$name ${qualityName}",
+                    url = videoUrl,
+                    referer = url,
+                    quality = getQualityFromName(qualityName),
+                    isM3u8 = videoUrl.contains(".m3u8")
+                )
+            )
+        }
+
+        //If the above doesn't find anything, try to find a master.m3u8
+        if (sources.isEmpty()){
+            val m3u8Url = Regex("""["'](.*?\.m3u8.*?)["']""").find(response)?.groupValues?.get(1)?.replace("\\/", "/")
+
+            if (m3u8Url != null) {
+                M3u8Helper.generateM3u8(
+                    source = name,
+                    streamUrl = m3u8Url,
+                    referer = url
+                ).forEach {
+                    sources.add(it)
+                }
+            }
+        }
+
+        return sources
+    }
+}

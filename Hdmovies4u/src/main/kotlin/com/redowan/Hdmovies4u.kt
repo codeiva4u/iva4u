@@ -153,17 +153,29 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.contains("wishonly.site")) {
-            safeApiCall {
-                val extractor = WishOnly()
-                val links = extractor.getUrl(data, data)
-                links?.forEach { link ->
-                    callback.invoke(link)
+        when {
+            data.contains("wishonly.site") -> {
+                safeApiCall {
+                    val extractor = WishOnly()
+                    extractor.getUrl(data, data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
                 }
             }
-        } else {
-            safeApiCall {
-                loadExtractor(data, data, subtitleCallback, callback)
+
+            data.contains("v1.sdsp.xyz") -> {
+                safeApiCall {
+                    val extractor = SdSpXyz()
+                    extractor.getUrl(data, data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
+                }
+            }
+
+            else -> {
+                safeApiCall {
+                    loadExtractor(data, data, subtitleCallback, callback)
+                }
             }
         }
         return true
