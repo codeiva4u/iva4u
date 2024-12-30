@@ -1,22 +1,23 @@
 package com.redowan
 
+import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.getQualityFromName
-import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.M3u8Helper
+
 
 class FilePressLife : ExtractorApi() {
     override val name = "FilePressLife"
     override val mainUrl = "https://new2.filepress.life"
     override val requiresReferer = false
 
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
         // Extract the iframe url from the "Watch Now" button
-        val iframeUrl = Regex("<a [^>]*href=\"(.*?)\"[^>]*>\\s*<button [^>]*>Watch Now</button>")
+        val iframeUrl = Regex("<a [^>]*href=\"(.*?)\"[^>]*>[\\s]*<button [^>]*>Watch Now<\\/button>")
             .find(response)?.groupValues?.get(1)
 
         if (iframeUrl != null) {
@@ -49,7 +50,7 @@ class WishOnly : ExtractorApi() {
     override val mainUrl = "https://wishonly.site"
     override val requiresReferer = false
 
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
@@ -59,7 +60,7 @@ class WishOnly : ExtractorApi() {
             val m3u8Url = if (masterPlaylistUrl.startsWith("http")) {
                 masterPlaylistUrl
             } else {
-                "$mainUrl/video007/ind$masterPlaylistUrl" // संभावित बग फिक्स: सही URL निर्माण
+                "$mainUrl/video007/ind$masterPlaylistUrl"
             }
 
             M3u8Helper.generateM3u8(
@@ -98,7 +99,7 @@ class SdSpXyz : ExtractorApi() {
     override val mainUrl = "https://v1.sdsp.xyz"
     override val requiresReferer = false
 
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
