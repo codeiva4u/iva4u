@@ -65,7 +65,8 @@ open class WishOnly : ExtractorApi() {
             val m3u8Url = if (masterPlaylistUrl.startsWith("http")) {
                 masterPlaylistUrl
             } else {
-                "$mainUrl/video007/ind$masterPlaylistUrl"
+                // "$mainUrl/video007/ind$masterPlaylistUrl" // पुराना गलत कोड
+                "$mainUrl/video007/index.php$masterPlaylistUrl" // नया सुधार
             }
 
             M3u8Helper.generateM3u8(
@@ -75,22 +76,6 @@ open class WishOnly : ExtractorApi() {
                 headers = mapOf("User-Agent" to "Mozilla/5.0")
             ).forEach {
                 sources.add(it)
-            }
-        }
-
-        if (sources.isEmpty()) {
-            val videoUrl = Regex("\"file\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\/", "/")
-            if (videoUrl != null) {
-                sources.add(
-                    ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = videoUrl,
-                        referer = url,
-                        quality = getQualityFromName(videoUrl),
-                        isM3u8 = videoUrl.contains(".m3u8")
-                    )
-                )
             }
         }
 

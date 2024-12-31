@@ -156,12 +156,11 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        val iframeUrl = document.select("a:contains(Watch Now)")
-            .firstOrNull()?.attr("href") ?: return false
+        // iframe URL निकालने का नया तरीका
+        val iframeUrl = document.select("div.entry-content iframe").firstOrNull()?.attr("src") ?: return false
 
         val wishOnly = WishOnly()
         val sdSpXyz = SdSpXyz()
-        val filePressLife = FilePressLife()
 
         when {
             wishOnly.canHandleUrl(iframeUrl) -> {
@@ -171,7 +170,6 @@ class Hdmovies4u : MainAPI() {
                     }
                 }
             }
-
             sdSpXyz.canHandleUrl(iframeUrl) -> {
                 safeApiCall {
                     sdSpXyz.getUrl(iframeUrl, referer = data)?.forEach { link ->
@@ -179,15 +177,6 @@ class Hdmovies4u : MainAPI() {
                     }
                 }
             }
-
-            filePressLife.canHandleUrl(iframeUrl) -> {
-                safeApiCall {
-                    filePressLife.getUrl(iframeUrl, referer = data)?.forEach { link ->
-                        callback.invoke(link)
-                    }
-                }
-            }
-
             else -> {
                 safeApiCall {
                     loadExtractor(iframeUrl, data, subtitleCallback, callback)
