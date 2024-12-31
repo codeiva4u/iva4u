@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
@@ -153,23 +154,46 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val extractors = listOf(WishOnly(), SdSpXyz(), FilePressLife())
+        val document = app.get(data).document
 
-        val supportedExtractor = extractors.firstOrNull()
+        val iframeUrl = document.select("a:contains(Watch Now)")
+            .firstOrNull()?.attr("href") ?: return false
 
-        if (supportedExtractor != null) {
-            safeApiCall {
-                supportedExtractor.getUrl(data, data)?.forEach { link ->
-                    callback.invoke(link)
+        val wishOnly = WishOnly()
+        val sdSpXyz = SdSpXyz()
+        val filePressLife = FilePressLife()
+
+        when {
+            wishOnly.canHandleUrl(iframeUrl) -> {
+                safeApiCall {
+                    wishOnly.getUrl(iframeUrl, referer = data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
                 }
-                return@safeApiCall true // यहाँ 'return true' ज़रूरी है
             }
-        } else {
-            safeApiCall {
-                loadExtractor(data, data, subtitleCallback, callback)
-                return@safeApiCall true // यहाँ 'return true' ज़रूरी है
+
+            sdSpXyz.canHandleUrl(iframeUrl) -> {
+                safeApiCall {
+                    sdSpXyz.getUrl(iframeUrl, referer = data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
+                }
+            }
+
+            filePressLife.canHandleUrl(iframeUrl) -> {
+                safeApiCall {
+                    filePressLife.getUrl(iframeUrl, referer = data)?.forEach { link ->
+                        callback.invoke(link)
+                    }
+                }
+            }
+
+            else -> {
+                safeApiCall {
+                    loadExtractor(iframeUrl, data, subtitleCallback, callback)
+                }
             }
         }
-        return true // यह लाइन भी ज़रूरी है
+        return true
     }
 }

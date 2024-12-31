@@ -3,27 +3,29 @@ package com.redowan
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.M3u8Helper
 import com.lagradost.cloudstream3.utils.getQualityFromName
+import com.lagradost.cloudstream3.utils.M3u8Helper
 
-class FilePressLife : ExtractorApi() {
-    override val name = "FilePressLife"
-    override val mainUrl = "https://new2.filepress.life"
-    override val requiresReferer = false
+open class FilePressLife : ExtractorApi() {
+    override var name = "FilePressLife"
+    override var mainUrl = "https://new2.filepress.life"
+    override var requiresReferer = false
+
+    // override कीवर्ड हटा दिया गया
+    fun canHandleUrl(url: String): Boolean {
+        return url.contains("new2.filepress.life")
+    }
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
-        // Extract the iframe url from the "Watch Now" button
         val iframeUrl = Regex("<a [^>]*href=\"(.*?)\"[^>]*>[\\s]*<button [^>]*>Watch Now<\\/button>")
             .find(response)?.groupValues?.get(1)
 
         if (iframeUrl != null) {
-            // Load the iframe URL
             val iframeResponse = app.get(iframeUrl, referer = url).text
 
-            // Extract the video url from the iframe
             val videoUrl = Regex("file:\"(.*?)\",label:\"(.*?)\"").find(iframeResponse)?.groupValues?.get(1)?.replace("\\/", "/")
             val qualityName = Regex("file:\"(.*?)\",label:\"(.*?)\"").find(iframeResponse)?.groupValues?.get(2)
 
@@ -44,16 +46,20 @@ class FilePressLife : ExtractorApi() {
     }
 }
 
-class WishOnly : ExtractorApi() {
-    override val name = "WishOnly"
-    override val mainUrl = "https://wishonly.site"
-    override val requiresReferer = false
+open class WishOnly : ExtractorApi() {
+    override var name = "WishOnly"
+    override var mainUrl = "https://wishonly.site"
+    override var requiresReferer = false
+
+    // override कीवर्ड हटा दिया गया
+    fun canHandleUrl(url: String): Boolean {
+        return url.contains("wishonly.site")
+    }
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
-        // Extract m3u8 links
         val masterPlaylistUrl = Regex("master\\.m3u8(.*?)\"").find(response)?.groupValues?.get(1)
         if (masterPlaylistUrl != null) {
             val m3u8Url = if (masterPlaylistUrl.startsWith("http")) {
@@ -72,7 +78,6 @@ class WishOnly : ExtractorApi() {
             }
         }
 
-        // Extract video link if no m3u8 found, (this might not be reliable)
         if (sources.isEmpty()) {
             val videoUrl = Regex("\"file\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\/", "/")
             if (videoUrl != null) {
@@ -93,16 +98,20 @@ class WishOnly : ExtractorApi() {
     }
 }
 
-class SdSpXyz : ExtractorApi() {
-    override val name = "SdSpXyz"
-    override val mainUrl = "https://v1.sdsp.xyz"
-    override val requiresReferer = false
+open class SdSpXyz : ExtractorApi() {
+    override var name = "SdSpXyz"
+    override var mainUrl = "https://v1.sdsp.xyz"
+    override var requiresReferer = false
+
+    // override कीवर्ड हटा दिया गया
+    fun canHandleUrl(url: String): Boolean {
+        return url.contains("v1.sdsp.xyz")
+    }
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url, referer = referer).text
         val sources = mutableListOf<ExtractorLink>()
 
-        // Extract video URL from JavaScript code (this is specific to v1.sdsp.xyz)
         val videoUrlRegex = Regex("file:\"(.*?)\",label:\"(.*?)\"")
         videoUrlRegex.findAll(response).forEach { matchResult ->
             val videoUrl = matchResult.groupValues[1].replace("\\/", "/")
@@ -119,7 +128,6 @@ class SdSpXyz : ExtractorApi() {
             )
         }
 
-        //If the above doesn't find anything, try to find a master.m3u8
         if (sources.isEmpty()){
             val m3u8Url = Regex("""["'](.*?\.m3u8.*?)["']""").find(response)?.groupValues?.get(1)?.replace("\\/", "/")
 
