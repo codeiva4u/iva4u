@@ -1,12 +1,13 @@
-version = 4
+// use an integer for version numbers
+version = 1
 
 
 cloudstream {
     language = "hi"
     // All of these properties are optional, you can safely remove them
 
-    description = "Use VPN"
-     authors = listOf("megix")
+     description = "Includes: Watchomovies(NS*W), Max resolution is 720p in both extensions."
+     authors = listOf("Hexated")
 
     /**
      * Status int as the following:
@@ -21,5 +22,5 @@ cloudstream {
         "Movie",
     )
 
-    iconUrl = "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/master/OnlineMoviesHinditProvider/icon.png"
+    iconUrl = "https://www.google.com/s2/favicons?domain=yomovies.onl&sz=%size%"
 }
