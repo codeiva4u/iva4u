@@ -20,6 +20,10 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(HubCloudlol())
         registerExtractorAPI(Driveleech())
         registerExtractorAPI(Driveseed())
+        registerExtractorAPI(FastLinks())
+        registerExtractorAPI(WLinkFast())
+        registerExtractorAPI(Sendcm())
+
 
     }
 }

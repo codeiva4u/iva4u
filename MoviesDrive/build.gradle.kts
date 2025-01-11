@@ -1,11 +1,11 @@
-version = 17
+version = 11
 
 cloudstream {
     language = "hi"
     // All of these properties are optional, you can safely remove them
 
     description = "High Quality Movies and TV Shows"
-     authors = listOf("megix")
+    authors = listOf("megix")
 
     /**
      * Status int as the following:
@@ -18,6 +18,8 @@ cloudstream {
     tvTypes = listOf(
         "TvSeries",
         "Movie",
+        "AsianDrama",
+        "Anime"
     )
 
     iconUrl = "https://i.imgur.com/9bGkGMi.png"

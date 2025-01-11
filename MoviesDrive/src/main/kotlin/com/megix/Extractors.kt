@@ -322,7 +322,7 @@ open class HubCloud : ExtractorApi() {
         val text = app.get(url).text
         val newLink = text.substringAfter("url=").substringBefore("\"")
         val newDoc = app.get(newLink).document
-        var gamerLink : String
+        val gamerLink : String
 
         if(newLink.contains("drive")) {
             val scriptTag = newDoc.selectFirst("script:containsData(url)")?.toString() ?: ""
