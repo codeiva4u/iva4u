@@ -1,13 +1,12 @@
 package com.megix
 
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
-import org.json.JSONObject
-import okhttp3.FormBody
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
-import android.util.Log
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.apmap
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 
 class PixelDrain : ExtractorApi() {
     override val name            = "PixelDrain"
