@@ -1,4 +1,4 @@
-package com.yomovies
+package com.megix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors

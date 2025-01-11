@@ -10,7 +10,7 @@ import com.google.gson.Gson
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.world"
+    override var mainUrl = "https://moviesdrive.pro"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -169,9 +169,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         while (
                             hTag != null &&
                             (
-                                    hTag.text().contains("HubCloud", ignoreCase = true) ||
-                                            hTag.text().contains("gdflix", ignoreCase = true)
-                                    )
+                                hTag.text().contains("HubCloud", ignoreCase = true) ||
+                                hTag.text().contains("gdflix", ignoreCase = true)
+                            )
                         ) {
                             val aTag = hTag.selectFirst("a")
                             val epUrl = aTag?.attr("href").toString()
@@ -270,7 +270,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val source = it.source
             loadExtractor(source, subtitleCallback, callback)
         }
-        return true
+        return true   
     }
 
     data class Meta(
@@ -316,3 +316,4 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val source: String
     )
 }
+

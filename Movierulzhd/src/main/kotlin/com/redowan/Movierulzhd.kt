@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.megix
 
 //import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty

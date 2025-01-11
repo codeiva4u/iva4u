@@ -2,7 +2,7 @@ version = 4
 
 cloudstream {
     //description = "Movie website in Bangladesh"
-    authors = listOf("Redowan")
+    authors = listOf("megix")
 
     description = "Hdmovies4u Provider"
     language = "hi"

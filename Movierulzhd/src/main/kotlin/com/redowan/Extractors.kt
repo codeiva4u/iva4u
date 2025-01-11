@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.megix
 
 import android.annotation.SuppressLint
 import com.lagradost.cloudstream3.SubtitleFile
