@@ -27,7 +27,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.pro/"
+    override var mainUrl = "https://moviesdrive.pro"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -41,14 +41,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/page/" to "Latest Release",
-        "$mainUrl/category/hollywood/page/" to "Hollywood Movies",
-        "$mainUrl/category/south/page/" to "South Movies",
-        "$mainUrl/category/hindi-dubbed/page/" to "Hindi Dubbed Movies",
-        "$mainUrl/category/bollywood/page/" to "Bollywood Movies",
+        "$mainUrl/page/" to "Home",
         "$mainUrl/category/amzn-prime-video/page/" to "Prime Video",
         "$mainUrl/category/netflix/page/" to "Netflix",
         "$mainUrl/category/hotstar/page/" to "Hotstar",
+        "$mainUrl/category/anime/page/" to "Anime",
+        "$mainUrl/category/k-drama/page/" to "K Drama",
     )
 
     override suspend fun getMainPage(
@@ -62,7 +60,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         return newHomePageResponse(request.name, home)
     }
 
-    private fun Element.toSearchResult(): SearchResponse? {
+    private fun Element.toSearchResult(): SearchResponse {
         val title = this.selectFirst("figure > img")?.attr("title")?.replace("Download ", "").toString()
         val href = this.selectFirst("figure > a")?.attr("href").toString()
         val posterUrl = this.selectFirst("figure > img")?.attr("src").toString()
@@ -95,7 +93,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         return searchResponse
     }
 
-    override suspend fun load(url: String): LoadResponse? {
+    override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
         var title = document.selectFirst("meta[property=og:title]")?.attr("content")?.replace("Download ", "").toString()
         val ogTitle = title
@@ -154,13 +152,13 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 if (checkSeason == null) {
                     val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
-                        title = title + " " + seasonText.toString()
+                        title = "$title $seasonText"
                     }
                 }
             }
             val tvSeriesEpisodes = mutableListOf<Episode>()
             val episodesMap: MutableMap<Pair<Int, Int>, List<String>> = mutableMapOf()
-            var buttons = document.select("h5 > a")
+            val buttons = document.select("h5 > a")
                 .filter { element -> !element.text().contains("Zip", true) }
 
 
@@ -186,9 +184,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         while (
                             hTag != null &&
                             (
-                                hTag.text().contains("HubCloud", ignoreCase = true) ||
-                                hTag.text().contains("gdflix", ignoreCase = true)
-                            )
+                                    hTag.text().contains("HubCloud", ignoreCase = true) ||
+                                            hTag.text().contains("gdflix", ignoreCase = true)
+                                    )
                         ) {
                             val aTag = hTag.selectFirst("a")
                             val epUrl = aTag?.attr("href").toString()
@@ -287,7 +285,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val source = it.source
             loadExtractor(source, subtitleCallback, callback)
         }
-        return true   
+        return true
     }
 
     data class Meta(
