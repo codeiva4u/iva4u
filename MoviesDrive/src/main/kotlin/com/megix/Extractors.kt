@@ -41,6 +41,14 @@ class PixelDrain : ExtractorApi() {
     }
 }
 
+class HubCloudInk : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.art"
+}
+
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
@@ -55,23 +63,17 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // 1. ब्लॉकिंग एलिमेंट्स हटाएं
-        doc.select("iframe[src*='pixeldra.in'], script[src*='cleverwebserver']").remove()
+        // सभी डाउनलोड लिंक्स को कलेक्ट करें
+        val links = mutableListOf<ExtractorLink>()
 
-        // 2. सभी डाउनलोड बटन्स पकड़ें (FSL, PixelServer, आदि)
-        doc.select("""
-            a[href*='r2.dev'], 
-            a[href*='pixeldra.in/api/file'],
-            a.btn-success.btn-lg.h6,
-            a[style*='background-color: #6f42c1']
-        """.trimIndent()).apmap { button ->
-            val href = button.attr("abs:href")
-            val quality = extractQuality(button.text())
-
-            callback.invoke(
+        // 1. FSL सर्वर (R2.dev) लिंक्स
+        doc.select("a[href*='pub-db4aad121b26409eb63bf48ceb693403.r2.dev']").forEach { link ->
+            val href = link.attr("abs:href")
+            val quality = extractQuality(link.text())
+            links.add(
                 ExtractorLink(
-                    name,
-                    "${name} ${quality}p",
+                    "FSL Server",
+                    "FSL ${quality}p",
                     href,
                     sanitizedUrl,
                     quality
@@ -79,24 +81,50 @@ open class HubCloud : ExtractorApi() {
             )
         }
 
-        // 3. PixelDrain लिंक्स सीधे निकालें
-        doc.select("a[href^='https://pixeldra.in/api/file']").apmap { link ->
-            callback.invoke(
+        // 2. PixelDrain एम्बेड लिंक्स को डायरेक्ट में बदलें
+        doc.select("iframe[src*='pixeldra.in/u/']").forEach { iframe ->
+            val fileId = iframe.attr("src").substringAfter("/u/").substringBefore("?")
+            val directUrl = "https://pixeldra.in/api/file/$fileId?download"
+            val quality = extractQuality("720p") // Default to 720p if not specified
+            links.add(
                 ExtractorLink(
                     "PixelDrain",
-                    "PixelDrain Direct",
-                    link.attr("href"),
+                    "PixelDrain ${quality}p",
+                    directUrl,
                     sanitizedUrl,
-                    Qualities.P720.value
+                    quality
                 )
             )
         }
+
+        // 3. डायरेक्ट PixelDrain डाउनलोड लिंक्स
+        doc.select("a[href*='pixeldra.in/api/file']").forEach { link ->
+            val href = link.attr("abs:href")
+            val quality = extractQuality(link.text())
+            links.add(
+                ExtractorLink(
+                    "PixelDrain",
+                    "PixelDrain ${quality}p",
+                    href,
+                    sanitizedUrl,
+                    quality
+                )
+            )
+        }
+
+        // 4. यूजर को सभी क्वालिटीज़ दिखाएं (HD, FHD, 4K)
+        links
+            .distinctBy { it.url } // डुप्लीकेट हटाएं
+            .sortedByDescending { it.quality } // क्वालिटी के अनुसार सॉर्ट करें
+            .forEach { callback.invoke(it) }
     }
 
+    // क्वालिटी पहचानने के लिए अपडेटेड रेगेक्स
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720p|HEVC", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("1080p|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("720|HD|HEVC", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P720.value
+            Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P1080.value
+            Regex("4K|UHD|2160|HDR", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
