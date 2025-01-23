@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import java.net.URLEncoder
 
 class PixelDrain : ExtractorApi() {
     override val name            = "PixelDrain"
@@ -41,14 +42,6 @@ class PixelDrain : ExtractorApi() {
     }
 }
 
-class HubCloudInk : HubCloud() {
-    override val mainUrl: String = "https://hubcloud.ink"
-}
-
-class HubCloudArt : HubCloud() {
-    override val mainUrl: String = "https://hubcloud.art"
-}
-
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
@@ -63,10 +56,17 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // 1. Remove blocking elements
-        doc.select(".adblock-detector, .popup, .ads-btns, .alert, script[src*='cleverwebserver']").remove()
+        // 1. ब्लॉकिंग एलिमेंट्स हटाएं
+        doc.select("""
+            .adblock-detector, 
+            .popup, 
+            .ads-btns, 
+            .alert, 
+            script[src*='cleverwebserver'],
+            iframe[src*='pixeldra.in']
+        """.trimIndent()).remove()
 
-        // 2. Extract direct links from buttons
+        // 2. डायरेक्ट डाउनलोड लिंक्स
         doc.select("""
             a[href*='r2.dev'], 
             a[href*='pixeldra.in/api/file'],
@@ -74,8 +74,7 @@ open class HubCloud : ExtractorApi() {
             a.btn-success.btn-lg.h6
         """.trimIndent()).apmap { button ->
             var href = button.attr("href")
-            // Fix URL encoding
-            href = href.replace(" ", "%20")
+            href = URLEncoder.encode(href, "UTF-8").replace("%3A", ":")
 
             callback.invoke(
                 ExtractorLink(
@@ -83,19 +82,17 @@ open class HubCloud : ExtractorApi() {
                     "${name} - ${extractQuality(button.text())}p",
                     href,
                     "",
-                    extractQuality(button.text()),
-                    type = ExtractorLinkType.VIDEO,
-                    headers = mapOf("Content-Type" to getMimeType(href))
+                    extractQuality(button.text())
                 )
             )
         }
 
-        // 3. Handle Telegram links
+        // 3. टेलीग्राम लिंक्स
         doc.select("a[href*='t.me'], a[href*='telegram']").apmap { link ->
             callback.invoke(
                 ExtractorLink(
                     "Telegram",
-                    "Download From Telegram",
+                    "Telegram Link",
                     link.attr("href"),
                     "",
                     Qualities.Unknown.value
@@ -103,9 +100,9 @@ open class HubCloud : ExtractorApi() {
             )
         }
 
-        // 4. Extract from JavaScript redirects
+        // 4. स्क्रिप्ट से लिंक निकालें
         doc.select("script:containsData(window.location)").forEach { script ->
-            val regex = Regex("""(https?:\/\/[^\s'"]*\/[^\s'"]*\.(?:mp4|mkv|m3u8))""")
+            val regex = Regex("""(https?:\/\/[^\s'"]*\.(?:mp4|mkv|m3u8))""")
             regex.findAll(script.html()).forEach { match ->
                 callback.invoke(
                     ExtractorLink(
@@ -126,15 +123,6 @@ open class HubCloud : ExtractorApi() {
             Regex("1080|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
             Regex("4K|UHD|2160", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
-        }
-    }
-
-    private fun getMimeType(url: String): String {
-        return when {
-            url.contains(".mkv") -> "video/x-matroska"
-            url.contains(".mp4") -> "video/mp4"
-            url.contains(".m3u8") -> "application/x-mpegURL"
-            else -> "application/octet-stream"
         }
     }
 }
