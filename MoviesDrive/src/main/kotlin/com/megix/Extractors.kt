@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 
 class PixelDrain : ExtractorApi() {
@@ -62,71 +63,78 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // नए एलिमेंट्स हटाए गए
-        doc.select(".loading, .ads-btns, .alert, .adblock-detector, .popup").remove()
+        // 1. Remove blocking elements
+        doc.select(".adblock-detector, .popup, .ads-btns, .alert, script[src*='cleverwebserver']").remove()
 
-        // केस 1: डायरेक्ट डाउनलोड लिंक
-        val scriptTag = doc.selectFirst("script:containsData(window.location)")
-        val urlRegex = Regex("""(https?://[^\s'"]*\/[^\s'"]*\.(?:mp4|m3u8|mkv|avi))""")
-        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
+        // 2. Extract direct links from buttons
+        doc.select("""
+            a[href*='r2.dev'], 
+            a[href*='pixeldra.in/api/file'],
+            a[href*='workers.dev'],
+            a.btn-success.btn-lg.h6
+        """.trimIndent()).apmap { button ->
+            var href = button.attr("href")
+            // Fix URL encoding
+            href = href.replace(" ", "%20")
 
-        if (!directLink.isNullOrEmpty()) {
             callback.invoke(
                 ExtractorLink(
                     name,
-                    "Hub-Cloud Direct",
-                    directLink,
+                    "${name} - ${extractQuality(button.text())}p",
+                    href,
                     "",
-                    Qualities.Unknown.value
+                    extractQuality(button.text()),
+                    type = ExtractorLinkType.VIDEO,
+                    headers = mapOf("Content-Type" to getMimeType(href))
                 )
             )
-            return
         }
 
-        // केस 2: टेलीग्राम लिंक
-        doc.select("a[href*='telegram'], a#tgbtn").mapNotNull {
-            it.attr("href").takeIf { href -> href.isNotEmpty() }
-        }.forEach { telegramLink ->
+        // 3. Handle Telegram links
+        doc.select("a[href*='t.me'], a[href*='telegram']").apmap { link ->
             callback.invoke(
                 ExtractorLink(
                     "Telegram",
-                    "Telegram Link",
-                    telegramLink,
+                    "Download From Telegram",
+                    link.attr("href"),
                     "",
                     Qualities.Unknown.value
                 )
             )
         }
 
-        // केस 3: अन्य लिंक (नए सिलेक्टर्स के साथ)
-        doc.select("""
-            a.btn[href*='download'],
-            a.download-btn[href*='.mp4'],
-            a[href*='streamtape'],
-            a[href*='gdflix']
-        """.trimIndent()).apmap { button ->
-            val href = button.attr("href")
-            val quality = extractQuality(button.text())
-
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    "$name ${quality}p",
-                    href,
-                    "",
-                    quality
+        // 4. Extract from JavaScript redirects
+        doc.select("script:containsData(window.location)").forEach { script ->
+            val regex = Regex("""(https?:\/\/[^\s'"]*\/[^\s'"]*\.(?:mp4|mkv|m3u8))""")
+            regex.findAll(script.html()).forEach { match ->
+                callback.invoke(
+                    ExtractorLink(
+                        name,
+                        "${name} (Direct)",
+                        match.value,
+                        "",
+                        Qualities.P720.value
+                    )
                 )
-            )
+            }
         }
     }
 
-    // गुणवत्ता निष्कर्षण में सुधार
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("""(720|HD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("""(1080|FHD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("""(4K|UHD|2160)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("720|HD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("4K|UHD|2160", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
+        }
+    }
+
+    private fun getMimeType(url: String): String {
+        return when {
+            url.contains(".mkv") -> "video/x-matroska"
+            url.contains(".mp4") -> "video/mp4"
+            url.contains(".m3u8") -> "application/x-mpegURL"
+            else -> "application/octet-stream"
         }
     }
 }
