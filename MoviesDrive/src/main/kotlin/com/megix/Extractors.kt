@@ -41,6 +41,7 @@ open class HubCloud : ExtractorApi() {
     override val requiresReferer = true
 
     private val pixeldrainRegex = Regex("""/u/([^/?]+)""")
+    private val fslQualityRegex = Regex("""(\d{3,4}p|4K)""", RegexOption.IGNORE_CASE)
 
     override suspend fun getUrl(
         url: String,
@@ -48,15 +49,14 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Pixeldrain लिंक्स को हैंडल करें
+        // 1. Pixeldrain लिंक्स को हैंडल करें
         val fileId = pixeldrainRegex.find(url)?.groupValues?.get(1)
         if (!fileId.isNullOrEmpty()) {
-            val directUrl = "https://pixeldra.in/api/file/$fileId?download"
             callback.invoke(
                 ExtractorLink(
                     "PixelDrain",
                     "PixelDrain",
-                    directUrl,
+                    "https://pixeldra.in/api/file/$fileId?download",
                     url,
                     Qualities.Unknown.value
                 )
@@ -64,16 +64,46 @@ open class HubCloud : ExtractorApi() {
             return
         }
 
-        // अन्य लिंक्स के लिए (यदि कोई हो)
-        val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
-        // यहाँ अतिरिक्त लॉजिक जोड़ें
+        // 2. FSL Server लिंक्स निकालें
+        try {
+            val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
+            doc.select("h2 > a.btn.btn-success.btn-lg.h6").forEach { link ->
+                if (link.text().contains("FSL Server", ignoreCase = true)) {
+                    // URL सैनिटाइज़ करें
+                    val href = link.attr("href")
+                        .replace("[[ moviesdrives.com ]]", "moviesdrives.com")
+                        .replace(" ", "%20") // स्पेस को एन्कोड करें
+
+                    // क्वालिटी डिटेक्ट करें
+                    val qualityMatch = fslQualityRegex.find(link.text())
+                    val (qualityName, qualityValue) = when {
+                        qualityMatch != null -> {
+                            val q = qualityMatch.value
+                            Pair(q, when (q.lowercase()) {
+                                "720p" -> Qualities.P720.value
+                                "1080p" -> Qualities.P1080.value
+                                "4k" -> Qualities.P2160.value
+                                else -> Qualities.Unknown.value
+                            })
+                        }
+                        else -> Pair("Unknown", Qualities.Unknown.value)
+                    }
+
+                    // लिंक को कॉलबैक में पास करें
+                    callback.invoke(
+                        ExtractorLink(
+                            "FSL Server",
+                            "FSL $qualityName",
+                            href,
+                            url,
+                            qualityValue
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // एरर हैंडलिंग (लॉग करें या इग्नोर करें)
+            e.printStackTrace()
+        }
     }
-}
-
-class HubCloudInk : HubCloud() {
-    override val mainUrl = "https://hubcloud.ink"
-}
-
-class HubCloudArt : HubCloud() {
-    override val mainUrl = "https://hubcloud.art"
 }
