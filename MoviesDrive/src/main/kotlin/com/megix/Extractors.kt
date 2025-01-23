@@ -49,6 +49,8 @@ class HubCloudArt : HubCloud() {
     override val mainUrl: String = "https://hubcloud.art"
 }
 
+// Extractors.kt में HubCloud क्लास का अपडेटेड कोड
+
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
@@ -63,23 +65,52 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // अवांछित एलिमेंट्स हटाएं
-        doc.select("""
-            .adblock-detector, 
-            .popup, 
-            .ads-btns, 
-            .alert, 
-            script[src*='cleverwebserver']
-        """.trimIndent()).remove()
+        // नए एलिमेंट्स हटाए गए
+        doc.select(".loading, .ads-btns, .alert, .adblock-detector, .popup").remove()
 
-        // डायरेक्ट डाउनलोड लिंक (FSL, PixelServer, 10Gbps)
+        // केस 1: डायरेक्ट डाउनलोड लिंक
+        val scriptTag = doc.selectFirst("script:containsData(window.location)")
+        val urlRegex = Regex("""(https?://[^\s'"]*\/[^\s'"]*\.(?:mp4|m3u8|mkv|avi))""")
+        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
+
+        if (!directLink.isNullOrEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Hub-Cloud Direct",
+                    directLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+            return
+        }
+
+        // केस 2: टेलीग्राम लिंक
+        doc.select("a[href*='telegram'], a#tgbtn").mapNotNull {
+            it.attr("href").takeIf { href -> href.isNotEmpty() }
+        }.forEach { telegramLink ->
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Telegram Link",
+                    telegramLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+        }
+
+        // केस 3: अन्य लिंक (नए सिलेक्टर्स के साथ)
         doc.select("""
-            a[href*='pub-db4aad121b26409eb63bf48ceb693403.r2.dev'], 
-            a[href*='pixeldra.in/api/file'], 
-            a[href*='gpdl.technorozen.workers.dev']
+            a.btn[href*='download'],
+            a.download-btn[href*='.mp4'],
+            a[href*='streamtape'],
+            a[href*='gdflix']
         """.trimIndent()).apmap { button ->
             val href = button.attr("href")
             val quality = extractQuality(button.text())
+
             callback.invoke(
                 ExtractorLink(
                     name,
@@ -90,26 +121,14 @@ open class HubCloud : ExtractorApi() {
                 )
             )
         }
-
-        // टेलीग्राम लिंक
-        doc.select("a[href*='t.me'], a[href*='telegram']").apmap { link ->
-            callback.invoke(
-                ExtractorLink(
-                    "Telegram",
-                    "Telegram Link",
-                    link.attr("href"),
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-        }
     }
 
+    // गुणवत्ता निष्कर्षण में सुधार
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720p|HD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("1080p|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("4K|UHD|2160p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("""(720|HD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("""(1080|FHD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("""(4K|UHD|2160)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
