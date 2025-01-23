@@ -14,7 +14,7 @@ import okhttp3.Response
 // PixelDrain Extractor
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
-    override val mainUrl = "https://pixeldra.in"
+    override val mainUrl = "https://pixeldrain.com" // Corrected URL
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -23,14 +23,14 @@ class PixelDrain : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
+        val mId = Regex("/u/(.+)").find(url)?.groupValues?.get(1) // Improved regex
         if (mId.isNullOrEmpty()) {
             callback.invoke(
                 ExtractorLink(
                     this.name,
                     this.name,
                     url,
-                    url,
+                    referer ?: url, // Use referer if available
                     Qualities.Unknown.value,
                 )
             )
@@ -40,7 +40,7 @@ class PixelDrain : ExtractorApi() {
                     this.name,
                     this.name,
                     "$mainUrl/api/file/${mId}?download",
-                    url,
+                    referer ?: url, // Use referer if available
                     Qualities.Unknown.value,
                 )
             )
@@ -130,28 +130,28 @@ open class HubCloud : ExtractorApi() {
             if (scriptContent.contains("eval(function(p,a,c,k,e,d)")) {
                 val unpacked = getAndUnpack(scriptContent)
 
-                Regex("""(https?://[^\s'"]*\.(?:mp4|mkv|m3u8|avi|mov))\b""", RegexOption.IGNORE_CASE).findAll(unpacked).forEach { match ->
+                Regex("""(https?://[^\s'"]*\.(?:mp4|mkv|m3u8|avi|mov|wmv|flv|webm))\b""", RegexOption.IGNORE_CASE).findAll(unpacked).forEach { match -> // Added more video formats
                     callback.invoke(
                         ExtractorLink(
                             name,
-                            "$name (Auto-Detected)",
+                            "$name (Auto-Detected - ${detectQuality(match.value)}p)", // Added quality detection to name
                             match.value,
                             sanitizedUrl,
-                            Qualities.Unknown.value
+                            detectQuality(match.value) // Using quality detection here
                         )
                     )
                 }
             }
 
             // Find direct links within scripts with improved regex
-            Regex("""(https?://[^\s'"]*\.(?:mp4|mkv|m3u8|avi|mov))\b""", RegexOption.IGNORE_CASE).findAll(scriptContent).forEach { match ->
+            Regex("""(https?://[^\s'"]*\.(?:mp4|mkv|m3u8|avi|mov|wmv|flv|webm))\b""", RegexOption.IGNORE_CASE).findAll(scriptContent).forEach { match -> // Added more video formats
                 callback.invoke(
                     ExtractorLink(
                         name,
-                        "$name (Auto-Detected)",
+                        "$name (Auto-Detected - ${detectQuality(match.value)}p)", // Added quality detection to name
                         match.value,
                         sanitizedUrl,
-                        Qualities.Unknown.value
+                        detectQuality(match.value) // Using quality detection here
                     )
                 )
             }
@@ -163,6 +163,7 @@ open class HubCloud : ExtractorApi() {
         return when {
             text.contains(Regex("720|HD|HEVC|h264", RegexOption.IGNORE_CASE)) -> Qualities.P720.value
             text.contains(Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE)) -> Qualities.P1080.value
+            text.contains(Regex("2K|1440", RegexOption.IGNORE_CASE)) -> Qualities.P1440.value // Added 2k
             text.contains(Regex("4K|UHD|2160|HDR|Dolby", RegexOption.IGNORE_CASE)) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
@@ -176,6 +177,9 @@ open class HubCloud : ExtractorApi() {
             url.contains(".m3u8") -> "application/x-mpegURL"
             url.contains(".avi") -> "video/x-msvideo"
             url.contains(".mov") -> "video/quicktime"
+            url.contains(".wmv") -> "video/x-ms-wmv" // Added WMV
+            url.contains(".flv") -> "video/x-flv" // Added FLV
+            url.contains(".webm") -> "video/webm" // Added WebM
             else -> "video/*" // Default to a generic video type
         }
     }
