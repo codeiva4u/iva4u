@@ -40,9 +40,6 @@ open class HubCloud : ExtractorApi() {
     override val mainUrl = "https://hubcloud.ink"
     override val requiresReferer = true
 
-    // PixelDrain लिंक निकालने के लिए रेगेक्स
-    private val pixeldrainRegex = Regex("""(https://pixeldra?in/api/file/[^\s"']+)""")
-
     override suspend fun getUrl(
         url: String,
         referer: String?,
@@ -50,38 +47,48 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
+            // HTML डॉक्यूमेंट फ़ेच करें
+            val doc = app.get(
+                url,
+                headers = mapOf(
+                    "Referer" to mainUrl,
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            ).document
 
-            // 1. <meta> टैग से PixelDrain लिंक निकालें
-            doc.select("meta[property=og:video], meta[property=og:video:secure_url]").forEach { meta ->
-                val videoUrl = meta.attr("content")
-                if (videoUrl.contains("pixeldra.in/api/file")) {
-                    // डाउनलोड लिंक बनाएँ (?download जोड़ें)
-                    val downloadUrl = videoUrl.replace("/api/file/", "/api/file/") + "?download"
-                    callback.invoke(
-                        ExtractorLink(
-                            "PixelDrain",
-                            "PixelDrain",
-                            downloadUrl,
-                            url,
-                            Qualities.Unknown.value
-                        )
+            // 1. FSL Server लिंक्स निकालें
+            doc.select("a:contains(Download [FSL Server])").forEach { link ->
+                // URL सैनिटाइज़ करें
+                val href = link.attr("href")
+                    .replace("[[%20moviesdrives.com%20]]", "moviesdrives.com")
+                    .replace("%20", " ")
+                    .trim()
+
+                // क्वालिटी डिटेक्ट करें
+                val quality = Regex("""(\d{3,4}p|4K)""", RegexOption.IGNORE_CASE)
+                    .find(link.text())?.value ?: "Unknown"
+
+                val qualityValue = when (quality.lowercase()) {
+                    "720p" -> Qualities.P720.value
+                    "1080p" -> Qualities.P1080.value
+                    "4k" -> Qualities.P2160.value
+                    else -> Qualities.Unknown.value
+                }
+
+                // लिंक पास करें
+                callback.invoke(
+                    ExtractorLink(
+                        "FSL Server",
+                        "FSL $quality",
+                        href,
+                        url,
+                        qualityValue
                     )
-                }
-            }
-
-            // 2. FSL Server लिंक्स निकालें (पिछला लॉजिक)
-            doc.select("h2 > a.btn.btn-success.btn-lg.h6").forEach { link ->
-                if (link.text().contains("FSL Server", ignoreCase = true)) {
-                    val href = link.attr("href")
-                        .replace("[[ moviesdrives.com ]]", "moviesdrives.com")
-                        .replace(" ", "%20")
-                    // ... (क्वालिटी डिटेक्शन और कॉलबैक)
-                }
+                )
             }
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            println("HubCloud Error: ${e.message}")
         }
     }
 }
