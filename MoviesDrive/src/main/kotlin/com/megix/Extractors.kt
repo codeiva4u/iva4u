@@ -60,59 +60,46 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val sanitizedUrl = url.replace("ink", "dad").replace("art", "dad")
+        val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // Remove unnecessary elements
-        doc.select(".loading, .ads-btns, .alert").remove()
+        // अवांछित एलिमेंट्स हटाएं
+        doc.select("""
+            .adblock-detector, 
+            .popup, 
+            .ads-btns, 
+            .alert, 
+            script[src*='cleverwebserver']
+        """.trimIndent()).remove()
 
-        // Case 1: Direct Download Link
-        val downloadButton = doc.selectFirst("a#download")
-        val scriptTag = doc.selectFirst("script:containsData(window.location)")
-        val urlRegex = Regex("""https://[^\s'"]+""")
-        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
-
-        if (!directLink.isNullOrEmpty()) {
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    "Hub-Cloud Direct Download",
-                    directLink,
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-        }
-
-        // Case 2: Telegram Link
-        val telegramButton = doc.selectFirst("a#tgbtn")
-        val telegramLink = telegramButton?.attr("href")
-
-        if (!telegramLink.isNullOrEmpty()) {
-            callback.invoke(
-                ExtractorLink(
-                    "Telegram",
-                    "Download From Telegram",
-                    telegramLink,
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-        }
-
-        // Case 3: Other Links
-        doc.select("a.btn, a.download-btn").apmap { button ->
+        // डायरेक्ट डाउनलोड लिंक (FSL, PixelServer, 10Gbps)
+        doc.select("""
+            a[href*='pub-db4aad121b26409eb63bf48ceb693403.r2.dev'], 
+            a[href*='pixeldra.in/api/file'], 
+            a[href*='gpdl.technorozen.workers.dev']
+        """.trimIndent()).apmap { button ->
             val href = button.attr("href")
-            val text = button.text()
-            val quality = extractQuality(text)
-
+            val quality = extractQuality(button.text())
             callback.invoke(
                 ExtractorLink(
                     name,
-                    "$name - ${quality}p",
+                    "$name ${quality}p",
                     href,
                     "",
                     quality
+                )
+            )
+        }
+
+        // टेलीग्राम लिंक
+        doc.select("a[href*='t.me'], a[href*='telegram']").apmap { link ->
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Telegram Link",
+                    link.attr("href"),
+                    "",
+                    Qualities.Unknown.value
                 )
             )
         }
@@ -120,9 +107,9 @@ open class HubCloud : ExtractorApi() {
 
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("1080p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("4K|2160p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("720p|HD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080p|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("4K|UHD|2160p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
