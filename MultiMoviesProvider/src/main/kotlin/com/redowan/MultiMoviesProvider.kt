@@ -2,6 +2,7 @@ package com.Phisher98
 
 //import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.*
@@ -11,7 +12,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.lat"
+    override var mainUrl = "https://multimovies.today"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -77,7 +78,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         //Log.d("title", title)
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         //Log.d("href", href)
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("data-src"))
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
         //Log.d("posterUrl", posterUrl.toString())
         //Log.d("QualityN", qualityN)
         val quality =
@@ -282,10 +283,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     !link.contains("youtube") -> {
                         if(link.contains("gdmirrorbot.nl"))
                         {
-                            app.get(link).document.select("ul#videoLinks li").map {
-                                @Suppress("NAME_SHADOWING") val link=it.attr("data-link")
-                                loadExtractor(link,referer = mainUrl,subtitleCallback, callback)
-                            }
+                            Log.d("Phisher",link)
+                            loadExtractor(link,referer = mainUrl,subtitleCallback, callback)
                         }
                         else
                             if (link.contains("deaddrive.xyz"))

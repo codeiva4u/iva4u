@@ -62,7 +62,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
 
-        for (i in 1..25) {
+        for (i in 1..7) {
             val document = app.get("$mainUrl/page/$i/?s=$query").document
 
             val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
@@ -169,9 +169,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         while (
                             hTag != null &&
                             (
-                                hTag.text().contains("HubCloud", ignoreCase = true) ||
-                                hTag.text().contains("gdflix", ignoreCase = true)
-                            )
+                                    hTag.text().contains("HubCloud", ignoreCase = true) ||
+                                            hTag.text().contains("gdflix", ignoreCase = true)
+                                    )
                         ) {
                             val aTag = hTag.selectFirst("a")
                             val epUrl = aTag?.attr("href").toString()
@@ -238,7 +238,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val data = buttons.flatMap { button ->
                 val link = button.attr("href")
                 val doc = app.get(link).document
-                val innerButtons = doc.select("h5 > a")
+                val innerButtons = doc.select("a").filter {
+                    it.attr("href").contains(Regex("hubcloud|gdflix", RegexOption.IGNORE_CASE))
+                }
                 innerButtons.mapNotNull { innerButton ->
                     val source = innerButton.attr("href")
                     EpisodeLink(
@@ -270,7 +272,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val source = it.source
             loadExtractor(source, subtitleCallback, callback)
         }
-        return true   
+        return true
     }
 
     data class Meta(
@@ -316,4 +318,3 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val source: String
     )
 }
-

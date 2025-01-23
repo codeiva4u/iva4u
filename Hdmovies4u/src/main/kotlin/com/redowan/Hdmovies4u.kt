@@ -48,7 +48,7 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        return HomePageResponse(arrayListOf(HomePageList(request.name, home)), hasNext = true)
+        return newHomePageResponse(arrayListOf(HomePageList(request.name, home)), hasNext = true)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {

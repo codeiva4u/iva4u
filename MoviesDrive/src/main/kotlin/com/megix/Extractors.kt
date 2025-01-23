@@ -46,7 +46,7 @@ class PixelDrain : ExtractorApi() {
 
 
 class VCloud : ExtractorApi() {
-    override val name: String = "V-Cloud"
+    override val name: String = "VCloud"
     override val mainUrl: String = "https://vcloud.lol"
     override val requiresReferer = false
 
@@ -124,7 +124,7 @@ class VCloud : ExtractorApi() {
                         ExtractorLink(
                             "$name[Download]",
                             "$name[Download] - $header",
-                            dlink.substringAfter("url="),
+                            dlink.substringAfter("link="),
                             "",
                             getIndexQuality(header),
                         )
@@ -144,113 +144,119 @@ class VCloud : ExtractorApi() {
     }
 }
 
-//class HubCloudInk : HubCloud() {
-//    override val mainUrl: String = "https://hubcloud.ink"
-//}
-//
-//class HubCloudArt : HubCloud() {
-//    override val mainUrl: String = "https://hubcloud.art"
-//}
-//
-//open class HubCloud : ExtractorApi() {
-//    override val name: String = "Hub-Cloud"
-//    override val mainUrl: String = "https://hubcloud.tel"
-//    override val requiresReferer = false
-//
-//    override suspend fun getUrl(
-//        url: String,
-//        referer: String?,
-//        subtitleCallback: (SubtitleFile) -> Unit,
-//        callback: (ExtractorLink) -> Unit
-//    ) {
-//        val newUrl = url.replace("ink", "tel").replace("art", "tel")
-//        val doc = app.get(newUrl).document
-//        val link = if(url.contains("drive")) {
-//            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-//            Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
-//        }
-//        else {
-//            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
-//        }
-//
-//        val document = app.get(link).document
-//        val div = document.selectFirst("div.card-body")
-//        val header = document.select("div.card-header").text() ?: ""
-//        div?.select("h2 a.btn")?.apmap {
-//            val link = it.attr("href")
-//            val text = it.text()
-//
-//            if (text.contains("Download [FSL Server]"))
-//            {
-//                callback.invoke(
-//                    ExtractorLink(
-//                        "$name[FSL Server]",
-//                        "$name[FSL Server] - $header",
-//                        link,
-//                        "",
-//                        getIndexQuality(header),
-//                    )
-//                )
-//            }
-//            else if (text.contains("Download File")) {
-//                callback.invoke(
-//                    ExtractorLink(
-//                        "$name",
-//                        "$name - $header",
-//                        link,
-//                        "",
-//                        getIndexQuality(header),
-//                    )
-//                )
-//            }
-//            else if(text.contains("BuzzServer")) {
-//                val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
-//                callback.invoke(
-//                    ExtractorLink(
-//                        "$name[BuzzServer]",
-//                        "$name[BuzzServer] - $header",
-//                        link.substringBeforeLast("/") + dlink,
-//                        "",
-//                        getIndexQuality(header),
-//                    )
-//                )
-//            }
-//
-//            else if (link.contains("pixeldra")) {
-//                callback.invoke(
-//                    ExtractorLink(
-//                        "Pixeldrain",
-//                        "Pixeldrain - $header",
-//                        link,
-//                        "",
-//                        getIndexQuality(header),
-//                    )
-//                )
-//            }
-//            else if (text.contains("Download [Server : 10Gbps]")) {
-//                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
-//                callback.invoke(
-//                    ExtractorLink(
-//                        "$name[Download]",
-//                        "$name[Download] - $header",
-//                        dlink.substringAfter("url="),
-//                        "",
-//                        getIndexQuality(header),
-//                    )
-//                )
-//            }
-//            else
-//            {
-//                loadExtractor(link,"",subtitleCallback, callback)
-//            }
-//        }
-//    }
-//
-//    private fun getIndexQuality(str: String?): Int {
-//        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
-//            ?: Qualities.Unknown.value
-//    }
-//}
+class HubCloudInk : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.art"
+}
+
+open class HubCloud : ExtractorApi() {
+    override val name: String = "Hub-Cloud"
+    override val mainUrl: String = "https://hubcloud.dad"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val sanitizedUrl = url.replace("ink", "dad").replace("art", "dad")
+        val doc = app.get(sanitizedUrl).document
+
+        // Case 1: Direct HubCloud link from input field
+        doc.selectFirst("input#ilink")?.attr("value")?.let { directLink ->
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Hub-Cloud Direct",
+                    directLink.replace("ink", "dad"),
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+        }
+
+        // Case 2: Process all download buttons
+        doc.select("a.btn").apmap { button ->
+            val href = button.attr("href")
+            val text = button.text()
+            val quality = extractQuality(text) // Extract quality from button text
+
+            when {
+                // FSL Server
+                text.contains("FSL Server", ignoreCase = true) -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "$name[FSL]",
+                            "$name[FSL] - ${quality}p",
+                            href,
+                            "",
+                            quality
+                        )
+                    )
+                }
+
+                // R2 Direct Link
+                href.contains("r2.dev") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "$name[R2]",
+                            "$name[R2] - ${quality}p",
+                            href,
+                            "",
+                            quality
+                        )
+                    )
+                }
+
+                // 10Gbps Server (Redirect Handling)
+                text.contains("10Gbps", ignoreCase = true) -> {
+                    val redirectUrl = app.get(href, allowRedirects = false).headers["location"]
+                    redirectUrl?.let { safeUrl ->
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[10Gbps]",
+                                "$name[10Gbps] - ${quality}p",
+                                safeUrl.substringAfter("link="),
+                                "",
+                                quality
+                            )
+                        )
+                    }
+                }
+
+                // PixelDrain Server
+                href.contains("pixeldra.in") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "PixelDrain",
+                            "PixelDrain - ${quality}p",
+                            href,
+                            "",
+                            quality
+                        )
+                    )
+                }
+
+                // Default case for other links
+                else -> loadExtractor(href, "", subtitleCallback, callback)
+            }
+        }
+    }
+
+    // Improved quality extraction logic
+    private fun extractQuality(text: String): Int {
+        return when {
+            Regex("720p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("4K|2160p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            else -> Qualities.Unknown.value
+        }
+    }
+}
 
 class fastdlserver : GDFlix() {
     override var mainUrl = "https://fastdlserver.online"

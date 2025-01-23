@@ -1,4 +1,4 @@
-package com.megix
+package com.Phisher98
 
 import android.annotation.SuppressLint
 import com.lagradost.cloudstream3.SubtitleFile
@@ -11,63 +11,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.Qualities
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import java.util.regex.Pattern
-
-class FileMoon : ExtractorApi() {
-    override val name: String = "FileMoon"
-    override val mainUrl: String = "https://fle-rvd0i9o8-moo.com"
-    override val requiresReferer = true
-
-    @SuppressLint("SuspiciousIndentation")
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        // वेबपेज को पार्स करें
-        val document: Document = Jsoup.connect(url).referrer(referer ?: mainUrl).get()
-
-        // स्ट्रीमिंग लिंक निकालें
-        val videoElement: Element? = document.selectFirst("video.jw-video")
-        val streamingLink: String? = videoElement?.attr("src")
-
-        // डाउनलोड लिंक निकालें (यदि मौजूद है)
-        val downloadLink: String? = document.selectFirst("a.download-link")?.attr("href")
-
-        // जावास्क्रिप्ट एलिमेंट को पार्स करें
-        val scriptTag: Element? = document.selectFirst("script:containsData(sources: [)")
-        val scriptContent: String = scriptTag?.data() ?: return
-
-        // जावास्क्रिप्ट से वीडियो लिंक निकालें
-        val videoLinkPattern: Pattern = Pattern.compile("sources: \\[\\{file: \"(.*?)\"")
-        val matcher = videoLinkPattern.matcher(scriptContent)
-        val videoLink: String? = if (matcher.find()) matcher.group(1) else return
-
-        // वीडियो लिंक को रिटर्न करें
-        videoLink?.let {
-            ExtractorLink(
-                this.name,
-                "FileMoon Video",
-                it,
-                url,
-                Qualities.Unknown.value,
-                type = ExtractorLinkType.M3U8 // यह मानते हुए कि लिंक M3U8 फॉर्मेट में है
-            )
-        }?.let {
-            callback.invoke(
-                it
-            )
-        }
-
-        // निकाले गए लिंक प्रिंट करें
-        println("Streaming Link: $streamingLink")
-        println("Download Link: $downloadLink")
-    }
-}
 
 class FMHD : Filesim() {
     override val name = "FMHD"
@@ -86,7 +29,36 @@ class Luluvdo : StreamWishExtractor() {
 
 class Lulust : StreamWishExtractor() {
     override val mainUrl = "https://lulu.st"
+}
+
+class FilemoonV2 : ExtractorApi() {
+    override var name = "Filemoon"
+    override var mainUrl = "https://movierulz2025.bar"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
+        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        val m3u8=JsUnpacker(res).unpack()?.let { unPacked ->
+            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+        }
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                this.name,
+                m3u8 ?:"",
+                url,
+                Qualities.P1080.value,
+                type = ExtractorLinkType.M3U8,
+            )
+        )
     }
+}
 
 open class FMX : ExtractorApi() {
     override var name = "FMX"
@@ -97,21 +69,21 @@ open class FMX : ExtractorApi() {
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url,referer=mainUrl).document
         val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                    return listOf(
-                        ExtractorLink(
-                            this.name,
-                            this.name,
-                            link,
-                            referer ?: "",
-                            Qualities.Unknown.value,
-                            type = INFER_TYPE
-                        )
+        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                return listOf(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        link,
+                        referer ?: "",
+                        Qualities.Unknown.value,
+                        type = INFER_TYPE
                     )
-                }
+                )
             }
-            return null
+        }
+        return null
     }
 }
 
@@ -130,7 +102,7 @@ open class Akamaicdn : ExtractorApi() {
         val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
             ?.substringBefore(");") ?: return
         val ids = mappers.split(",").map { it.replace("\"", "") }
-        val header= mapOf("User-Agent" to "PostmanRuntime/7.43.0","Accept" to "*/*","Referer" to url)
+        val headers= mapOf("user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         callback.invoke(
             ExtractorLink(
                 this.name,
@@ -139,12 +111,12 @@ open class Akamaicdn : ExtractorApi() {
                 url,
                 Qualities.P1080.value,
                 type = ExtractorLinkType.M3U8,
-                headers = header
+                headers = headers
             )
         )
     }
 }
 class Mocdn:Akamaicdn(){
-   override val name = "Mocdn"
-   override val mainUrl = "https://mocdn.art"
+    override val name = "Mocdn"
+    override val mainUrl = "https://mocdn.art"
 }
