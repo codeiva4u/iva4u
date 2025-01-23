@@ -5,7 +5,6 @@ import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 
 class PixelDrain : ExtractorApi() {
@@ -52,7 +51,7 @@ class HubCloudArt : HubCloud() {
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
-    override val requiresReferer = true // Referer अब आवश्यक है
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -61,74 +60,72 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
-        val response = app.get(
-            sanitizedUrl,
-            headers = mapOf("Referer" to mainUrl) // सर्वर को ब्लॉक करने से रोकें
-        )
-        val html = response.text
+        val doc = app.get(sanitizedUrl).document
 
-        // 1. सभी लिंक्स और iframes निकालने के लिए रेगेक्स (अपडेटेड)
-        val linkRegex = Regex("""<(a|iframe)\s+[^>]*(href|src)=["'](https?://[^"']+)["'][^>]*>([\s\S]*?)</\1>""")
-        val matches = linkRegex.findAll(html)
+        // नए एलिमेंट्स हटाए गए
+        doc.select(".loading, .ads-btns, .alert, .adblock-detector, .popup").remove()
 
-        val links = mutableListOf<ExtractorLink>()
-        matches.forEach { match ->
-            val linkType = match.groupValues[1] // 'a' या 'iframe'
-            val href = match.groupValues[3].replace(" ", "%20")
-            val text = match.groupValues[4]
+        // केस 1: डायरेक्ट डाउनलोड लिंक
+        val scriptTag = doc.selectFirst("script:containsData(window.location)")
+        val urlRegex = Regex("""(https?://[^\s'"]*\/[^\s'"]*\.(?:mp4|m3u8|mkv|avi))""")
+        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
 
-            // 2. FSL, PixelDrain और अन्य लिंक्स फ़िल्टर करें
-            when {
-                // Case 1: FSL Server लिंक (R2.dev)
-                href.contains("r2.dev") -> {
-                    links.add(createLink(href, text, "FSL Server", sanitizedUrl))
-                }
-                // Case 2: PixelDrain Direct लिंक
-                href.contains("pixeldra.in/api/file") -> {
-                    links.add(createLink(href, text, "PixelDrain", sanitizedUrl))
-                }
-                // Case 3: PixelDrain Embed लिंक (iframe)
-                linkType == "iframe" && href.contains("pixeldra.in/u/") -> {
-                    val fileId = href.substringAfter("/u/").substringBefore("?")
-                    val directUrl = "https://pixeldra.in/api/file/$fileId?download"
-                    links.add(createLink(directUrl, text, "PixelDrain", sanitizedUrl))
-                }
-                // Case 4: M3U8/MP4 स्ट्रीमिंग लिंक
-                href.contains(".m3u8|.mp4".toRegex()) -> {
-                    links.add(createLink(href, text, "Direct Stream", sanitizedUrl))
-                }
-            }
+        if (!directLink.isNullOrEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Hub-Cloud Direct",
+                    directLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+            return
         }
 
-        // 3. सभी लिंक्स यूजर को दिखाएं (क्वालिटी और स्रोत के साथ)
-        links.distinctBy { it.url }
-            .sortedByDescending { it.quality }
-            .forEach { callback.invoke(it) }
+        // केस 2: टेलीग्राम लिंक
+        doc.select("a[href*='telegram'], a#tgbtn").mapNotNull {
+            it.attr("href").takeIf { href -> href.isNotEmpty() }
+        }.forEach { telegramLink ->
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Telegram Link",
+                    telegramLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+        }
+
+        // केस 3: अन्य लिंक (नए सिलेक्टर्स के साथ)
+        doc.select("""
+            a.btn[href*='download'],
+            a.download-btn[href*='.mp4'],
+            a[href*='streamtape'],
+            a[href*='gdflix']
+        """.trimIndent()).apmap { button ->
+            val href = button.attr("href")
+            val quality = extractQuality(button.text())
+
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "$name ${quality}p",
+                    href,
+                    "",
+                    quality
+                )
+            )
+        }
     }
 
-    private fun createLink(
-        href: String,
-        text: String,
-        source: String,
-        referer: String
-    ): ExtractorLink {
-        val quality = extractQuality(text)
-        return ExtractorLink(
-            source,
-            "${source} (${quality}p)", // उदाहरण: "FSL Server (720p)"
-            href,
-            referer,
-            quality,
-            type = if (href.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-        )
-    }
-
-    // क्वालिटी डिटेक्शन (सभी वेरिएंट्स को कवर करें)
+    // गुणवत्ता निष्कर्षण में सुधार
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("""720p?|HD|HEVC|480p""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("""1080p?|FHD|Blu-?Ray""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("""4K|UHD|2160p?|HDR|1440p""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("""(720|HD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("""(1080|FHD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("""(4K|UHD|2160)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
