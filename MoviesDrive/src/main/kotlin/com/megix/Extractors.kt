@@ -61,70 +61,64 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
-        val doc = app.get(sanitizedUrl).document
+        val html = app.get(sanitizedUrl).text // पूरा HTML टेक्स्ट प्राप्त करें
 
-        // सभी डाउनलोड लिंक्स को कलेक्ट करें
+        // 1. सभी लिंक्स रेगेक्स से निकालें
+        val linkRegex = Regex("""<a\s+[^>]*href=["'](https?://[^"']+)["'][^>]*>([\s\S]*?)</a>""")
+        val matches = linkRegex.findAll(html)
+
         val links = mutableListOf<ExtractorLink>()
+        matches.forEach { match ->
+            val href = match.groupValues[1]
+            val text = match.groupValues[2]
 
-        // 1. FSL सर्वर (R2.dev) लिंक्स
-        doc.select("a[href*='pub-db4aad121b26409eb63bf48ceb693403.r2.dev']").forEach { link ->
-            val href = link.attr("abs:href")
-            val quality = extractQuality(link.text())
-            links.add(
-                ExtractorLink(
-                    "FSL Server",
-                    "FSL ${quality}p",
-                    href,
-                    sanitizedUrl,
-                    quality
-                )
-            )
+            // 2. FSL, PixelDrain और अन्य लिंक्स फ़िल्टर करें
+            when {
+                // FSL Server लिंक
+                href.contains("pub-db4aad121b26409eb63bf48ceb693403.r2.dev") -> {
+                    links.add(createLink(href, text, "FSL Server", sanitizedUrl))
+                }
+                // PixelDrain Direct लिंक
+                href.contains("pixeldra.in/api/file") -> {
+                    links.add(createLink(href, text, "PixelDrain", sanitizedUrl))
+                }
+                // PixelDrain Embed लिंक
+                href.contains("pixeldra.in/u/") -> {
+                    val fileId = href.substringAfter("/u/").substringBefore("?")
+                    val directUrl = "https://pixeldra.in/api/file/$fileId?download"
+                    links.add(createLink(directUrl, text, "PixelDrain", sanitizedUrl))
+                }
+            }
         }
 
-        // 2. PixelDrain एम्बेड लिंक्स को डायरेक्ट में बदलें
-        doc.select("iframe[src*='pixeldra.in/u/']").forEach { iframe ->
-            val fileId = iframe.attr("src").substringAfter("/u/").substringBefore("?")
-            val directUrl = "https://pixeldra.in/api/file/$fileId?download"
-            val quality = extractQuality("720p") // Default to 720p if not specified
-            links.add(
-                ExtractorLink(
-                    "PixelDrain",
-                    "PixelDrain ${quality}p",
-                    directUrl,
-                    sanitizedUrl,
-                    quality
-                )
-            )
-        }
-
-        // 3. डायरेक्ट PixelDrain डाउनलोड लिंक्स
-        doc.select("a[href*='pixeldra.in/api/file']").forEach { link ->
-            val href = link.attr("abs:href")
-            val quality = extractQuality(link.text())
-            links.add(
-                ExtractorLink(
-                    "PixelDrain",
-                    "PixelDrain ${quality}p",
-                    href,
-                    sanitizedUrl,
-                    quality
-                )
-            )
-        }
-
-        // 4. यूजर को सभी क्वालिटीज़ दिखाएं (HD, FHD, 4K)
-        links
-            .distinctBy { it.url } // डुप्लीकेट हटाएं
-            .sortedByDescending { it.quality } // क्वालिटी के अनुसार सॉर्ट करें
+        // 3. यूजर को सभी क्वालिटीज़ दिखाएं
+        links.distinctBy { it.url }
+            .sortedByDescending { it.quality }
             .forEach { callback.invoke(it) }
     }
 
-    // क्वालिटी पहचानने के लिए अपडेटेड रेगेक्स
+    private fun createLink(
+        href: String,
+        text: String,
+        source: String,
+        referer: String
+    ): ExtractorLink {
+        val quality = extractQuality(text)
+        return ExtractorLink(
+            source,
+            "$source ${quality}p",
+            href,
+            referer,
+            quality
+        )
+    }
+
+    // क्वालिटी डिटेक्शन (अपडेटेड रेगेक्स)
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720|HD|HEVC", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P720.value
-            Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P1080.value
-            Regex("4K|UHD|2160|HDR", RegexOption.IGNORE_CASE).find(text) != null -> Qualities.P2160.value
+            Regex("""720p?|HD|HEVC""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("""1080p?|FHD|Blu-?Ray""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("""4K|UHD|2160p?|HDR""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
