@@ -5,9 +5,8 @@ import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import java.net.URLEncoder
+import java.net.URLDecoder
 
 class PixelDrain : ExtractorApi() {
     override val name            = "PixelDrain"
@@ -56,7 +55,7 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // 1. ब्लॉकिंग एलिमेंट्स हटाएं
+        // 1. नए ब्लॉकिंग एलिमेंट्स हटाएं
         doc.select("""
             .adblock-detector, 
             .popup, 
@@ -66,50 +65,39 @@ open class HubCloud : ExtractorApi() {
             iframe[src*='pixeldra.in']
         """.trimIndent()).remove()
 
-        // 2. डायरेक्ट डाउनलोड लिंक्स
+        // 2. सभी प्रासंगिक डाउनलोड बटन्स पकड़ें (अपडेटेड सिलेक्टर्स)
         doc.select("""
             a[href*='r2.dev'], 
             a[href*='pixeldra.in/api/file'],
             a[href*='workers.dev'],
-            a.btn-success.btn-lg.h6
+            a[class*='btn-success'], 
+            a[class*='btn-zip'],
+            a[href*='download'][target='_blank']
         """.trimIndent()).apmap { button ->
-            var href = button.attr("href")
-            href = URLEncoder.encode(href, "UTF-8").replace("%3A", ":")
+            var href = button.attr("abs:href") // पूर्ण URL सुनिश्चित करें
+            href = URLDecoder.decode(href, "UTF-8") // एन्कोडिंग ठीक करें
 
             callback.invoke(
                 ExtractorLink(
                     name,
                     "${name} - ${extractQuality(button.text())}p",
                     href,
-                    "",
+                    sanitizedUrl,
                     extractQuality(button.text())
                 )
             )
         }
 
-        // 3. टेलीग्राम लिंक्स
-        doc.select("a[href*='t.me'], a[href*='telegram']").apmap { link ->
-            callback.invoke(
-                ExtractorLink(
-                    "Telegram",
-                    "Telegram Link",
-                    link.attr("href"),
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-        }
-
-        // 4. स्क्रिप्ट से लिंक निकालें
+        // 3. स्क्रिप्ट में छिपे लिंक्स निकालें (अपडेटेड रेगेक्स)
         doc.select("script:containsData(window.location)").forEach { script ->
-            val regex = Regex("""(https?:\/\/[^\s'"]*\.(?:mp4|mkv|m3u8))""")
+            val regex = Regex("""(?i)(https?://[^'"]*?\.(?:mp4|mkv|m3u8|avi))""")
             regex.findAll(script.html()).forEach { match ->
                 callback.invoke(
                     ExtractorLink(
                         name,
-                        "${name} (Direct)",
+                        "${name} (Auto-Detected)",
                         match.value,
-                        "",
+                        sanitizedUrl,
                         Qualities.P720.value
                     )
                 )
@@ -117,11 +105,12 @@ open class HubCloud : ExtractorApi() {
         }
     }
 
+    // क्वालिटी डिटेक्शन (अपडेटेड)
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720|HD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("1080|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("4K|UHD|2160", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("720|HD|HEVC", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("4K|UHD|2160|HDR", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
