@@ -41,6 +41,14 @@ class PixelDrain : ExtractorApi() {
     }
 }
 
+class HubCloudInk : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.art"
+}
+
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
