@@ -51,7 +51,7 @@ class HubCloudArt : HubCloud() {
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
-    override val requiresReferer = false
+    override val requiresReferer = true
 
     override suspend fun getUrl(
         url: String,
@@ -60,72 +60,58 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
-        val doc = app.get(sanitizedUrl).document
+        val doc = app.get(sanitizedUrl, headers = mapOf("Referer" to mainUrl)).document
 
-        // नए एलिमेंट्स हटाए गए
-        doc.select(".loading, .ads-btns, .alert, .adblock-detector, .popup").remove()
-
-        // केस 1: डायरेक्ट डाउनलोड लिंक
-        val scriptTag = doc.selectFirst("script:containsData(window.location)")
-        val urlRegex = Regex("""(https?://[^\s'"]*\/[^\s'"]*\.(?:mp4|m3u8|mkv|avi))""")
-        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
-
-        if (!directLink.isNullOrEmpty()) {
+        // 1. FSL Server (R2.dev) लिंक्स
+        doc.select("a[href*='pub-db4aad121b26409eb63bf48ceb693403.r2.dev']").apmap { link ->
+            val href = link.attr("abs:href").replace(" ", "%20")
             callback.invoke(
                 ExtractorLink(
-                    name,
-                    "Hub-Cloud Direct",
-                    directLink,
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-            return
-        }
-
-        // केस 2: टेलीग्राम लिंक
-        doc.select("a[href*='telegram'], a#tgbtn").mapNotNull {
-            it.attr("href").takeIf { href -> href.isNotEmpty() }
-        }.forEach { telegramLink ->
-            callback.invoke(
-                ExtractorLink(
-                    "Telegram",
-                    "Telegram Link",
-                    telegramLink,
-                    "",
-                    Qualities.Unknown.value
-                )
-            )
-        }
-
-        // केस 3: अन्य लिंक (नए सिलेक्टर्स के साथ)
-        doc.select("""
-            a.btn[href*='download'],
-            a.download-btn[href*='.mp4'],
-            a[href*='streamtape'],
-            a[href*='gdflix']
-        """.trimIndent()).apmap { button ->
-            val href = button.attr("href")
-            val quality = extractQuality(button.text())
-
-            callback.invoke(
-                ExtractorLink(
-                    name,
-                    "$name ${quality}p",
+                    "FSL Server",
+                    "FSL ${extractQuality(link.text())}p",
                     href,
-                    "",
-                    quality
+                    sanitizedUrl,
+                    extractQuality(link.text())
+                )
+            )
+        }
+
+        // 2. PixelDrain Embed लिंक्स को डायरेक्ट में बदलें
+        doc.select("iframe[src*='pixeldra.in/u/']").apmap { iframe ->
+            val src = iframe.attr("abs:src")
+            val fileId = src.substringAfter("/u/").substringBefore("?")
+            val directUrl = "https://pixeldra.in/api/file/$fileId?download"
+            callback.invoke(
+                ExtractorLink(
+                    "PixelDrain",
+                    "PixelDrain ${extractQuality("720p")}p",
+                    directUrl,
+                    sanitizedUrl,
+                    Qualities.P720.value
+                )
+            )
+        }
+
+        // 3. PixelDrain Direct डाउनलोड लिंक्स
+        doc.select("a[href*='pixeldra.in/api/file']").apmap { link ->
+            val href = link.attr("abs:href")
+            callback.invoke(
+                ExtractorLink(
+                    "PixelDrain",
+                    "PixelDrain ${extractQuality(link.text())}p",
+                    href,
+                    sanitizedUrl,
+                    extractQuality(link.text())
                 )
             )
         }
     }
 
-    // गुणवत्ता निष्कर्षण में सुधार
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("""(720|HD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("""(1080|FHD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("""(4K|UHD|2160)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("720|HD|HEVC", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("4K|UHD|2160|HDR", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
