@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
-import java.net.URLDecoder
 
 class PixelDrain : ExtractorApi() {
     override val name            = "PixelDrain"
@@ -61,64 +60,72 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
-        val html = app.get(sanitizedUrl).text // पूरा HTML टेक्स्ट प्राप्त करें
+        val doc = app.get(sanitizedUrl).document
 
-        // 1. सभी लिंक्स रेगेक्स से निकालें
-        val linkRegex = Regex("""<a\s+[^>]*href=["'](https?://[^"']+)["'][^>]*>([\s\S]*?)</a>""")
-        val matches = linkRegex.findAll(html)
+        // नए एलिमेंट्स हटाए गए
+        doc.select(".loading, .ads-btns, .alert, .adblock-detector, .popup").remove()
 
-        val links = mutableListOf<ExtractorLink>()
-        matches.forEach { match ->
-            val href = match.groupValues[1]
-            val text = match.groupValues[2]
+        // केस 1: डायरेक्ट डाउनलोड लिंक
+        val scriptTag = doc.selectFirst("script:containsData(window.location)")
+        val urlRegex = Regex("""(https?://[^\s'"]*\/[^\s'"]*\.(?:mp4|m3u8|mkv|avi))""")
+        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
 
-            // 2. FSL, PixelDrain और अन्य लिंक्स फ़िल्टर करें
-            when {
-                // FSL Server लिंक
-                href.contains("pub-db4aad121b26409eb63bf48ceb693403.r2.dev") -> {
-                    links.add(createLink(href, text, "FSL Server", sanitizedUrl))
-                }
-                // PixelDrain Direct लिंक
-                href.contains("pixeldra.in/api/file") -> {
-                    links.add(createLink(href, text, "PixelDrain", sanitizedUrl))
-                }
-                // PixelDrain Embed लिंक
-                href.contains("pixeldra.in/u/") -> {
-                    val fileId = href.substringAfter("/u/").substringBefore("?")
-                    val directUrl = "https://pixeldra.in/api/file/$fileId?download"
-                    links.add(createLink(directUrl, text, "PixelDrain", sanitizedUrl))
-                }
-            }
+        if (!directLink.isNullOrEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "Hub-Cloud Direct",
+                    directLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+            return
         }
 
-        // 3. यूजर को सभी क्वालिटीज़ दिखाएं
-        links.distinctBy { it.url }
-            .sortedByDescending { it.quality }
-            .forEach { callback.invoke(it) }
+        // केस 2: टेलीग्राम लिंक
+        doc.select("a[href*='telegram'], a#tgbtn").mapNotNull {
+            it.attr("href").takeIf { href -> href.isNotEmpty() }
+        }.forEach { telegramLink ->
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Telegram Link",
+                    telegramLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+        }
+
+        // केस 3: अन्य लिंक (नए सिलेक्टर्स के साथ)
+        doc.select("""
+            a.btn[href*='download'],
+            a.download-btn[href*='.mp4'],
+            a[href*='streamtape'],
+            a[href*='gdflix']
+        """.trimIndent()).apmap { button ->
+            val href = button.attr("href")
+            val quality = extractQuality(button.text())
+
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "$name ${quality}p",
+                    href,
+                    "",
+                    quality
+                )
+            )
+        }
     }
 
-    private fun createLink(
-        href: String,
-        text: String,
-        source: String,
-        referer: String
-    ): ExtractorLink {
-        val quality = extractQuality(text)
-        return ExtractorLink(
-            source,
-            "$source ${quality}p",
-            href,
-            referer,
-            quality
-        )
-    }
-
-    // क्वालिटी डिटेक्शन (अपडेटेड रेगेक्स)
+    // गुणवत्ता निष्कर्षण में सुधार
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("""720p?|HD|HEVC""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("""1080p?|FHD|Blu-?Ray""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("""4K|UHD|2160p?|HDR""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("""(720|HD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("""(1080|FHD)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
+            Regex("""(4K|UHD|2160)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
             else -> Qualities.Unknown.value
         }
     }
