@@ -63,88 +63,61 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // Case 1: Direct HubCloud link from input field
-        doc.selectFirst("input#ilink")?.attr("value")?.let { directLink ->
+        // Remove unnecessary elements
+        doc.select(".loading, .ads-btns, .alert").remove()
+
+        // Case 1: Direct Download Link
+        val downloadButton = doc.selectFirst("a#download")
+        val scriptTag = doc.selectFirst("script:containsData(window.location)")
+        val urlRegex = Regex("""https://[^\s'"]+""")
+        val directLink = scriptTag?.let { urlRegex.find(it.html())?.value }
+
+        if (!directLink.isNullOrEmpty()) {
             callback.invoke(
                 ExtractorLink(
                     name,
-                    "Hub-Cloud Direct",
-                    directLink.replace("ink", "dad"),
+                    "Hub-Cloud Direct Download",
+                    directLink,
                     "",
                     Qualities.Unknown.value
                 )
             )
         }
 
-        // Case 2: Process all download buttons
-        doc.select("a.btn").apmap { button ->
+        // Case 2: Telegram Link
+        val telegramButton = doc.selectFirst("a#tgbtn")
+        val telegramLink = telegramButton?.attr("href")
+
+        if (!telegramLink.isNullOrEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Download From Telegram",
+                    telegramLink,
+                    "",
+                    Qualities.Unknown.value
+                )
+            )
+        }
+
+        // Case 3: Other Links
+        doc.select("a.btn, a.download-btn").apmap { button ->
             val href = button.attr("href")
             val text = button.text()
-            val quality = extractQuality(text) // Extract quality from button text
+            val quality = extractQuality(text)
 
-            when {
-                // FSL Server
-                text.contains("FSL Server", ignoreCase = true) -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[FSL]",
-                            "$name[FSL] - ${quality}p",
-                            href,
-                            "",
-                            quality
-                        )
-                    )
-                }
-
-                // R2 Direct Link
-                href.contains("r2.dev") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[R2]",
-                            "$name[R2] - ${quality}p",
-                            href,
-                            "",
-                            quality
-                        )
-                    )
-                }
-
-                // 10Gbps Server (Redirect Handling)
-                text.contains("10Gbps", ignoreCase = true) -> {
-                    val redirectUrl = app.get(href, allowRedirects = false).headers["location"]
-                    redirectUrl?.let { safeUrl ->
-                        callback.invoke(
-                            ExtractorLink(
-                                "$name[10Gbps]",
-                                "$name[10Gbps] - ${quality}p",
-                                safeUrl.substringAfter("link="),
-                                "",
-                                quality
-                            )
-                        )
-                    }
-                }
-
-                // PixelDrain Server
-                href.contains("pixeldra.in") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "PixelDrain",
-                            "PixelDrain - ${quality}p",
-                            href,
-                            "",
-                            quality
-                        )
-                    )
-                }
-
-                // Default case for other links
-                else -> loadExtractor(href, "", subtitleCallback, callback)
-            }
+            callback.invoke(
+                ExtractorLink(
+                    name,
+                    "$name - ${quality}p",
+                    href,
+                    "",
+                    quality
+                )
+            )
         }
     }
 
-    // Improved quality extraction logic
     private fun extractQuality(text: String): Int {
         return when {
             Regex("720p", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
