@@ -41,14 +41,6 @@ class PixelDrain : ExtractorApi() {
     }
 }
 
-class HubCloudInk : HubCloud() {
-    override val mainUrl: String = "https://hubcloud.ink"
-}
-
-class HubCloudArt : HubCloud() {
-    override val mainUrl: String = "https://hubcloud.art"
-}
-
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.dad"
@@ -70,20 +62,21 @@ open class HubCloud : ExtractorApi() {
             .ads-btns, 
             .alert, 
             script[src*='cleverwebserver'],
-            iframe[src*='pixeldra.in']
+            iframe[src*='pixeldra.in'],
+            .footer
         """.trimIndent()).remove()
 
-        // 2. सभी प्रासंगिक डाउनलोड बटन्स पकड़ें (अपडेटेड सिलेक्टर्स)
+        // 2. डाउनलोड बटन्स के लिए सटीक सिलेक्टर्स
         doc.select("""
-            a[href*='r2.dev'], 
+            a[href*='r2.dev']:not([href*=' ']),
             a[href*='pixeldra.in/api/file'],
             a[href*='workers.dev'],
-            a[class*='btn-success'], 
-            a[class*='btn-zip'],
-            a[href*='download'][target='_blank']
+            a.btn-success1,
+            a.btn-zip,
+            a.btn-lg:not([href*='telegram'])
         """.trimIndent()).apmap { button ->
-            var href = button.attr("abs:href") // पूर्ण URL सुनिश्चित करें
-            href = URLDecoder.decode(href, "UTF-8") // एन्कोडिंग ठीक करें
+            var href = button.attr("abs:href")
+            href = URLDecoder.decode(href, "UTF-8").replace(" ", "%20")
 
             callback.invoke(
                 ExtractorLink(
@@ -96,20 +89,33 @@ open class HubCloud : ExtractorApi() {
             )
         }
 
-        // 3. स्क्रिप्ट में छिपे लिंक्स निकालें (अपडेटेड रेगेक्स)
-        doc.select("script:containsData(window.location)").forEach { script ->
-            val regex = Regex("""(?i)(https?://[^'"]*?\.(?:mp4|mkv|m3u8|avi))""")
+        // 3. स्क्रिप्ट में छिपे लिंक्स (GPDL Workers)
+        doc.select("script:containsData(gpdl.technorozen)").forEach { script ->
+            val regex = Regex("""(https?:\/\/gpdl\.technorozen\.workers\.dev\/\?id=[^\s'"]+)""")
             regex.findAll(script.html()).forEach { match ->
                 callback.invoke(
                     ExtractorLink(
                         name,
-                        "${name} (Auto-Detected)",
+                        "${name} (10Gbps Server)",
                         match.value,
                         sanitizedUrl,
-                        Qualities.P720.value
+                        Qualities.P1080.value
                     )
                 )
             }
+        }
+
+        // 4. टेलीग्राम लिंक अलग से हैंडल करें
+        doc.select("a[href*='telegram'], a[href*='t.me']").apmap { link ->
+            callback.invoke(
+                ExtractorLink(
+                    "Telegram",
+                    "Download From Telegram",
+                    link.attr("href"),
+                    sanitizedUrl,
+                    Qualities.Unknown.value
+                )
+            )
         }
     }
 
