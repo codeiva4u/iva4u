@@ -55,76 +55,48 @@ open class HubCloud : ExtractorApi() {
         val sanitizedUrl = url.replace("ink|art".toRegex(), "dad")
         val doc = app.get(sanitizedUrl).document
 
-        // 1. नए ब्लॉकिंग एलिमेंट्स हटाएं
-        doc.select("""
-            .adblock-detector, 
-            .popup, 
-            .ads-btns, 
-            .alert, 
-            script[src*='cleverwebserver'],
-            iframe[src*='pixeldra.in'],
-            .footer
-        """.trimIndent()).remove()
+        // 1. ब्लॉकिंग एलिमेंट्स हटाएं
+        doc.select("iframe[src*='pixeldra.in'], script[src*='cleverwebserver']").remove()
 
-        // 2. डाउनलोड बटन्स के लिए सटीक सिलेक्टर्स
+        // 2. सभी डाउनलोड बटन्स पकड़ें (FSL, PixelServer, आदि)
         doc.select("""
-            a[href*='r2.dev']:not([href*=' ']),
+            a[href*='r2.dev'], 
             a[href*='pixeldra.in/api/file'],
-            a[href*='workers.dev'],
-            a.btn-success1,
-            a.btn-zip,
-            a.btn-lg:not([href*='telegram'])
+            a.btn-success.btn-lg.h6,
+            a[style*='background-color: #6f42c1']
         """.trimIndent()).apmap { button ->
-            var href = button.attr("abs:href")
-            href = URLDecoder.decode(href, "UTF-8").replace(" ", "%20")
+            val href = button.attr("abs:href")
+            val quality = extractQuality(button.text())
 
             callback.invoke(
                 ExtractorLink(
                     name,
-                    "${name} - ${extractQuality(button.text())}p",
+                    "${name} ${quality}p",
                     href,
                     sanitizedUrl,
-                    extractQuality(button.text())
+                    quality
                 )
             )
         }
 
-        // 3. स्क्रिप्ट में छिपे लिंक्स (GPDL Workers)
-        doc.select("script:containsData(gpdl.technorozen)").forEach { script ->
-            val regex = Regex("""(https?:\/\/gpdl\.technorozen\.workers\.dev\/\?id=[^\s'"]+)""")
-            regex.findAll(script.html()).forEach { match ->
-                callback.invoke(
-                    ExtractorLink(
-                        name,
-                        "${name} (10Gbps Server)",
-                        match.value,
-                        sanitizedUrl,
-                        Qualities.P1080.value
-                    )
-                )
-            }
-        }
-
-        // 4. टेलीग्राम लिंक अलग से हैंडल करें
-        doc.select("a[href*='telegram'], a[href*='t.me']").apmap { link ->
+        // 3. PixelDrain लिंक्स सीधे निकालें
+        doc.select("a[href^='https://pixeldra.in/api/file']").apmap { link ->
             callback.invoke(
                 ExtractorLink(
-                    "Telegram",
-                    "Download From Telegram",
+                    "PixelDrain",
+                    "PixelDrain Direct",
                     link.attr("href"),
                     sanitizedUrl,
-                    Qualities.Unknown.value
+                    Qualities.P720.value
                 )
             )
         }
     }
 
-    // क्वालिटी डिटेक्शन (अपडेटेड)
     private fun extractQuality(text: String): Int {
         return when {
-            Regex("720|HD|HEVC", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
-            Regex("1080|FHD|BluRay", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
-            Regex("4K|UHD|2160|HDR", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P2160.value
+            Regex("720p|HEVC", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P720.value
+            Regex("1080p|FHD", RegexOption.IGNORE_CASE).containsMatchIn(text) -> Qualities.P1080.value
             else -> Qualities.Unknown.value
         }
     }
