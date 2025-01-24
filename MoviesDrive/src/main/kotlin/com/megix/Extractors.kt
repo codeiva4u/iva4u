@@ -26,10 +26,13 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
+            // 1. रीडायरेक्ट्स को फॉलो करें
             val finalUrl = app.get(url, allowRedirects = true).url
+            println("Debug: अंतिम URL - $finalUrl")
+
             val doc = app.get(finalUrl).document
 
-            // FSL Server लिंक
+            // 2. FSL सर्वर के सभी लिंक निकालें
             doc.select("a.btn.btn-success.btn-lg[href]").forEach { element ->
                 val link = element.attr("href")
                 val qualityText = element.text()
@@ -44,28 +47,31 @@ open class HubCloud : ExtractorApi() {
                         isM3u8 = false
                     )
                 )
+                println("Debug: FSL लिंक मिला - गुणवत्ता: $quality, URL: $link")
             }
 
-            // Pixeldrain लिंक
+            // 3. Pixeldra.in के लिंक निकालें
             doc.select("meta[property='og:video:secure_url']").forEach { element ->
                 val link = element.attr("content")
                 callback.invoke(
                     ExtractorLink(
                         source = url,
-                        name = "Pixeldrain",
+                        name = "Pixeldra.in",
                         url = link,
                         referer = mainUrl,
                         quality = Qualities.Unknown.value,
                         isM3u8 = false
                     )
                 )
+                println("Debug: Pixeldra.in लिंक मिला - URL: $link")
             }
 
         } catch (e: Exception) {
-            println("HubCloud Error: ${e.message}")
+            println("HubCloud त्रुटि: ${e.message}")
         }
     }
 
+    // गुणवत्ता निकालने का हेल्पर फ़ंक्शन (उदा. "720p" → 720)
     private fun extractQuality(text: String): Int {
         return Regex("(\\d{3,4})[pP]").find(text)?.groupValues?.get(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
