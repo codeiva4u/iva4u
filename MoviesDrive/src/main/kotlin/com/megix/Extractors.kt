@@ -116,8 +116,8 @@ open class HubCloud : ExtractorApi() {
             else if (link.contains("pixeldra")) {
                 callback.invoke(
                     ExtractorLink(
-                        "Pixeldrain",
-                        "Pixeldrain - $header",
+                        "Pixeldra",
+                        "Pixeldra - $header",
                         link,
                         "",
                         getIndexQuality(header),
