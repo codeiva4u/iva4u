@@ -12,7 +12,7 @@ data class EpisodeLink(
 )
 
 class Hdmovies4u : MainAPI() {
-    override var mainUrl = "https://hdmovies4u.tw"
+    override var mainUrl = "https://hdmovies4u.spa"
     override var name = "Hdmovies4u"
     override val hasMainPage = true
     override var lang = "hi"
