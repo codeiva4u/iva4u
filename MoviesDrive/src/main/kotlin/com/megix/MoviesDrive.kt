@@ -10,12 +10,12 @@ class MoviesDrive: Plugin() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(MoviesDriveProvider())
 //        registerExtractorAPI(GDFlix())
-        registerExtractorAPI(Pixeldra())
+        registerExtractorAPI(PixelDra())
         registerExtractorAPI(HubCloud())
 //        registerExtractorAPI(GoogleVideo())
         registerExtractorAPI(HubCloudInk())
         registerExtractorAPI(HubCloudArt())
-        registerExtractorAPI(fastdlserver())
+ //       registerExtractorAPI(fastdlserver())
 //        registerExtractorAPI(VCloud())
     }
 }

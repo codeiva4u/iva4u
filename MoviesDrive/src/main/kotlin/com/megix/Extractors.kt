@@ -1,10 +1,45 @@
 package com.megix
 
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
+
+class PixelDra : ExtractorApi() {
+    override val name            = "PixelDra"
+    override val mainUrl         = "https://pixeldra.in"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+        val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
+        if (mId.isNullOrEmpty())
+        {
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    url,
+                    url,
+                    Qualities.Unknown.value,
+                )
+            )
+        }
+        else {
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    "$mainUrl/api/file/${mId}?download",
+                    url,
+                    Qualities.Unknown.value,
+                )
+            )
+        }
+    }
+}
 
 class HubCloudInk : HubCloud() {
     override val mainUrl: String = "https://hubcloud.ink"
@@ -13,16 +48,6 @@ class HubCloudInk : HubCloud() {
 class HubCloudArt : HubCloud() {
     override val mainUrl: String = "https://hubcloud.art"
 }
-
-class Pixeldra : HubCloud() {
-    override val mainUrl: String = "https://pixeldra.in"
-}
-
-class fastdlserver : HubCloud() {
-    override val mainUrl: String = "https://pub-db4aad121b26409eb63bf48ceb693403.r2.dev/"
-}
-
-// ... (पहले का कोड)
 
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
@@ -35,60 +60,91 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            val response = app.get(url, allowRedirects = true)
-            val doc = response.document
+        val newUrl = url.replace("ink", "dad").replace("art", "dad")
+        val doc = app.get(newUrl).document
+        val link = if(url.contains("drive")) {
+            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+            Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
+        }
+        else {
+            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
+        }
 
-            // FSL Server लिंक निकालें
-            doc.select("a.btn.btn-success:contains([FSL Server])").forEach { element ->
-                val link = element.attr("abs:href")
-                val fileName = element.attr("download") ?: ""
-                val quality = extractQuality(fileName)
+        val document = app.get(link).document
+        val div = document.selectFirst("div.card-body")
+        val header = document.select("div.card-header").text() ?: ""
+        div?.select("h2 a.btn")?.apmap {
+            val link = it.attr("href")
+            val text = it.text()
 
+            if (text.contains("Download [FSL Server]"))
+            {
                 callback.invoke(
                     ExtractorLink(
-                        source = name,
-                        name = "$name [FSL]",
-                        url = link,
-                        referer = mainUrl,
-                        quality = quality, // अब Int प्रकार
-                        isM3u8 = false
+                        "$name[FSL Server]",
+                        "$name[FSL Server] - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
                     )
                 )
-                println("Debug: FSL लिंक - $link (${quality}p)")
             }
-
-            // Pixeldra लिंक निकालें
-            doc.select("a.btn.btn-success:contains([PixelServer)").forEach { element ->
-                val link = element.attr("abs:href")
-                val fileName = element.attr("download") ?: ""
-                val quality = extractQuality(fileName)
-
+            else if (text.contains("Download File")) {
                 callback.invoke(
                     ExtractorLink(
-                        source = name,
-                        name = "Pixeldra.in",
-                        url = link,
-                        referer = mainUrl,
-                        quality = quality,
-                        isM3u8 = false
+                        "$name",
+                        "$name - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
                     )
                 )
-                println("Debug: Pixeldra लिंक - $link (${quality}p)")
+            }
+            else if(text.contains("BuzzServer")) {
+                val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    ExtractorLink(
+                        "$name[BuzzServer]",
+                        "$name[BuzzServer] - $header",
+                        link.substringBeforeLast("/") + dlink,
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
             }
 
-        } catch (e: Exception) {
-            println("Error: ${e.message}")
+            else if (link.contains("pixeldra")) {
+                callback.invoke(
+                    ExtractorLink(
+                        "Pixeldrain",
+                        "Pixeldrain - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+            else if (text.contains("Download [Server : 10Gbps]")) {
+                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    ExtractorLink(
+                        "$name[Download]",
+                        "$name[Download] - $header",
+                        dlink.substringAfter("link="),
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+            else
+            {
+                loadExtractor(link,"",subtitleCallback, callback)
+            }
         }
     }
 
-    // गुणवत्ता निकालने का सही फ़ंक्शन
-    private fun extractQuality(text: String): Int {
-        return when {
-            text.contains("720p", true) -> Qualities.P720.value // Enum के value का सही उपयोग
-            text.contains("1080p", true) -> Qualities.P1080.value
-            text.contains("2160p", true) -> Qualities.P2160.value
-            else -> Qualities.Unknown.value
-        }
+    private fun getIndexQuality(str: String?): Int {
+        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
+            ?: Qualities.Unknown.value
     }
 }
