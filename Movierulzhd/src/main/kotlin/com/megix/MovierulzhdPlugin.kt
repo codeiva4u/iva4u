@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.megix
 
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin

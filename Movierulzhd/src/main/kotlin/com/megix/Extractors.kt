@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.megix
 
 import com.google.gson.JsonParser
 import com.lagradost.api.Log

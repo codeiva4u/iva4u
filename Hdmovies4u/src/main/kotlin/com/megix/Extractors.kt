@@ -7,99 +7,52 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
-import org.jsoup.Jsoup
 
-
-class PixelDrain : ExtractorApi() {
-    override val name = "PixelDrain"
-    override val mainUrl = "https://pixeldrain.com"
+class PixelDra : ExtractorApi() {
+    override val name            = "PixelDra"
+    override val mainUrl         = "https://pixeldra.in"
     override val requiresReferer = true
 
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        // Fetch the HTML content
-        val html = app.get(url).text
-
-        // Parse the HTML using Jsoup
-        val document = Jsoup.parse(html)
-
-        // Extract file name
-        val fileName = document.select("title").text()
-            .replace(" - ViiR PrivateMovieZ.mkv ~ pixeldrain", "")
-            .trim()
-
-        // Extract file size
-        val fileSize = document.select("div.stat").first { it.text().contains("GB") }.text()
-
-        // Extract direct download link
-        val directDownloadLink = document.select("a[href*='/api/file/']")
-            .firstOrNull { it.text().contains("Download") }
-            ?.attr("href")
-
-        // Extract embedded link
-        val embeddedLink = document.select("iframe[src*='pixeldra.in']")
-            .firstOrNull()
-            ?.attr("src")
-
-        // Extract thumbnail URL
-        val thumbnailUrl = document.select("meta[property='og:image']")
-            .firstOrNull()
-            ?.attr("content")
-
-        // Extract SHA256 hash
-        val sha256Hash = document.select("script:containsData(hash_sha256)")
-            .firstOrNull()
-            ?.html()
-            ?.let { Regex("hash_sha256\":\"([a-f0-9]+)\"").find(it)?.groupValues?.get(1) }
-
-        // If direct download link is found, invoke the callback
-        if (!directDownloadLink.isNullOrEmpty()) {
+    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+        val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
+        if (mId.isNullOrEmpty())
+        {
             callback.invoke(
                 ExtractorLink(
-                    "$name [Direct]",
-                    "$name [Direct] - $fileName",
-                    directDownloadLink,
+                    this.name,
+                    this.name,
+                    url,
                     url,
                     Qualities.Unknown.value,
                 )
             )
         }
-
-        // If embedded link is found, extract the file ID and construct the download link
-        if (!embeddedLink.isNullOrEmpty()) {
-            val fileId = Regex("/u/(.*)\\?embed").find(embeddedLink)?.groupValues?.get(1)
-            if (!fileId.isNullOrEmpty()) {
-                val downloadUrl = "$mainUrl/api/file/$fileId?download"
-                callback.invoke(
-                    ExtractorLink(
-                        "$name [Embedded]",
-                        "$name [Embedded] - $fileName",
-                        downloadUrl,
-                        embeddedLink,
-                        Qualities.Unknown.value,
-                    )
+        else {
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    "$mainUrl/api/file/${mId}?download",
+                    url,
+                    Qualities.Unknown.value,
                 )
-            }
+            )
         }
     }
 }
 
+class HubCloudInk : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.art"
+}
+
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
-    override val mainUrl: String = "https://hubcloud.tel"
+    override val mainUrl: String = "https://hubcloud.dad"
     override val requiresReferer = false
-
-    class HubCloudInk : HubCloud() {
-        override val mainUrl: String = "https://hubcloud.ink"
-    }
-
-    class HubCloudArt : HubCloud() {
-        override val mainUrl: String = "https://hubcloud.art"
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -107,7 +60,7 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val newUrl = url.replace("ink", "tel").replace("art", "tel")
+        val newUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(newUrl).document
         val link = if(url.contains("drive")) {
             val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
@@ -163,8 +116,8 @@ open class HubCloud : ExtractorApi() {
             else if (link.contains("pixeldra")) {
                 callback.invoke(
                     ExtractorLink(
-                        "Pixeldrain",
-                        "Pixeldrain - $header",
+                        "Pixeldra",
+                        "Pixeldra - $header",
                         link,
                         "",
                         getIndexQuality(header),
@@ -177,7 +130,7 @@ open class HubCloud : ExtractorApi() {
                     ExtractorLink(
                         "$name[Download]",
                         "$name[Download] - $header",
-                        dlink.substringAfter("url="),
+                        dlink.substringAfter("link="),
                         "",
                         getIndexQuality(header),
                     )

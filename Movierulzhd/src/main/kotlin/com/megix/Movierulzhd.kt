@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.megix
 
 //import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -28,24 +28,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     {
         //val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0", "X-Requested-With" to "XMLHttpRequest")
     }
+
     override val mainPage = mainPageOf(
-        "$mainUrl/trending/" to "Trending",
-        "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
-        "$mainUrl/genre/hollywood/" to "Hollywood Movies",
-        "$mainUrl/genre/south-indian/" to "South Indian Movies",
-        "$mainUrl/genre/punjabi/" to "Punjabi Movies",
-        "$mainUrl/genre/amazon-prime/" to "Amazon Prime",
-        "$mainUrl/genre/disney-hotstar/" to "Disney Hotstar",
-        "$mainUrl/genre/jio-ott/" to "Jio OTT",
-        "$mainUrl/genre/netflix/" to "Netfilx",
-        "$mainUrl/genre/sony-liv/" to "Sony Live",
-        "$mainUrl/genre/k-drama/" to "KDrama",
-        "$mainUrl/genre/zee-5/" to "Zee5",
-        "$mainUrl/genre/anime-hindi/" to "Anime Series",
-        "$mainUrl/genre/anime-movies/" to "Anime Movies",
-        "$mainUrl/genre/cartoon-network/" to "Cartoon Network",
-        "$mainUrl/genre/disney-channel/" to "Disney Channel",
-        "$mainUrl/genre/hungama/" to "Hungama",
+        "movies" to "New Release",
+        "genre/hindi-dubbed" to "Hindi Dubbed Movies",
+        "genre/hindi" to "Bollywood Movies",
+        "genre/hindi-dubbed-web-series" to "Hindi Dubbed Web Series",
+        "genre/netflix" to "Netflix",
+        "genre/amazon-prime" to "Amazon Prime",
+        "genre/hotstar" to "Hotstar",
+        "genre/Zee5" to "Zee5",
+        "genre/jio-cinema" to "Jio Cinema",
+        "genre/voot" to "Voot Original",
+        "genre/sony-liv" to "Sony LIV",
     )
 
     override suspend fun getMainPage(
