@@ -34,26 +34,17 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // 1. हेडर्स और कुकीज़ के साथ रिक्वेस्ट
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...",
-                "Referer" to mainUrl
-            )
-            val cookies = mapOf("session_id" to "12345") // आवश्यक कुकीज़
-
-            // 2. रीडायरेक्ट्स फॉलो करें
-            val response = app.get(url, headers = headers, cookies = cookies, allowRedirects = true)
+            // 1. Redirects फॉलो करें
+            val response = app.get(url, allowRedirects = true)
             val finalUrl = response.url
-            println("Debug: अंतिम URL - $finalUrl")
-
-            // 3. डायनामिक HTML पार्स करें
             val doc = response.document
-            println("Debug: HTML Content - ${doc.outerHtml()}") // पूरा HTML लॉग
 
-            // 4. FSL लिंक निकालें (अपडेटेड CSS Selector)
-            doc.select("a.btn.btn-success[href]").forEach { element ->
-                val link = element.attr("abs:href") // पूर्ण URL सुनिश्चित करें
-                val quality = extractQuality(element.text())
+            // 2. FSL Server लिंक निकालें (सटीक CSS Selector)
+            doc.select("a.btn.btn-success.btn-lg.h6[href]").forEach { element ->
+                val link = element.attr("abs:href")
+                val qualityText = element.select("i.fa-file-download").next().text()
+                val quality = extractQuality(qualityText)
+
                 callback.invoke(
                     ExtractorLink(
                         source = url,
@@ -64,12 +55,12 @@ open class HubCloud : ExtractorApi() {
                         isM3u8 = false
                     )
                 )
-                println("Debug: FSL लिंक मिला - $link")
+                println("Debug: FSL लिंक मिला - $link (${quality}p)")
             }
 
-            // 5. Pixeldra.in लिंक
-            doc.select("meta[property='og:video:url']").forEach { element ->
-                val link = element.attr("content")
+            // 3. Pixeldra.in लिंक निकालें (सीधा डाउनलोड URL)
+            doc.select("a.btn.btn-success.btn-lg.h6[style*='background-color: #6f42c1']").forEach { element ->
+                val link = element.attr("abs:href")
                 callback.invoke(
                     ExtractorLink(
                         source = url,
@@ -84,10 +75,11 @@ open class HubCloud : ExtractorApi() {
             }
 
         } catch (e: Exception) {
-            println("HubCloud त्रुटि: ${e.message}")
+            println("HubCloud Error: ${e.message}")
         }
     }
 
+    // गुणवत्ता निकालने का फ़ंक्शन (720p, 1080p, आदि)
     private fun extractQuality(text: String): Int {
         return Regex("(\\d{3,4})[pP]").find(text)?.groupValues?.get(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
