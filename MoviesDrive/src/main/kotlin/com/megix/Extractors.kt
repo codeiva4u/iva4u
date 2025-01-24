@@ -39,10 +39,10 @@ open class HubCloud : ExtractorApi() {
             val finalUrl = response.url
             val doc = response.document
 
-            // 2. FSL Server लिंक निकालें (सटीक CSS Selector)
-            doc.select("a.btn.btn-success.btn-lg.h6[href]").forEach { element ->
+            // 2. FSL Server लिंक निकालें (नया CSS Selector)
+            doc.select("a.btn.btn-success.btn-lg.h6:contains([FSL Server])").forEach { element -> // :contains([FSL Server]) का उपयोग करें
                 val link = element.attr("abs:href")
-                val qualityText = element.select("i.fa-file-download").next().text()
+                val qualityText = element.text() // गुणवत्ता टेक्स्ट अब बटन टेक्स्ट में ही है
                 val quality = extractQuality(qualityText)
 
                 callback.invoke(
@@ -58,8 +58,8 @@ open class HubCloud : ExtractorApi() {
                 println("Debug: FSL लिंक मिला - $link (${quality}p)")
             }
 
-            // 3. Pixeldra.in लिंक निकालें (सीधा डाउनलोड URL)
-            doc.select("a.btn.btn-success.btn-lg.h6[style*='background-color: #6f42c1']").forEach { element ->
+            // 3. Pixeldra.in लिंक निकालें (नया CSS Selector)
+            doc.select("a.btn.btn-success.btn-lg.h6[style*='background-color: #6f42c1']:contains([PixelServer)").forEach { element -> // :contains([PixelServer) का उपयोग करें
                 val link = element.attr("abs:href")
                 callback.invoke(
                     ExtractorLink(
@@ -74,12 +74,29 @@ open class HubCloud : ExtractorApi() {
                 println("Debug: Pixeldra.in लिंक मिला - $link")
             }
 
+            // 4. 10Gbps Server लिंक निकालें (नया CSS Selector)
+            doc.select("a.btn.btn-danger.btn-lg.h6:contains([Server : 10Gbps])").forEach { element -> // :contains([Server : 10Gbps]) का उपयोग करें और btn-danger क्लास का उपयोग करें
+                val link = element.attr("abs:href")
+                callback.invoke(
+                    ExtractorLink(
+                        source = url,
+                        name = "Server 10Gbps",
+                        url = link,
+                        referer = mainUrl,
+                        quality = Qualities.Unknown.value, // गुणवत्ता अज्ञात क्योंकि टेक्स्ट में गुणवत्ता जानकारी नहीं है
+                        isM3u8 = false
+                    )
+                )
+                println("Debug: 10Gbps Server लिंक मिला - $link")
+            }
+
+
         } catch (e: Exception) {
             println("HubCloud Error: ${e.message}")
         }
     }
 
-    // गुणवत्ता निकालने का फ़ंक्शन (720p, 1080p, आदि)
+    // गुणवत्ता निकालने का फ़ंक्शन (720p, 1080p, आदि) - अपरिवर्तित
     private fun extractQuality(text: String): Int {
         return Regex("(\\d{3,4})[pP]").find(text)?.groupValues?.get(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
