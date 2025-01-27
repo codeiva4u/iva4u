@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
+import java.io.Serializable
 
 class PixelDra : ExtractorApi() {
     override val name            = "PixelDra"
@@ -47,6 +48,10 @@ class HubCloudInk : HubCloud() {
 
 class HubCloudArt : HubCloud() {
     override val mainUrl: String = "https://hubcloud.art"
+}
+
+class DriveTot : HubCloud() {
+    override val mainUrl: String = "https://drivetot.zip"
 }
 
 open class HubCloud : ExtractorApi() {
@@ -139,6 +144,49 @@ open class HubCloud : ExtractorApi() {
             else
             {
                 loadExtractor(link,"",subtitleCallback, callback)
+            }
+        }
+
+        class DriveTot : ExtractorApi() {
+            override val name = "DriveTot"
+            override val mainUrl = "https://drivetot.zip"
+            override val requiresReferer = true
+
+            override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+                // Handle scanjs redirect
+                val initialDoc = app.get(url).document
+                val scanjsUrl = initialDoc.selectFirst("form#download-form")?.attr("action") ?: url
+
+                // Submit the download form
+                val formResponse = app.post(scanjsUrl, data = mapOf(
+                    ("_token" to initialDoc.selectFirst("input[name=_token]")?.attr("value")) ?: "",
+                    "_method" to "POST"
+                ))
+
+                // Follow redirect to final hubcloud page
+                val hubcloudUrl = formResponse.headers["location"] ?: throw Error("No redirect location found")
+                val finalDoc = app.get(hubcloudUrl).document
+
+                // Extract final download link
+                val downloadLink = finalDoc.selectFirst("a[href*='hubcloud'][style*='background-color: #2ec7ee']")?.attr("href")
+                    ?: throw Error("No HubCloud download link found")
+
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        downloadLink,
+                        url,
+                        Qualities.Unknown.value,
+                    )
+                )
+            }
+
+            private fun mapOf(
+                pairs: Serializable,
+                pairs1: Pair<String, String>
+            ): Map<String, String> {
+                TODO("Not yet implemented")
             }
         }
     }
