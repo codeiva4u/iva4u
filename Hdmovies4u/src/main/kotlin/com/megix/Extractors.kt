@@ -60,86 +60,55 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Step 1: drivetot.zip रिडाइरेक्ट को बायपास करें
-        val newUrl = if (url.contains("drivetot.zip")) {
-            mainUrl + url.substringAfter("/scanjs") // URL रीराइटिंग
-        } else {
-            url.replace("ink", "dad").replace("art", "dad") // पुराने domains को dad में बदलें
-        }
-
-        // Step 2: वीडियो लिंक निकालें
+        val newUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(newUrl).document
-        val link = if (newUrl.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-        } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+        val header = doc.select("div.card-header").text() ?: ""
+
+        // **डायरेक्ट डाउनलोड लिंक निकालें (FSL Server):**
+        doc.select("a.btn.btn-success.btn-lg.h6[href*=fastdl]")?.apmap { fslLink ->
+            val link = fslLink.attr("href")
+            callback.invoke(
+                ExtractorLink(
+                    "$name[FSL Server]",
+                    "$name[FSL Server] - $header",
+                    link,
+                    "",
+                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
+                )
+            )
         }
 
-        // Step 3: सभी सर्वर लिंक्स प्रोसेस करें
-        val document = app.get(link).document
-        val div = document.selectFirst("div.card-body")
-        val header = document.select("div.card-header").text() ?: ""
-        div?.select("h2 a.btn")?.apmap {
-            val serverLink = it.attr("href")
-            val text = it.text()
+        // **Pixeldra डाउनलोड लिंक निकालें:**
+        doc.select("a.btn.btn-success.btn-lg.h6[href*=pixeldra]")?.apmap { pixeldraLink ->
+            val link = pixeldraLink.attr("href")
+            callback.invoke(
+                ExtractorLink(
+                    "Pixeldra", // नाम को "Pixeldra" पर सेट करें
+                    "Pixeldra - $header",
+                    link,
+                    "",
+                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
+                )
+            )
+        }
 
-            when {
-                text.contains("Download [FSL Server]") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[FSL]",
-                            "$name[FSL] - $header",
-                            serverLink,
-                            "",
-                            getQuality(header),
-                        )
-                    )
-                }
-                text.contains("Download File") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            name,
-                            "$name - $header",
-                            serverLink,
-                            "",
-                            getQuality(header),
-                        )
-                    )
-                }
-                text.contains("BuzzServer") -> {
-                    val buzzLink = app.get("$serverLink/download", allowRedirects = false).headers["location"] ?: ""
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[Buzz]",
-                            "$name[Buzz] - $header",
-                            buzzLink,
-                            "",
-                            getQuality(header),
-                        )
-                    )
-                }
-                serverLink.contains("pixeldra") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "PixelDra",
-                            "PixelDra - $header",
-                            serverLink,
-                            "",
-                            getQuality(header),
-                        )
-                    )
-                }
-                else -> {
-                    loadExtractor(serverLink, "", subtitleCallback, callback)
-                }
-            }
+        // **"Download [Server : 10Gbps]" लिंक निकालें:**
+        doc.select("a.btn.btn-danger.btn-lg.h6[href*=technorozen]")?.apmap { downloadLink ->
+            val link = downloadLink.attr("href")
+            callback.invoke(
+                ExtractorLink(
+                    "$name[Download]", // नाम को "Download" पर सेट करें
+                    "$name[Download] - $header",
+                    link,
+                    "",
+                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
+                )
+            )
         }
     }
 
-    // वीडियो क्वालिटी निकालने के लिए (उदा. 720p, 1080p)
-    private fun getQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+    private fun getIndexQuality(str: String?): Int {
+        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
             ?: Qualities.Unknown.value
     }
 }
