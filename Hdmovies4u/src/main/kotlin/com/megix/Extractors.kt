@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.fixUrl
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 class PixelDra : ExtractorApi() {
@@ -63,8 +64,7 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val newUrl = url.replace("ink", "dad").replace("art", "dad")
-        val doc = app.get(newUrl).document
+        val doc = app.get(url).document
         val link = if (url.contains("drive")) {
             val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
@@ -160,7 +160,71 @@ class DriveTot : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        // Just pass the URL to HubCloud for processing
-        HubCloud().getUrl(url, referer, subtitleCallback, callback)
+        val doc = app.get(url).document
+
+        doc.select("div#data div.mt-3.mb-3.d-flex.flex-column > a.btn").apmap { linkElement ->
+            val downloadUrl = fixUrl(linkElement.attr("href"))
+            val linkText = linkElement.text().trim()
+            when {
+                linkText.contains("HubCloud") -> {
+                    HubCloud().getUrl(downloadUrl, referer, subtitleCallback, callback) // Delegate to HubCloud extractor
+                }
+                linkText.contains("FilePress") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "FilePress",
+                            "FilePress",
+                            downloadUrl,
+                            mainUrl,
+                            Qualities.Unknown.value
+                        )
+                    )
+                }
+                linkText.contains("Telegram") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "Telegram",
+                            "Telegram",
+                            downloadUrl,
+                            mainUrl,
+                            Qualities.Unknown.value
+                        )
+                    )
+                }
+                linkText.contains("FSL Server") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "FSL Server",
+                            "FSL Server",
+                            downloadUrl,
+                            mainUrl,
+                            Qualities.Unknown.value
+                        )
+                    )
+                }
+                linkText.contains("PixelServer") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "PixelServer",
+                            "PixelServer",
+                            downloadUrl,
+                            mainUrl,
+                            Qualities.Unknown.value
+                        )
+                    )
+                }
+                linkText.contains("Server : 10Gbps") -> {
+                    callback.invoke(
+                        ExtractorLink(
+                            "Server 10Gbps",
+                            "Server 10Gbps",
+                            downloadUrl,
+                            mainUrl,
+                            Qualities.Unknown.value
+                        )
+                    )
+                }
+            }
+        }
     }
 }
