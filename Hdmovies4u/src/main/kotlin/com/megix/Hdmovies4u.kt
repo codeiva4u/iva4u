@@ -2,6 +2,7 @@ package com.megix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
@@ -141,10 +142,15 @@ class Hdmovies4u : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         // Parse the JSON data into a list of EpisodeLink objects
-        val sources = parseJson<List<EpisodeLink>>(data)
-        sources.amap { episodeLink ->
-            loadExtractor(episodeLink.source, subtitleCallback, callback)
+        return try {
+            val sources = parseJson<List<EpisodeLink>>(data)
+            sources.amap { episodeLink ->
+                loadExtractor(episodeLink.source, subtitleCallback, callback)
+            }
+            true
+        } catch (e: Exception) {
+            logError(e)
+            false
         }
-        return true
     }
 }
