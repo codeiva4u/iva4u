@@ -28,6 +28,8 @@ import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
+import java.net.MalformedURLException
+import java.net.URL
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
 data class EpisodeLink(
@@ -127,7 +129,7 @@ class Hdmovies4u : MainAPI() {
 
         val episodeLinks = mutableListOf<String>()
         // Find all the links containing "hubcloud" or "filepress"
-        document.select("a[href*='hubcloud'], a[href*='filepress'], a[href*='pixeldra.in'], a[href*='gamerxyt.com/hubcloud.php']").forEach { element ->
+        document.select("a[href*='hubcloud'], a[href*='filepress'],").forEach { element ->
             val link = element.attr("href")
             if (link.isNotBlank()) {
                 episodeLinks.add(link)
@@ -168,6 +170,14 @@ class Hdmovies4u : MainAPI() {
                 this.recommendations = recommendations
                 trailer?.let { addTrailer(it, null) }
             }
+        }
+    }
+    private fun isValidUrl(url: String): Boolean {
+        return try {
+            URL(url)
+            true
+        } catch (e: MalformedURLException) {
+            false
         }
     }
 
