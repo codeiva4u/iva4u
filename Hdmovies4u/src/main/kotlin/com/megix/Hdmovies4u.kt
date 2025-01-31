@@ -103,12 +103,30 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
+        val episodeLinks = mutableListOf<EpisodeLink>()
+        // Find the HubCloud redirect link
+        document.select("a[href*='gamerxyt.com/hubcloud.php']").forEach { element ->
+            val link = element.attr("href")
+            if (link.isNotBlank()) {
+                episodeLinks.add(EpisodeLink(link))
+            }
+        }
+
+        // Find FilePress links
+        document.select("a[href*='filepress']").forEach { element ->
+            val link = element.attr("href")
+            if (link.isNotBlank()) {
+                episodeLinks.add(EpisodeLink(link))
+            }
+        }
+
+
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                url
+                parseJson(episodeLinks.toString())
             ) {
                 this.posterUrl = poster
                 this.year = year

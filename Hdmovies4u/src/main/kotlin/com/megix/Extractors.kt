@@ -8,7 +8,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 
-/*=========================== PixelDra Extractor ===========================*/
 class PixelDra : ExtractorApi() {
     override val name            = "PixelDra"
     override val mainUrl         = "https://pixeldra.in"
@@ -16,7 +15,8 @@ class PixelDra : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
         val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
-        if (mId.isNullOrEmpty()) {
+        if (mId.isNullOrEmpty())
+        {
             callback.invoke(
                 ExtractorLink(
                     this.name,
@@ -26,7 +26,8 @@ class PixelDra : ExtractorApi() {
                     Qualities.Unknown.value,
                 )
             )
-        } else {
+        }
+        else {
             callback.invoke(
                 ExtractorLink(
                     this.name,
@@ -40,7 +41,6 @@ class PixelDra : ExtractorApi() {
     }
 }
 
-/*=========================== HubCloud Family Extractors ===========================*/
 class HubCloudInk : HubCloud() {
     override val mainUrl: String = "https://hubcloud.ink"
 }
@@ -62,48 +62,84 @@ open class HubCloud : ExtractorApi() {
     ) {
         val newUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(newUrl).document
-        val header = doc.select("div.card-header").text() ?: ""
-
-        // **डायरेक्ट डाउनलोड लिंक निकालें (FSL Server):**
-        doc.select("a.btn.btn-success.btn-lg.h6[href*=fastdl]")?.apmap { fslLink ->
-            val link = fslLink.attr("href")
-            callback.invoke(
-                ExtractorLink(
-                    "$name[FSL Server]",
-                    "$name[FSL Server] - $header",
-                    link,
-                    "",
-                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
-                )
-            )
+        val link = if(url.contains("drive")) {
+            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+            Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
+        }
+        else {
+            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
         }
 
-        // **Pixeldra डाउनलोड लिंक निकालें:**
-        doc.select("a.btn.btn-success.btn-lg.h6[href*=pixeldra]")?.apmap { pixeldraLink ->
-            val link = pixeldraLink.attr("href")
-            callback.invoke(
-                ExtractorLink(
-                    "Pixeldra", // नाम को "Pixeldra" पर सेट करें
-                    "Pixeldra - $header",
-                    link,
-                    "",
-                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
-                )
-            )
-        }
+        val document = app.get(link).document
+        val div = document.selectFirst("div.card-body")
+        val header = document.select("div.card-header").text() ?: ""
+        div?.select("h2 a.btn")?.apmap {
+            val link = it.attr("href")
+            val text = it.text()
 
-        // **"Download [Server : 10Gbps]" लिंक निकालें:**
-        doc.select("a.btn.btn-danger.btn-lg.h6[href*=technorozen]")?.apmap { downloadLink ->
-            val link = downloadLink.attr("href")
-            callback.invoke(
-                ExtractorLink(
-                    "$name[Download]", // नाम को "Download" पर सेट करें
-                    "$name[Download] - $header",
-                    link,
-                    "",
-                    Qualities.P720.value, // गुणवत्ता को 720p पर सेट करें (उदाहरण के लिए)
+            if (text.contains("Download [FSL Server]"))
+            {
+                callback.invoke(
+                    ExtractorLink(
+                        "$name[FSL Server]",
+                        "$name[FSL Server] - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
+                    )
                 )
-            )
+            }
+            else if (text.contains("Download File")) {
+                callback.invoke(
+                    ExtractorLink(
+                        "$name",
+                        "$name - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+            else if(text.contains("BuzzServer")) {
+                val dlink = app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    ExtractorLink(
+                        "$name[BuzzServer]",
+                        "$name[BuzzServer] - $header",
+                        link.substringBeforeLast("/") + dlink,
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+
+            else if (link.contains("pixeldra")) {
+                callback.invoke(
+                    ExtractorLink(
+                        "Pixeldra",
+                        "Pixeldra - $header",
+                        link,
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+            else if (text.contains("Download [Server : 10Gbps]")) {
+                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    ExtractorLink(
+                        "$name[Download]",
+                        "$name[Download] - $header",
+                        dlink.substringAfter("link="),
+                        "",
+                        getIndexQuality(header),
+                    )
+                )
+            }
+            else
+            {
+                loadExtractor(link,"",subtitleCallback, callback)
+            }
         }
     }
 
