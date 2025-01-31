@@ -25,6 +25,7 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 import java.net.MalformedURLException
@@ -179,14 +180,22 @@ class Hdmovies4u : MainAPI() {
         return try {
             val sources = parseJson<List<String>>(data)
             sources.amap { source ->
-                if (source.contains("fsl.fastdl.lol")) {
-                    loadExtractor(source, subtitleCallback, callback)
-                } else 
-                if (isValidUrl(source)) {
-                    loadExtractor(source, subtitleCallback, callback)
+                if (source.contains("pixeldra")) {
+                    PixelDra().getUrl(source, referer = mainUrl, subtitleCallback, callback)
+                } else if (source.contains("fsl.fastdl.lol")) {
+                    FSLServer().getUrl(source, subtitleCallback, callback)
+                } else if (source.contains("gpdl2.technorozen.workers.dev")) {
+                    callback.invoke(
+                        ExtractorLink(
+                            "Server 10Gbps",
+                            "Server 10Gbps",
+                            source,
+                            source,
+                            Qualities.Unknown.value,
+                        )
+                    )
                 } else {
-                    // Handle non-URL sources if needed, or just skip them
-                    println("Skipping non-URL source: $source")
+                    loadExtractor(source, subtitleCallback, callback)
                 }
             }
             true
