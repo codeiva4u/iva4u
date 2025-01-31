@@ -179,11 +179,6 @@ class FSLServer : ExtractorApi() {
         )
     }
 
-    fun getUrl(
-        source: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Any {
-            TODO("Not yet implemented")
+    fun getUrl() {
     }
 }
