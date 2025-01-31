@@ -104,22 +104,13 @@ class Hdmovies4u : MainAPI() {
         }
 
         val episodeLinks = mutableListOf<EpisodeLink>()
-        // Find the HubCloud redirect link
-        document.select("a[href*='gamerxyt.com/hubcloud.php']").forEach { element ->
+        // Find all the links containing "hubcloud" or "filepress"
+        document.select("a[href*='hubcloud'], a[href*='filepress'], a[href*='pixeldra.in'], a[href*='gamerxyt.com/hubcloud.php']").forEach { element ->
             val link = element.attr("href")
             if (link.isNotBlank()) {
                 episodeLinks.add(EpisodeLink(link))
             }
         }
-
-        // Find FilePress links
-        document.select("a[href*='filepress']").forEach { element ->
-            val link = element.attr("href")
-            if (link.isNotBlank()) {
-                episodeLinks.add(EpisodeLink(link))
-            }
-        }
-
 
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
