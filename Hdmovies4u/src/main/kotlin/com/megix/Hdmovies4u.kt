@@ -30,11 +30,6 @@ import org.jsoup.nodes.Element
 import java.net.MalformedURLException
 import java.net.URL
 
-// Define the EpisodeLink data class outside the Hdmovies4u class
-data class EpisodeLink(
-    val source: String
-)
-
 class Hdmovies4u : MainAPI() {
     override var mainUrl = "https://hdmovies4u.spa"
     override var name = "Hdmovies4u"
@@ -67,7 +62,6 @@ class Hdmovies4u : MainAPI() {
         } else {
             app.get("${request.data}page/$page/").document
         }
-
         val home = document.select("section.text-center > div.gridxw").mapNotNull {
             it.toSearchResult()
         }
@@ -181,11 +175,19 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Parse the JSON data into a list of EpisodeLink objects
+        // Parse the JSON data into a list of strings
         return try {
-            val sources = parseJson<List<EpisodeLink>>(data)
-            sources.amap { episodeLink ->
-                loadExtractor(episodeLink.source, subtitleCallback, callback)
+            val sources = parseJson<List<String>>(data)
+            sources.amap { source ->
+                if (source.contains("fsl.fastdl.lol")) {
+                    loadExtractor(source, subtitleCallback, callback)
+                } else 
+                if (isValidUrl(source)) {
+                    loadExtractor(source, subtitleCallback, callback)
+                } else {
+                    // Handle non-URL sources if needed, or just skip them
+                    println("Skipping non-URL source: $source")
+                }
             }
             true
         } catch (e: Exception) {

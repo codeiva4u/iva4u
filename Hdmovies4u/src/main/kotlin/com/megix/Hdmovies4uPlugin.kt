@@ -13,6 +13,6 @@ class Hdmovies4uPlugin: Plugin() {
         registerExtractorAPI(HubCloud())
         registerExtractorAPI(HubCloudInk())
         registerExtractorAPI(HubCloudArt())
-      //  registerExtractorAPI(DriveTot())
+        registerExtractorAPI(FSLServer())
     }
 }

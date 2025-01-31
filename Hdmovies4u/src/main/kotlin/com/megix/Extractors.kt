@@ -155,3 +155,26 @@ open class HubCloud : ExtractorApi() {
             ?: Qualities.Unknown.value
     }
 }
+
+class FSLServer : ExtractorApi() {
+    override val name = "FSL Server"
+    override val mainUrl = "https://fsl.fastdl.lol"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                this.name,
+                url,
+                url,
+                Qualities.Unknown.value,
+            )
+        )
+    }
+}
