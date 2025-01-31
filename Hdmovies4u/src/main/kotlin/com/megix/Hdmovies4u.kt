@@ -1,12 +1,33 @@
 package com.megix
 
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.mvvm.logError
-import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
-import org.jsoup.nodes.Element
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.fixUrl
+import com.lagradost.cloudstream3.fixUrlNull
+import com.lagradost.cloudstream3.getQualityFromString
+import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.mvvm.logError
+import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
+import org.jsoup.nodes.Element
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
 data class EpisodeLink(
@@ -104,18 +125,19 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        val episodeLinks = mutableListOf<EpisodeLink>()
+        val episodeLinks = mutableListOf<String>()
         // Find all the links containing "hubcloud" or "filepress"
         document.select("a[href*='hubcloud'], a[href*='filepress'], a[href*='pixeldra.in'], a[href*='gamerxyt.com/hubcloud.php']").forEach { element ->
             val link = element.attr("href")
             if (link.isNotBlank()) {
-                episodeLinks.add(EpisodeLink(link))
+                episodeLinks.add(link)
             }
         }
 
         val gson = Gson()
         val episodeLinksJson = gson.toJson(episodeLinks)
 
+        val typeToken = object : TypeToken<List<String>>() {}.type
 
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
