@@ -117,7 +117,7 @@ class Hdmovies4u : MainAPI() {
                 title,
                 url,
                 TvType.Movie,
-                parseJson(episodeLinks.toString())
+                parseJson(episodeLinks.toString()) // Use parseJson here
             ) {
                 this.posterUrl = poster
                 this.year = year
