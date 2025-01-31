@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
+import com.google.gson.Gson
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
 data class EpisodeLink(
@@ -112,12 +113,16 @@ class Hdmovies4u : MainAPI() {
             }
         }
 
+        val gson = Gson()
+        val episodeLinksJson = gson.toJson(episodeLinks)
+
+
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                parseJson(episodeLinks.toString()) // Use parseJson here
+                episodeLinksJson
             ) {
                 this.posterUrl = poster
                 this.year = year
