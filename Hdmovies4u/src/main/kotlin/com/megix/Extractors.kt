@@ -70,7 +70,14 @@ open class HubCloud : ExtractorApi() {
             doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
         }
 
-        val document = app.get(link).document
+        val finalLink = if(url.contains("gamerxyt.com/hubcloud.php")) {
+            val document = app.get(link).document
+            document.selectFirst("input[value*='hubcloud.ink/video/']")?.attr("value") ?: document.selectFirst("p:contains(hubcloud.ink/video/)")?.text() ?: link
+        } else {
+            link
+        }
+
+        val document = app.get(finalLink).document
         val div = document.selectFirst("div.card-body")
         val header = document.select("div.card-header").text() ?: ""
         div?.select("h2 a.btn")?.apmap {
