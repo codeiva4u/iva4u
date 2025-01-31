@@ -1,7 +1,6 @@
 package com.megix
 
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -128,18 +127,13 @@ class Hdmovies4u : MainAPI() {
         }
 
         val episodeLinks = mutableListOf<String>()
-        // Find all the links containing "hubcloud" or "filepress"
-        document.select("a[href*='hubcloud'], a[href*='filepress'],").forEach { element ->
+        document.select("a[href]").forEach { element ->
             val link = element.attr("href")
             if (link.isNotBlank()) {
                 episodeLinks.add(link)
             }
         }
-
-        val gson = Gson()
-        val episodeLinksJson = gson.toJson(episodeLinks)
-
-        val typeToken = object : TypeToken<List<String>>() {}.type
+        val episodeLinksJson = Gson().toJson(episodeLinks)
 
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
