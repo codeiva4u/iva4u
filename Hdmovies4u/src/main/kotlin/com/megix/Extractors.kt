@@ -14,12 +14,12 @@ class PixelDra : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
+        val mId = Regex("""/(?:u|v)/([a-zA-Z0-9]+)""").find(url)?.groupValues?.get(1)
         if (mId.isNullOrEmpty())
         {
             callback.invoke(
                 ExtractorLink(
-                    this.name,
+                    "FSL Server Video",
                     this.name,
                     url,
                     url,
@@ -60,10 +60,10 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val newUrl = url.replace("ink", "dad").replace("art", "dad")
+        val newUrl = url.replace("hubcloud.ink|hubcloud.art".toRegex(), "hubcloud.dad")
         val doc = app.get(newUrl).document
         val link = if(url.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+            val scriptTag = doc.selectFirst("script:containsData(var url)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
         }
         else {
@@ -167,6 +167,7 @@ class FSLServer : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        val videoUrl = app.get(url).document.selectFirst("source[src]")?.attr("src") ?: url
         callback.invoke(
             ExtractorLink(
                 this.name,
