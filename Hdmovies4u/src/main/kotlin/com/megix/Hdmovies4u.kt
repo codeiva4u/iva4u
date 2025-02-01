@@ -183,7 +183,7 @@ class Hdmovies4u : MainAPI() {
                 if (source.contains("pixeldra")) {
                     PixelDra().getUrl(source, referer = mainUrl, subtitleCallback, callback)
                 } else if (source.contains("fsl.fastdl.lol")) {
-                    FSLServer().getUrl()
+                    FSLServer().getUrl(source)
                 } else if (source.contains("gpdl2.technorozen.workers.dev")) {
                     callback.invoke(
                         ExtractorLink(

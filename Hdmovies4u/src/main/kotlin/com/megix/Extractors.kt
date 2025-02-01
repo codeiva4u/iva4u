@@ -63,11 +63,11 @@ open class HubCloud : ExtractorApi() {
         val newUrl = url.replace("hubcloud.ink|hubcloud.art".toRegex(), "hubcloud.dad")
         val doc = app.get(newUrl).document
         val link = if(url.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(var url)")?.toString() ?: ""
+            val scriptTag = doc.selectFirst("script:containsData(window.location)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
         }
         else {
-            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
+            doc.selectFirst("a.btn-primary[href*='hubcloud.php']") ?. attr("href") ?: ""
         }
 
         val finalLink = if(url.contains("gamerxyt.com/hubcloud.php")) {
@@ -80,7 +80,7 @@ open class HubCloud : ExtractorApi() {
         val document = app.get(finalLink).document
         val div = document.selectFirst("div.card-body")
         val header = document.select("div.card-header").text() ?: ""
-        div?.select("h2 a.btn")?.apmap {
+        div?.select("a.btn-success.btn-lg")?.apmap {
             val link = it.attr("href")
             val text = it.text()
 
@@ -126,7 +126,7 @@ open class HubCloud : ExtractorApi() {
                         "Pixeldra",
                         "Pixeldra - $header",
                         link,
-                        "",
+                        mainUrl,
                         getIndexQuality(header),
                     )
                 )
@@ -151,7 +151,7 @@ open class HubCloud : ExtractorApi() {
     }
 
     private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
+        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
     }
 }
@@ -163,22 +163,26 @@ class FSLServer : ExtractorApi() {
 
     override suspend fun getUrl(
         url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val videoUrl = app.get(url).document.selectFirst("source[src]")?.attr("src") ?: url
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                url,
-                url,
-                Qualities.Unknown.value,
-            )
-        )
-    }
+        referer: String?
+    ): List<ExtractorLink>? {
+        return app.get(url).document
+            .select("a[href*='.mkv']").mapNotNull { element ->
+                element.attr("href").let { href ->
+                    Regex("""https?:\/\/(pixeldra\.in|fsl\.fastdl\.lol).+\.mkv""")
+                        .find(href)
+                        ?.value
 
-    fun getUrl() {
+                        ?.let { videoUrl ->
+                            ExtractorLink(
+                                "FSL Server",
+                                "Video",
+                                videoUrl,
+                                "", // referer
+                                Qualities.Unknown.value,
+                            )
+                        }
+                }
+            }
     }
 }
+
