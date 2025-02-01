@@ -1,4 +1,7 @@
 version = 6
+dependencies {
+    implementation("androidx.media3:media3-extractor:1.5.1")
+}
 
 cloudstream {
     //description = "Movie website in Bangladesh"

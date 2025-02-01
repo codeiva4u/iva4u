@@ -1,35 +1,15 @@
 package com.megix
 
-import com.google.gson.Gson
-import com.lagradost.cloudstream3.HomePageList
-import com.lagradost.cloudstream3.HomePageResponse
-import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
-import com.lagradost.cloudstream3.getQualityFromString
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.mvvm.logError
-import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
-import java.net.MalformedURLException
-import java.net.URL
+
+// Define the EpisodeLink data class outside the Hdmovies4u class
+data class EpisodeLink(
+    val source: String
+)
 
 class Hdmovies4u : MainAPI() {
     override var mainUrl = "https://hdmovies4u.spa"
@@ -63,6 +43,7 @@ class Hdmovies4u : MainAPI() {
         } else {
             app.get("${request.data}page/$page/").document
         }
+
         val home = document.select("section.text-center > div.gridxw").mapNotNull {
             it.toSearchResult()
         }
@@ -121,21 +102,12 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        val episodeLinks = mutableListOf<String>()
-        document.select("a[href]").forEach { element ->
-            val link = element.attr("href")
-            if (link.isNotBlank()) {
-                episodeLinks.add(link)
-            }
-        }
-        val episodeLinksJson = Gson().toJson(episodeLinks)
-
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                episodeLinksJson
+                url
             ) {
                 this.posterUrl = poster
                 this.year = year
@@ -161,14 +133,6 @@ class Hdmovies4u : MainAPI() {
             }
         }
     }
-    private fun isValidUrl(url: String): Boolean {
-        return try {
-            URL(url)
-            true
-        } catch (e: MalformedURLException) {
-            false
-        }
-    }
 
     override suspend fun loadLinks(
         data: String,
@@ -176,32 +140,21 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Parse the JSON data into a list of strings
-        return try {
-            val sources = parseJson<List<String>>(data)
-            sources.amap { source ->
-                if (source.contains("pixeldra")) {
-                    PixelDra().getUrl(source, referer = mainUrl, subtitleCallback, callback)
-                } else if (source.contains("fsl.fastdl.lol")) {
-                    FSLServer().getUrl(source)
-                } else if (source.contains("gpdl2.technorozen.workers.dev")) {
-                    callback.invoke(
-                        ExtractorLink(
-                            "Server 10Gbps",
-                            "Server 10Gbps",
-                            source,
-                            source,
-                            Qualities.Unknown.value,
-                        )
-                    )
-                } else {
-                    loadExtractor(source, subtitleCallback, callback)
-                }
+        if (data.startsWith("http") || data.startsWith("https")) {
+            Hdmovies4uExtractor().getUrl(
+                data,
+                mainUrl,
+                subtitleCallback,
+                callback
+            )
+            return true
+        } else {
+            // Parse the JSON data into a list of EpisodeLink objects
+            val sources = parseJson<List<EpisodeLink>>(data)
+            sources.amap { episodeLink ->
+                loadExtractor(episodeLink.source, subtitleCallback, callback)
             }
-            true
-        } catch (e: Exception) {
-            logError(e)
-            false
+            return true
         }
     }
 }

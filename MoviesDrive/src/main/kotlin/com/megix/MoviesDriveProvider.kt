@@ -3,6 +3,7 @@ package com.megix
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.google.gson.Gson
@@ -240,7 +241,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 val innerButtons = doc.select("a").filter {
                     it.attr("href").contains(Regex("hubcloud|gdflix", RegexOption.IGNORE_CASE))
                 }
-                innerButtons.mapNotNull { innerButton -> // Correction is here - using innerButton parameter
+                innerButtons.mapNotNull { innerButton ->
                     val source = innerButton.attr("href")
                     EpisodeLink(
                         source
