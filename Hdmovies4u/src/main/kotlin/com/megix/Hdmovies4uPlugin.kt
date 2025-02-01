@@ -11,8 +11,8 @@ class Hdmovies4uPlugin: Plugin() {
         registerMainAPI(Hdmovies4u()) // Your MainAPI
         registerExtractorAPI(PixelDra())
         registerExtractorAPI(HubCloud())
+//        registerExtractorAPI(GoogleVideo())
         registerExtractorAPI(HubCloudInk())
         registerExtractorAPI(HubCloudArt())
-        registerExtractorAPI(DriveTot())
     }
 }

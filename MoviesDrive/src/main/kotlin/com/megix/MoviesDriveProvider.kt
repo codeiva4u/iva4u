@@ -1,13 +1,12 @@
 package com.megix
 
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
-import org.jsoup.nodes.Element
-import org.jsoup.select.Elements
-import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
-import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.google.gson.Gson
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
+import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
     override var mainUrl = "https://moviesdrive.pro"
