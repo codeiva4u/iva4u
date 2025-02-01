@@ -65,91 +65,26 @@ open class HubCloud : ExtractorApi() {
     ) {
         val newUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(newUrl).document
-        val link = if (url.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-        } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-        }
 
-        if (link.isNullOrEmpty()) {
-            return
-        }
-        val document = app.get(link).document
-        val div = document.selectFirst("div.card-body")
-        val header = document.select("div.card-header").text() ?: ""
-        div?.select("h2 a.btn")?.apmap {
+        // Extract the download links from the HTML
+        val downloadLinks = doc.select("a.btn.btn-success.btn-lg.h6").mapNotNull {
             val downloadLink = it.attr("href")
-            val text = it.text()
-
-            when {
-                text.contains("Download [FSL Server]") -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[FSL Server]",
-                            "$name[FSL Server] - $header",
-                            downloadLink,
-                            "",
-                            getIndexQuality(header),
-                        )
-                    )
-                }
-                text.contains("Download [PixelServer") -> { // Modified to handle PixelServer links
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[PixelServer]", // Changed name for clarity
-                            "$name[PixelServer] - $header", // Changed name for clarity
-                            downloadLink,
-                            "",
-                            getIndexQuality(header),
-                        )
-                    )
-                }
-                text.contains("Download [Server : 10Gbps]") -> {
-                    val dlink = app.get(downloadLink, allowRedirects = false).headers["location"] ?: ""
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[Server 10Gbps]", // Changed name for clarity
-                            "$name[Server 10Gbps] - $header", // Changed name for clarity
-                            dlink.substringAfter("link="),
-                            "",
-                            getIndexQuality(header),
-                        )
-                    )
-                }
-                text.contains("Downoad From Telegram") -> { // Corrected typo "Downoad"
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[Telegram]",
-                            "$name[Telegram] - $header",
-                            downloadLink,
-                            "",
-                            Qualities.Unknown.value, // Telegram links often don't have quality info in header
-                        )
-                    )
-                }
-                text.contains("Download File") -> { // Keep "Download File" for other generic links if needed
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name",
-                            "$name - $header",
-                            downloadLink,
-                            "",
-                            getIndexQuality(header),
-                        )
-                    )
-                }
-
-                else -> {
-                    loadExtractor(downloadLink, "", subtitleCallback, callback) // Fallback for other extractors
-                }
+            val serverName = it.text().trim()
+            if (downloadLink.isNotBlank()) {
+                ExtractorLink(
+                    "$name - $serverName",
+                    "$name - $serverName",
+                    downloadLink,
+                    url,
+                    Qualities.Unknown.value
+                )
+            } else {
+                null
             }
         }
-    }
 
-    private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
+        // Invoke the callback for each download link
+        downloadLinks.forEach { callback.invoke(it) }
     }
 }
 
@@ -162,54 +97,5 @@ class DriveTot : ExtractorApi() {
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
         // Just pass the URL to HubCloud for processing
         HubCloud().getUrl(url, referer, subtitleCallback, callback)
-    }
-}
-
-class Hdmovies4uExtractor : ExtractorApi() {
-    override val name = "Hdmovies4uExtractor"
-    override val mainUrl = "https://hdmovies4u.spa"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val document = app.get(url).document
-
-        // Direct download link (if available)
-        document.select("div.vd center a.btn.btn-primary.p-2").firstOrNull()?.let {
-            val directDownloadLink = it.attr("href")
-            if (directDownloadLink.isNotBlank()) {
-                callback.invoke(
-                    ExtractorLink(
-                        name,
-                        "$name - Direct Download",
-                        directDownloadLink,
-                        url,
-                        Qualities.Unknown.value
-                    )
-                )
-                return@getUrl
-            }
-        }
-
-        // Server download links
-        document.select("div.tab-content div.card-body a.btn.btn-success.btn-lg.h6").apmap {
-            val downloadLink = it.attr("href")
-            val serverName = it.text().trim()
-            if (downloadLink.isNotBlank()) {
-                callback.invoke(
-                    ExtractorLink(
-                        "$name - $serverName",
-                        "$name - $serverName",
-                        downloadLink,
-                        url,
-                        Qualities.Unknown.value
-                    )
-                )
-            }
-        }
     }
 }

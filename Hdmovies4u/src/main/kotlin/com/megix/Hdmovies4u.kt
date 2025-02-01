@@ -141,7 +141,7 @@ class Hdmovies4u : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         if (data.startsWith("http") || data.startsWith("https")) {
-            Hdmovies4uExtractor().getUrl(
+            HubCloud().getUrl(
                 data,
                 mainUrl,
                 subtitleCallback,
