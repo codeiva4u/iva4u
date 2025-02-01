@@ -1,4 +1,5 @@
 package com.megix
+
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
@@ -105,17 +106,18 @@ class Hdmovies4u : MainAPI() {
         document.select("a[href]").forEach { element ->
             val href = element.attr("href").trim()
             when {
+                href.matches(Regex("https?://.*pixeldra.*", RegexOption.IGNORE_CASE)) -> {
+                    streamingLinks.add(href) // Add PixelServer streaming links
+                }
+                href.matches(Regex("https?://.*fsl.fastdl.lol.*", RegexOption.IGNORE_CASE)) -> {
+                    streamingLinks.add(href) // Add FSL Server streaming links
+                }
+                href.matches(Regex("https?://.*gpdl2.technorozen.workers.dev.*", RegexOption.IGNORE_CASE)) -> {
+                    streamingLinks.add(href) // Add 10Gbps Server streaming links
+                }
                 href.matches(Regex("https?://.*hubcloud.*", RegexOption.IGNORE_CASE)) -> {
                     streamingLinks.add(href) // Add HubCloud streaming links
                 }
-            }
-        }
-
-        // Find input fields with HubCloud links
-        document.select("input[value]").forEach { element ->
-            val value = element.attr("value").trim()
-            if (value.matches(Regex("https?://.*hubcloud.*", RegexOption.IGNORE_CASE))) {
-                streamingLinks.add(value) // Add HubCloud streaming links from input fields
             }
         }
 
@@ -136,7 +138,6 @@ class Hdmovies4u : MainAPI() {
                 this.actors = actors
                 this.recommendations = recommendations
                 trailer?.let { addTrailer(it, null) }
-
             }
         } else {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, arrayListOf()) {
@@ -149,7 +150,6 @@ class Hdmovies4u : MainAPI() {
                 this.actors = actors
                 this.recommendations = recommendations
                 trailer?.let { addTrailer(it, null) }
-
             }
         }
     }
@@ -168,4 +168,3 @@ class Hdmovies4u : MainAPI() {
         return true
     }
 }
-
