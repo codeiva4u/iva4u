@@ -142,19 +142,23 @@ class Hdmovies4u : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // Find all download buttons/links
-        val downloadLinks = document.select("div.text-center a[href*=drivetot], div.text-center a[href*=hubcloud]")
+        // Find download buttons that link to drivetot.zip or hubcloud
+        val downloadButtons = document.select("div.vd center a[href*=gamerxyt], div.vd center a[href*=hubcloud]")
         
-        downloadLinks.apmap { link ->
-            val href = link.attr("href")
+        downloadButtons.apmap { button ->
+            val href = button.attr("href")
             if (href.isNotEmpty()) {
                 when {
-                    href.contains("drivetot", ignoreCase = true) -> {
-                        // Handle drivetot.zip links
-                        val driveDoc = app.get(href).document
-                        val serverLinks = driveDoc.select("a[href*=hubcloud]")
-                        serverLinks.forEach { serverLink ->
-                            loadExtractor(serverLink.attr("href"), data, subtitleCallback, callback)
+                    href.contains("gamerxyt", ignoreCase = true) -> {
+                        // Extract parameters from gamerxyt URL
+                        val gamerDoc = app.get(href).document
+                        val hubcloudLinks = gamerDoc.select("a[href*=hubcloud]")
+                        
+                        hubcloudLinks.forEach { link ->
+                            val hubcloudUrl = link.attr("href")
+                            if (hubcloudUrl.isNotEmpty()) {
+                                loadExtractor(hubcloudUrl, data, subtitleCallback, callback)
+                            }
                         }
                     }
                     href.contains("hubcloud", ignoreCase = true) -> {
@@ -164,6 +168,16 @@ class Hdmovies4u : MainAPI() {
                 }
             }
         }
+
+        // Also check for any direct download links in the page
+        val directLinks = document.select("a.btn-primary[href*=Generate]")
+        directLinks.forEach { link ->
+            val directUrl = link.attr("href")
+            if (directUrl.isNotEmpty()) {
+                loadExtractor(directUrl, data, subtitleCallback, callback)
+            }
+        }
+
         return true
     }
 }

@@ -51,7 +51,7 @@ class HubCloudArt : HubCloud() {
 
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
-    override val mainUrl: String = "https://hubcloud.dad"
+    override val mainUrl: String = "https://hubcloud.tel"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -60,8 +60,8 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Handle URL redirects for different domains
-        val newUrl = url.replace("ink", "dad").replace("art", "dad")
+        // Handle URL redirects between domains
+        val newUrl = url.replace(Regex("hubcloud\\.(ink|art|dad)"), "hubcloud.tel")
         val doc = app.get(newUrl).document
 
         // Extract direct link from drive or regular pages
@@ -78,54 +78,70 @@ open class HubCloud : ExtractorApi() {
         val header = document.select("div.card-header").text() ?: ""
 
         // Extract links from all available servers
-        div?.select("h2 a.btn, div.text-center a.btn")?.apmap { button ->
+        div?.select("h2 a.btn, div.text-center a.btn, a[href*=Generate]")?.apmap { button ->
             val serverLink = button.attr("href")
             val buttonText = button.text()
 
             when {
                 buttonText.contains("FSL Server", ignoreCase = true) -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[FSL Server]",
-                            "$name[FSL Server] - $header",
-                            serverLink,
-                            "",
-                            getIndexQuality(header),
+                    val fslDoc = app.get(serverLink).document
+                    val fslLink = fslDoc.selectFirst("a[href*=download]")?.attr("href") ?: ""
+                    if (fslLink.isNotEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[FSL Server]",
+                                "$name[FSL Server] - $header",
+                                fslLink,
+                                "",
+                                getIndexQuality(header),
+                            )
                         )
-                    )
+                    }
                 }
                 buttonText.contains("PixelServer", ignoreCase = true) -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[PixelServer]",
-                            "$name[PixelServer] - $header",
-                            serverLink,
-                            "",
-                            getIndexQuality(header),
+                    val pixelDoc = app.get(serverLink).document
+                    val pixelLink = pixelDoc.selectFirst("a[href*=download]")?.attr("href") ?: ""
+                    if (pixelLink.isNotEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[PixelServer]",
+                                "$name[PixelServer] - $header",
+                                pixelLink,
+                                "",
+                                getIndexQuality(header),
+                            )
                         )
-                    )
+                    }
                 }
                 buttonText.contains("10Gbps Server", ignoreCase = true) -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name[10Gbps Server]",
-                            "$name[10Gbps Server] - $header",
-                            serverLink,
-                            "",
-                            getIndexQuality(header),
+                    val gbpsDoc = app.get(serverLink).document
+                    val gbpsLink = gbpsDoc.selectFirst("a[href*=download]")?.attr("href") ?: ""
+                    if (gbpsLink.isNotEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                "$name[10Gbps Server]",
+                                "$name[10Gbps Server] - $header",
+                                gbpsLink,
+                                "",
+                                getIndexQuality(header),
+                            )
                         )
-                    )
+                    }
                 }
-                buttonText.contains("Download File", ignoreCase = true) -> {
-                    callback.invoke(
-                        ExtractorLink(
-                            name,
-                            "$name - $header",
-                            serverLink,
-                            "",
-                            getIndexQuality(header),
+                buttonText.contains("Generate Direct Download", ignoreCase = true) -> {
+                    val directDoc = app.get(serverLink).document
+                    val directLink = directDoc.selectFirst("a[href*=download]")?.attr("href") ?: ""
+                    if (directLink.isNotEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                name,
+                                "$name - Direct Download - $header",
+                                directLink,
+                                "",
+                                getIndexQuality(header),
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
