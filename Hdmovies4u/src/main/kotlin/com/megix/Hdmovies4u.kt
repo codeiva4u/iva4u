@@ -3,6 +3,7 @@ package com.megix
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
@@ -11,7 +12,7 @@ data class EpisodeLink(
 )
 
 class Hdmovies4u : MainAPI() {
-    override var mainUrl = "https://hdmovies4u.spa"
+    override var mainUrl = "https://hdmovies4u.tw"
     override var name = "Hdmovies4u"
     override val hasMainPage = true
     override var lang = "hi"
@@ -20,6 +21,7 @@ class Hdmovies4u : MainAPI() {
         TvType.Movie,
         TvType.TvSeries,
     )
+
     override val mainPage = mainPageOf(
         "$mainUrl/category/hollywood-movies-1080p/" to "Hollywood Movies",
         "$mainUrl/category/south-hindi-dubbed-720p/" to "South Hindi Dubbed Movies",
@@ -41,9 +43,11 @@ class Hdmovies4u : MainAPI() {
         } else {
             app.get("${request.data}page/$page/").document
         }
+
         val home = document.select("section.text-center > div.gridxw").mapNotNull {
             it.toSearchResult()
         }
+
         return newHomePageResponse(arrayListOf(HomePageList(request.name, home)), hasNext = true)
     }
 
@@ -52,6 +56,7 @@ class Hdmovies4u : MainAPI() {
         val href = fixUrl(this.selectFirst("div.mt-2 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
         val quality = this.select("span.absolute").text().trim().let { getQualityFromString(it) }
+
         return if (href.contains("tvshows", ignoreCase = true)) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
                 this.posterUrl = posterUrl
@@ -67,7 +72,8 @@ class Hdmovies4u : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query").document
-        return document.select("div.gradlew").mapNotNull {
+
+        return document.select("div.gridxw").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -75,7 +81,6 @@ class Hdmovies4u : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
 
-        // Extract metadata
         val title = document.selectFirst("h1.text-gray-500")?.text()?.trim() ?: return null
         val poster = fixUrlNull(document.selectFirst("p.poster img")?.attr("src"))
         val tags = document.select("div.page-meta a").map { it.text() }
@@ -97,25 +102,12 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        // Extract video streaming links using CSS selectors and regex
-        var hubCloudLink: String? = null
-
-        // Find HubCloud link
-        document.select("a[href]").forEach { element ->
-            val href = element.attr("href").trim()
-            if (href.matches(Regex("https?://.*hubcloud.*", RegexOption.IGNORE_CASE))) {
-                hubCloudLink = href
-                return@forEach // Stop after finding the first HubCloud link
-            }
-        }
-
-        // Return the appropriate response
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                hubCloudLink ?: url // Use HubCloud link if available, otherwise fallback to URL
+                url
             ) {
                 this.posterUrl = poster
                 this.year = year
@@ -148,13 +140,19 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-        val hubCloudExtractor = HubCloud() // Use the updated HubCloud extractor
-        val extractedLinks = hubCloudExtractor.extract(document)
-
-        extractedLinks.forEach { link ->
-            callback.invoke(link) // Directly invoke callback with the existing 'link'
+        // Parse the JSON data into a list of EpisodeLink objects
+        val sources = parseJson<List<EpisodeLink>>(data)
+        sources.amap { episodeLink ->
+            // Changed to HDMovies4uHubCloudExtractor to handle HubCloud links
+            loadExtractor()
         }
         return true
     }
+
+    private fun loadExtractor() {
+
+    }
+
+
+
 }
