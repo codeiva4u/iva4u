@@ -140,19 +140,30 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Parse the JSON data into a list of EpisodeLink objects
-        val sources = parseJson<List<EpisodeLink>>(data)
-        sources.amap { episodeLink ->
-            // Changed to HDMovies4uHubCloudExtractor to handle HubCloud links
-            loadExtractor()
+        val document = app.get(data).document
+
+        // Find all download buttons/links
+        val downloadLinks = document.select("div.text-center a[href*=drivetot], div.text-center a[href*=hubcloud]")
+        
+        downloadLinks.apmap { link ->
+            val href = link.attr("href")
+            if (href.isNotEmpty()) {
+                when {
+                    href.contains("drivetot", ignoreCase = true) -> {
+                        // Handle drivetot.zip links
+                        val driveDoc = app.get(href).document
+                        val serverLinks = driveDoc.select("a[href*=hubcloud]")
+                        serverLinks.forEach { serverLink ->
+                            loadExtractor(serverLink.attr("href"), data, subtitleCallback, callback)
+                        }
+                    }
+                    href.contains("hubcloud", ignoreCase = true) -> {
+                        // Direct HubCloud links
+                        loadExtractor(href, data, subtitleCallback, callback)
+                    }
+                }
+            }
         }
         return true
     }
-
-    private fun loadExtractor() {
-
-    }
-
-
-
 }
