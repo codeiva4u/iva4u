@@ -3,7 +3,6 @@ package com.megix
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
@@ -68,7 +67,7 @@ class Hdmovies4u : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query").document
-        return document.select("div.gridxw").mapNotNull {
+        return document.select("div.gradlew").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -99,25 +98,14 @@ class Hdmovies4u : MainAPI() {
         }
 
         // Extract video streaming links using CSS selectors and regex
-        val streamingLinks = mutableListOf<String>()
-        val downloadLinks = mutableListOf<String>()
+        var hubCloudLink: String? = null
 
-        // Find all anchor tags with href attributes
+        // Find HubCloud link
         document.select("a[href]").forEach { element ->
             val href = element.attr("href").trim()
-            when {
-                href.matches(Regex("https?://.*pixeldra.*", RegexOption.IGNORE_CASE)) -> {
-                    streamingLinks.add(href) // Add PixelServer streaming links
-                }
-                href.matches(Regex("https?://.*fsl.fastdl.lol.*", RegexOption.IGNORE_CASE)) -> {
-                    streamingLinks.add(href) // Add FSL Server streaming links
-                }
-                href.matches(Regex("https?://.*gpdl2.technorozen.workers.dev.*", RegexOption.IGNORE_CASE)) -> {
-                    streamingLinks.add(href) // Add 10Gbps Server streaming links
-                }
-                href.matches(Regex("https?://.*hubcloud.*", RegexOption.IGNORE_CASE)) -> {
-                    streamingLinks.add(href) // Add HubCloud streaming links
-                }
+            if (href.matches(Regex("https?://.*hubcloud.*", RegexOption.IGNORE_CASE))) {
+                hubCloudLink = href
+                return@forEach // Stop after finding the first HubCloud link
             }
         }
 
@@ -127,7 +115,7 @@ class Hdmovies4u : MainAPI() {
                 title,
                 url,
                 TvType.Movie,
-                streamingLinks.firstOrNull() ?: url // Use the first streaming link if available
+                hubCloudLink ?: url // Use HubCloud link if available, otherwise fallback to URL
             ) {
                 this.posterUrl = poster
                 this.year = year
@@ -160,10 +148,12 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Parse the JSON data into a list of EpisodeLink objects
-        val sources = parseJson<List<EpisodeLink>>(data)
-        sources.amap { episodeLink ->
-            loadExtractor(episodeLink.source, subtitleCallback, callback)
+        val document = app.get(data).document
+        val hubCloudExtractor = HubCloud() // Use the updated HubCloud extractor
+        val extractedLinks = hubCloudExtractor.extract(document)
+
+        extractedLinks.forEach { link ->
+            callback.invoke(link) // Directly invoke callback with the existing 'link'
         }
         return true
     }
