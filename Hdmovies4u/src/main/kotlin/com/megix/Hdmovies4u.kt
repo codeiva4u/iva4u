@@ -9,7 +9,6 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.apmap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -159,28 +158,8 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-        
-        // Find all download links
-        val downloadLinks = document.select("a[href*=hubcloud], a[href*=pixeldra], a[href*=fastdl]")
-        
-        // Process each download link
-        downloadLinks.apmap { element ->
-            val link = element.attr("href")
-            when {
-                link.contains("hubcloud") -> {
-                    loadExtractor(link, data, subtitleCallback, callback)
-                }
-                link.contains("pixeldra") -> {
-                    loadExtractor(link, data, subtitleCallback, callback)
-                }
-                link.contains("fastdl") -> {
-                    loadExtractor(link, data, subtitleCallback, callback)
-                }
-
-                else -> {}
-            }
-        }
+        // Use HubCloud extractor directly
+        loadExtractor(data, data, subtitleCallback, callback)
         
         return true
     }
