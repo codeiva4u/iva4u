@@ -1,9 +1,27 @@
 package com.megix
 
-import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.fixUrl
+import com.lagradost.cloudstream3.fixUrlNull
+import com.lagradost.cloudstream3.getQualityFromString
+import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
@@ -140,44 +158,9 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-
-        // Find download buttons that link to drivetot.zip or hubcloud
-        val downloadButtons = document.select("div.vd center a[href*=gamerxyt], div.vd center a[href*=hubcloud]")
+        // Use HubCloud extractor directly
+        loadExtractor(data, data, subtitleCallback, callback)
         
-        downloadButtons.apmap { button ->
-            val href = button.attr("href")
-            if (href.isNotEmpty()) {
-                when {
-                    href.contains("gamerxyt", ignoreCase = true) -> {
-                        // Extract parameters from gamerxyt URL
-                        val gamerDoc = app.get(href).document
-                        val hubcloudLinks = gamerDoc.select("a[href*=hubcloud]")
-                        
-                        hubcloudLinks.forEach { link ->
-                            val hubcloudUrl = link.attr("href")
-                            if (hubcloudUrl.isNotEmpty()) {
-                                loadExtractor(hubcloudUrl, data, subtitleCallback, callback)
-                            }
-                        }
-                    }
-                    href.contains("hubcloud", ignoreCase = true) -> {
-                        // Direct HubCloud links
-                        loadExtractor(href, data, subtitleCallback, callback)
-                    }
-                }
-            }
-        }
-
-        // Also check for any direct download links in the page
-        val directLinks = document.select("a.btn-primary[href*=Generate]")
-        directLinks.forEach { link ->
-            val directUrl = link.attr("href")
-            if (directUrl.isNotEmpty()) {
-                loadExtractor(directUrl, data, subtitleCallback, callback)
-            }
-        }
-
         return true
     }
 }
