@@ -32,13 +32,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/genre/hollywood/" to "Hollywood Movies",
         "$mainUrl/genre/south-indian/" to "South Indian Movies",
         "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
+        "$mainUrl/genre/netflix/" to "Netflix",
         "$mainUrl/genre/amazon-prime/" to "Amazon Prime",
         "$mainUrl/genre/disney-hotstar/" to "Disney Hotstar",
         "$mainUrl/genre/jio-ott/" to "Jio OTT",
-        "$mainUrl/genre/netflix/" to "Netflix",
         "$mainUrl/genre/sony-liv/" to "Sony Live",
         "$mainUrl/genre/zee-5/" to "Zee5",
-        "$mainUrl/genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -65,10 +64,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.toString()?.trim() ?: return null
+        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text().toString())
+        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
 
         return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -90,8 +89,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val title = it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
             val href = fixUrl(it.selectFirst("article > div.details > div.title > a")?.attr("href").toString())
             val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src"))
-            val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text().toString())
-            val type = it.select("article > div.image > div.thumbnail > a > span").text().toString()
+            val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
+            val type = it.select("article > div.image > div.thumbnail > a > span").text()
 
             if (type.contains("Movie")) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
@@ -133,7 +132,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url).document
-        val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.toString()?.trim() ?: return null
+        val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
@@ -143,7 +142,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year =
-            doc.selectFirst("span.date")?.text()?.toString()?.substringAfter(",")?.trim()?.toInt()
+            doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
         val type = if (url.contains("tvshows")) TvType.TvSeries else TvType.Movie
         val trailerRegex = Regex("\"http.*\"")
@@ -161,15 +160,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         trailer = trailerRegex.find(trailer.toString())?.value.toString()
         val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
         val duration =
-            doc.selectFirst("span.runtime")?.text()?.toString()?.removeSuffix(" Min.")?.trim()?.toInt()
+            doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()?.toInt()
         val actors =
             doc.select("div.person").map {
                 ActorData(
                     Actor(
-                        it.select("div.data > div.name > a").text().toString(),
-                        it.select("div.img > a > img").attr("src").toString()
+                        it.select("div.data > div.name > a").text(),
+                        it.select("div.img > a > img").attr("src")
                     ),
-                    roleString = it.select("div.data > div.caracter").text().toString(),
+                    roleString = it.select("div.data > div.caracter").text(),
                 )
             }
         val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
