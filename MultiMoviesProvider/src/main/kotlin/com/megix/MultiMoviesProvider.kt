@@ -67,7 +67,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.toString()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        // Corrected selector for poster URL
+        // Corrected selector for poster URL (Used in Main Page and Category Pages)
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text().toString())
 
@@ -90,7 +90,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         return document.select("div.result-item").mapNotNull {
             val title = it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
             val href = fixUrl(it.selectFirst("article > div.details > div.title > a")?.attr("href").toString())
-            // Corrected selector for poster URL
+            // Corrected selector for poster URL (Used in Search Results)
             val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src"))
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text().toString())
             val type = it.select("article > div.image > div.thumbnail > a > span").text().toString()
@@ -139,7 +139,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
-        // Corrected way to extract poster URL
+        // Corrected way to extract poster URL (Used in Movie and TVShow Details Page)
         val poster = fixUrlNull(
             doc.select("div.poster > img").attr("src")
         )
