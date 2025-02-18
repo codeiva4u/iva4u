@@ -122,80 +122,111 @@ class MultiMoviesProvider : MainAPI() {
         @JsonProperty("type") var type: String?
     )
 
+    
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
-        val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
-        val poster = fixUrlNull(doc.select("#contenedor").toString().substringAfter("background-image:url(").substringBefore(");"))
-        val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toIntOrNull()
-        val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
-        val type = if (url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
-        val trailer = fixUrlNull(
+    val doc = app.get(url).document
+
+    // Title Extraction
+    val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
+    val titleRegex = Regex("(^.*\\)\\d*)")
+    val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
+    val title = if (titleClean == "null") titleL else titleClean
+
+    // Poster URL Extraction
+    val poster = fixUrlNull(
+        doc.select("#contenedor").toString().substringAfter("background-image:url(")
+            .substringBefore(");")
+    )
+
+    // Tags Extraction
+    val tags = doc.select("div.sgeneros > a").map { it.text() }
+
+    // Year Extraction
+    val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
+
+    // Description Extraction
+    val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
+
+    // Rating Extraction
+    val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
+
+    // Duration Extraction
+    val duration = doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()?.toInt()
+
+    // Actors Extraction
+    val actors = doc.select("div.person").map {
+        ActorData(
+            Actor(
+                it.select("div.data > div.name > a").text(),
+                it.select("div.img > a > img").attr("src")
+            ),
+            roleString = it.select("div.data > div.caracter").text()
+        )
+    }
+
+    // Recommendations Extraction
+    val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
+        it.toSearchResult()
+    }
+
+    // Episodes Extraction (For TV Series)
+    val episodes = ArrayList<Episode>()
+    doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
+        me.select("li").mapIndexed { epNum, it ->
+            episodes.add(
+                Episode(
+                    data = it.select("div.episodiotitle > a").attr("href"),
+                    name = it.select("div.episodiotitle > a").text(),
+                    season = seasonNum + 1,
+                    episode = epNum + 1,
+                    posterUrl = it.select("div.imagen > img").attr("src")
+                )
+            )
+        }
+    }
+
+    // Trailer URL Extraction
+    val trailerRegex = Regex("\"http.*\"")
+    var trailer = if (url.contains("Movie")) {
+        fixUrlNull(
             getEmbed(
                 doc.select("#report-video-button-field > input[name~=postid]").attr("value"),
                 "trailer",
                 url
-            ).parsed<TrailerUrl>().embedUrl
+            ).parsed<ResponseHash>().embedUrl
         )
-        val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
-        val duration = doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()?.toIntOrNull()
-        val actors = doc.select("div.person").map {
-            ActorData(
-                Actor(
-                    it.select("div.data > div.name > a").text().trim(),
-                    it.select("div.img > a > img").attr("src").trim()
-                ),
-                roleString = it.select("div.data > div.caracter").text().trim()
-            )
-        }
-        val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull { it.toSearchResult() }
+    } else {
+        fixUrlNull(doc.select("iframe.rptss").attr("src"))
+    }
+    trailer = trailerRegex.find(trailer.toString())?.value.toString()
 
-        val episodes = ArrayList<Episode>()
-        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
-            me.select("li").mapIndexed { epNum, it ->
-                episodes.add(
-                    Episode(
-                        data = it.select("div.episodiotitle > a").attr("href"),
-                        name = it.select("div.episodiotitle > a").text().trim(),
-                        season = seasonNum + 1,
-                        episode = epNum + 1,
-                        posterUrl = it.select("div.imagen > img").attr("src").trim()
-                    )
-                )
-            }
+    // Return LoadResponse
+    return if (url.contains("tvshows")) {
+        newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.posterUrl = poster?.trim()
+            this.year = year
+            this.plot = description
+            this.tags = tags
+            this.rating = rating
+            this.duration = duration
+            this.actors = actors
+            this.recommendations = recommendations
+            addTrailer(trailer)
         }
-
-        return if (type == TvType.Movie) {
-            newMovieLoadResponse(
-                title,
-                url,
-                TvType.Movie,
-                url
-            ) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = description
-                this.tags = tags
-                this.rating = rating
-                this.duration = duration
-                this.actors = actors
-                this.recommendations = recommendations
-                addTrailer(trailer)
-            }
-        } else {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = description
-                this.tags = tags
-                this.rating = rating
-                this.duration = duration
-                this.actors = actors
-                this.recommendations = recommendations
-                addTrailer(trailer)
-            }
+    } else {
+        newMovieLoadResponse(title, url, TvType.Movie, url) {
+            this.posterUrl = poster?.trim()
+            this.year = year
+            this.plot = description
+            this.tags = tags
+            this.rating = rating
+            this.duration = duration
+            this.actors = actors
+            this.recommendations = recommendations
+            addTrailer(trailer)
         }
     }
+        
 
     override suspend fun loadLinks(
         data: String,
