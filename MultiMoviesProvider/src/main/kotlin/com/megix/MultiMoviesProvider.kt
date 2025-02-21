@@ -24,7 +24,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     companion object {
-        //val headers = mapOf("User-Agent" to "Mozilla/5.0", "X-Requested-With" to "XMLHttpRequest")
+        // Default headers for requests
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0",
+            "X-Requested-With" to "XMLHttpRequest"
+        )
     }
 
     override val mainPage = mainPageOf(
@@ -46,9 +50,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         request: MainPageRequest
     ): HomePageResponse {
         val document = if (page == 1) {
-            app.get(request.data).document
+            app.get(request.data, headers = headers).document
         } else {
-            app.get("${request.data}page/$page/").document
+            app.get("${request.data}page/$page/", headers = headers).document
         }
 
         val home = if (request.data.contains("/movies")) {
@@ -65,12 +69,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
+        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim().orEmpty()
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").orEmpty())
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text().trim())
 
-        return if (href.contains("Movie", ignoreCase = true)) {
+        return if (href.contains("movie", ignoreCase = true)) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -84,7 +88,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query").document
+        val document = app.get("$mainUrl/?s=$query", headers = headers).document
 
         return document.select("div.result-item").mapNotNull {
             val title = it.selectFirst("article > div.details > div.title > a")?.text()?.trim().orEmpty()
@@ -93,7 +97,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text().trim())
             val type = it.select("article > div.image > div.thumbnail > a > span").text().trim()
 
-            if (type.contains("Movie", ignoreCase = true)) {
+            if (type.contains("movie", ignoreCase = true)) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
                     this.posterUrl = posterUrl
                     this.quality = quality
@@ -119,10 +123,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             url = "$mainUrl/wp-admin/admin-ajax.php",
             requestBody = body,
             referer = referUrl,
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-                "X-Requested-With" to "XMLHttpRequest"
-            )
+            headers = headers
         )
     }
 
@@ -132,7 +133,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
+        val doc = app.get(url, headers = headers).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim().orEmpty()
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.orEmpty()
@@ -225,7 +226,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).document
+        val req = app.get(data, headers = headers).document
         req.select("ul#playeroptionsul li").map {
             Triple(
                 it.attr("data-post"),
@@ -243,7 +244,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         "type" to type
                     ),
                     referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                    headers = headers
                 ).parsed<ResponseHash>().embedUrl
 
                 val link = source?.substringAfter("\"")?.substringBefore("\"").orEmpty()
@@ -253,7 +254,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                             Log.d("Phisher", link)
                             loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                         } else if (link.contains("deaddrive.xyz", ignoreCase = true)) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
+                            app.get(link, headers = headers).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
                                 loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
