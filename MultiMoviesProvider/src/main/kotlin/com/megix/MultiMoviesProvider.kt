@@ -36,13 +36,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/genre/hollywood/" to "Hollywood Movies",
         "$mainUrl/genre/south-indian/" to "South Indian Movies",
         "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
+        "$mainUrl/genre/netflix/" to "Netflix",
         "$mainUrl/genre/amazon-prime/" to "Amazon Prime",
         "$mainUrl/genre/disney-hotstar/" to "Disney Hotstar",
         "$mainUrl/genre/jio-ott/" to "Jio OTT",
-        "$mainUrl/genre/netflix/" to "Netflix",
         "$mainUrl/genre/sony-liv/" to "Sony Live",
         "$mainUrl/genre/zee-5/" to "Zee5",
-        "$mainUrl/genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
