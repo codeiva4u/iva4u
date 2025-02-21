@@ -38,7 +38,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/genre/netflix/" to "Netflix",
         "$mainUrl/genre/sony-liv/" to "Sony Live",
         "$mainUrl/genre/zee-5/" to "Zee5",
-        "$mainUrl/genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -140,12 +139,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         // Corrected way to extract poster URL (Used in Movie and TVShow Details Page)
-        val poster = fixUrlNull(
-            doc.select("div.poster > img").attr("src")
-        )
+        val poster = fixUrlNull(doc.select("div.poster > img").attr("src"))
         val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val year =
-            doc.selectFirst("span.date")?.text()?.toString()?.substringAfter(",")?.trim()?.toInt()
+        val year = doc.selectFirst("span.date")?.text()?.toString()?.substringAfter(",")?.trim()?.toInt()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
         val type = if (url.contains("tvshows")) TvType.TvSeries else TvType.Movie
         val trailerRegex = Regex("\"http.*\"")
@@ -156,24 +152,22 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     doc.select("#report-video-button-field > input[name~=postid]").attr("value"),
                     "trailer",
                     url
-                ).parsed<TrailerUrl>().embedUrl
+                ).parsed<ResponseHash>().embed_url
             )
         else fixUrlNull(doc.select("iframe.rptss").attr("src").toString())
 
         trailer = trailerRegex.find(trailer.toString())?.value.toString()
         val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
-        val duration =
-            doc.selectFirst("span.runtime")?.text()?.toString()?.removeSuffix(" Min.")?.trim()?.toInt()
-        val actors =
-            doc.select("div.person").map {
-                ActorData(
-                    Actor(
-                        it.select("div.data > div.name > a").text().toString(),
-                        it.select("div.img > a > img").attr("src").toString()
-                    ),
-                    roleString = it.select("div.data > div.caracter").text().toString(),
-                )
-            }
+        val duration = doc.selectFirst("span.runtime")?.text()?.toString()?.removeSuffix(" Min.")?.trim()?.toInt()
+        val actors = doc.select("div.person").map {
+            ActorData(
+                Actor(
+                    it.select("div.data > div.name > a").text().toString(),
+                    it.select("div.img > a > img").attr("src").toString()
+                ),
+                roleString = it.select("div.data > div.caracter").text().toString(),
+            )
+        }
         val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
             it.toSearchResult()
         }
