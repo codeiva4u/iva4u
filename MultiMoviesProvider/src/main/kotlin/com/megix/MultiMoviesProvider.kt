@@ -68,7 +68,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         return HomePageResponse(arrayListOf(HomePageList(request.name, home)), hasNext = true)
     }
 
-    private fun Element.toSearchResult(): SearchResponse? {
+    private fun Element.toSearchResult(): SearchResponse {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim().orEmpty()
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").orEmpty())
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
@@ -132,7 +132,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("type") var type: String?
     )
 
-    override suspend fun load(url: String): LoadResponse? {
+    override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url, headers = headers).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim().orEmpty()
         val titleRegex = Regex("(^.*\\)\\d*)")
