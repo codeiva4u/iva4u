@@ -75,7 +75,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-
+       
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -158,39 +158,39 @@ open class Movierulzhd : MainAPI() {
                     val season =
                         it.select("div.numerando").text().replace(" ", "").split("-").first()
                             .toIntOrNull()
-                    Episode(
-                        href,
-                        name,
-                        season,
-                        episode,
-                        image
-                    )
+                    newEpisode(href)
+                    {
+                        this.name=name
+                        this.episode=episode
+                        this.season=season
+                        this.posterUrl=image
+                    }
                 }
             } else {
-                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-                if (check) {
-                    document.select("ul#playeroptionsul > li").drop(1).map {
-                        val name = it.selectFirst("span.title")?.text()
-                        val type = it.attr("data-type")
-                        val post = it.attr("data-post")
-                        val nume = it.attr("data-nume")
-                        Episode(
-                            LinkData(name, type, post, nume).toJson(),
-                            name
-                        )
-                    }
-                } else {
-                    document.select("ul#playeroptionsul > li").map {
-                        val name = it.selectFirst("span.title")?.text()
-                        val type = it.attr("data-type")
-                        val post = it.attr("data-post")
-                        val nume = it.attr("data-nume")
-                        Episode(
-                            LinkData(name, type, post, nume).toJson(),
-                            name
-                        )
-                    }
-                }
+            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+				if (check) {
+				    document.select("ul#playeroptionsul > li").drop(1).map {
+				        val name = it.selectFirst("span.title")?.text()
+				        val type = it.attr("data-type")
+				        val post = it.attr("data-post")
+				        val nume = it.attr("data-nume")
+                        newEpisode(LinkData(name, type, post, nume).toJson())
+                        {
+                            this.name=name
+                        }
+				    }
+				} else {
+				    document.select("ul#playeroptionsul > li").map {
+				        val name = it.selectFirst("span.title")?.text()
+				        val type = it.attr("data-type")
+				        val post = it.attr("data-post")
+				        val nume = it.attr("data-nume")
+                        newEpisode(LinkData(name, type, post, nume).toJson())
+                        {
+                            this.name=name
+                        }
+				    }
+				}
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl

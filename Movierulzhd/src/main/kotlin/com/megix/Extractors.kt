@@ -1,4 +1,3 @@
-
 package com.Phisher98
 
 import com.lagradost.cloudstream3.SubtitleFile
