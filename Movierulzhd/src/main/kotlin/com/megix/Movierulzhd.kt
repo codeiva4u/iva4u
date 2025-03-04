@@ -1,6 +1,6 @@
-package com.megix
+package com.Phisher98
 
-//import android.util.Log
+
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
@@ -13,7 +13,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://1movierulzhd.pics/"
+    override var mainUrl = "https://1movierulzhd.my"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
