@@ -1,9 +1,9 @@
-package com.megix
+package com.Phisher98
 
+import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.network.WebViewResolver
@@ -14,6 +14,9 @@ import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import java.net.URI
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class MultimoviesAIO: StreamWishExtractor() {
     override var name = "Multimovies Cloud AIO"
@@ -55,46 +58,100 @@ class GDMirrorbot : ExtractorApi() {
     override var name = "GDMirrorbot"
     override var mainUrl = "https://gdmirrorbot.nl"
     override val requiresReferer = true
+
     override suspend fun getUrl(
         url: String,
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        Log.d("Phisher","I'm here")
+
         val host = getBaseUrl(app.get(url).url)
-        val embed = url.substringAfter("embed/")
+        val embed = url.substringAfterLast("/")
         val data = mapOf("sid" to embed)
         val jsonString = app.post("$host/embedhelper.php", data = data).toString()
-        val jsonObject = JsonParser.parseString(jsonString).asJsonObject
-        val siteUrls = jsonObject.getAsJsonObject("siteUrls").asJsonObject
-        val mresult = jsonObject.getAsJsonObject("mresult").toString()
-        val regex = """"(\w+)":"([^"]+)"""".toRegex()
-        val mresultMap = regex.findAll(mresult).associate {
-            it.groupValues[1] to it.groupValues[2]
-        }
+        Log.d("Phisher",jsonString)
 
-        val matchingResults = mutableListOf<Pair<String, String>>()
-        siteUrls.keySet().forEach { key ->
-            if (mresultMap.containsKey(key)) { // Use regex-matched keys and values
-                val value1 = siteUrls.get(key).asString
-                Log.d("Phisher",value1)
-                val value2 = mresultMap[key].orEmpty()
-                matchingResults.add(Pair(value1, value2))
+        val jsonElement: JsonElement = JsonParser.parseString(jsonString)
+        if (!jsonElement.isJsonObject) {
+            Log.e("Error:", "Unexpected JSON format: Response is not a JSON object")
+            return
+        }
+        val jsonObject = jsonElement.asJsonObject
+        val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
+        val mresult = jsonObject["mresult"]?.takeIf { it.isJsonObject }?.asJsonObject
+        val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+        if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
+            return
+        }
+        val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
+        commonKeys.forEach { key ->
+            val siteName = siteFriendlyNames[key]?.asString
+            if (siteName == null) {
+                Log.e("Error:", "Skipping key: $key because siteName is null")
+                return@forEach
             }
-        }
-
-        matchingResults.amap { (siteUrl, result) ->
-            val href = "$siteUrl$result"
-            android.util.Log.d("Phisher", "Generated Href: $href")
+            val siteUrl = siteUrls[key]?.asString
+            val resultUrl = mresult[key]?.asString
+            if (siteUrl == null || resultUrl == null) {
+                Log.e("Error:", "Skipping key: $key because siteUrl or resultUrl is null")
+                return@forEach
+            }
+            val href = siteUrl + resultUrl
             loadExtractor(href, subtitleCallback, callback)
         }
 
     }
 
-    fun getBaseUrl(url: String): String {
+    private fun getBaseUrl(url: String): String {
         return URI(url).let {
             "${it.scheme}://${it.host}"
         }
+    }
+}
+
+
+class MultimoviesVidstack : ExtractorApi() {
+    override var name = "Vidstack"
+    override var mainUrl = "https://multimovies.rpmhub.site"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+        val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
+        val hash=url.substringAfterLast("#")
+        val encoded= app.get("$mainUrl/api/v1/video?id=$hash",headers=headers).text.trim()
+        val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
+        val m3u8=Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?:""
+        return listOf(
+            ExtractorLink(
+                this.name,
+                this.name,
+                m3u8,
+                url,
+                Qualities.Unknown.value,
+                isM3u8 = true
+            )
+        )
+    }
+}
+
+object AesHelper {
+    private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
+
+    fun decryptAES(inputHex: String, key: String, iv: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
+        val ivSpec = IvParameterSpec(iv.toByteArray(Charsets.UTF_8))
+
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
+        val decryptedBytes = cipher.doFinal(inputHex.hexToByteArray())
+        return String(decryptedBytes, Charsets.UTF_8)
+    }
+
+    private fun String.hexToByteArray(): ByteArray {
+        check(length % 2 == 0) { "Hex string must have an even length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 }
 
