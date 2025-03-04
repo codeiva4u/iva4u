@@ -1,16 +1,12 @@
-package com.megix
 
-import android.annotation.SuppressLint
+package com.Phisher98
+
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.Filesim
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
-import com.lagradost.cloudstream3.utils.ExtractorApi
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.JsUnpacker
-import com.lagradost.cloudstream3.utils.Qualities
 
 class FMHD : Filesim() {
     override val name = "FMHD"
@@ -65,25 +61,24 @@ open class FMX : ExtractorApi() {
     override var mainUrl = "https://fmx.lol"
     override val requiresReferer = true
 
-    @SuppressLint("SuspiciousIndentation")
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url,referer=mainUrl).document
-        val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                return listOf(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        link,
-                        referer ?: "",
-                        Qualities.Unknown.value,
-                        type = INFER_TYPE
+            val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                    return listOf(
+                        ExtractorLink(
+                            this.name,
+                            this.name,
+                            link,
+                            referer ?: "",
+                            Qualities.Unknown.value,
+                            type = INFER_TYPE
+                        )
                     )
-                )
+                }
             }
-        }
-        return null
+            return null
     }
 }
 
@@ -98,11 +93,11 @@ open class Akamaicdn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val res = app.get(url, referer = referer).document
+        val headers= mapOf("user-agent" to "okhttp/4.12.0")
+        val res = app.get(url, referer = referer, headers = headers).document
         val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
             ?.substringBefore(");") ?: return
         val ids = mappers.split(",").map { it.replace("\"", "") }
-        val headers= mapOf("user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         callback.invoke(
             ExtractorLink(
                 this.name,
@@ -117,6 +112,6 @@ open class Akamaicdn : ExtractorApi() {
     }
 }
 class Mocdn:Akamaicdn(){
-    override val name = "Mocdn"
-    override val mainUrl = "https://mocdn.art"
+   override val name = "Mocdn"
+   override val mainUrl = "https://mocdn.art"
 }
