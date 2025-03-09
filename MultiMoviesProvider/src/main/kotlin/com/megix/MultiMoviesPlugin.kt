@@ -1,4 +1,5 @@
-package com.Phisher98
+
+package com.phisher98
 
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
@@ -30,5 +31,5 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(VidHidePro6())
         registerExtractorAPI(FilemoonV2())
         registerExtractorAPI(Streamcasthub())
-        }
+    }
 }

@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -13,7 +13,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://1movierulzhd.pics/"
+    override var mainUrl = "https://1movierulzhd.my"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
@@ -75,7 +75,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-       
+
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -167,30 +167,30 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-				if (check) {
-				    document.select("ul#playeroptionsul > li").drop(1).map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+                if (check) {
+                    document.select("ul#playeroptionsul > li").drop(1).map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				} else {
-				    document.select("ul#playeroptionsul > li").map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                    }
+                } else {
+                    document.select("ul#playeroptionsul > li").map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				}
+                    }
+                }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -295,22 +295,23 @@ open class Movierulzhd : MainAPI() {
         quality: Int? = null,
     ) {
         loadExtractor(url, referer, subtitleCallback) { link ->
-            // सभी लिंक को प्रोसेस करें, न कि सिर्फ अज्ञात क्वालिटी वाले
-            callback.invoke(
-                ExtractorLink(
-                    link.source,
-                    link.name,
-                    link.url,
-                    link.referer,
-                    when (link.type) {
-                        ExtractorLinkType.M3U8 -> link.quality
-                        else -> quality ?: link.quality
-                    },
-                    link.type,
-                    link.headers,
-                    link.extractorData
+            if(link.quality == Qualities.Unknown.value) {
+                callback.invoke(
+                    ExtractorLink(
+                        link.source,
+                        link.name,
+                        link.url,
+                        link.referer,
+                        when (link.type) {
+                            ExtractorLinkType.M3U8 -> link.quality
+                            else -> quality ?: link.quality
+                        },
+                        link.type,
+                        link.headers,
+                        link.extractorData
+                    )
                 )
-            )
+            }
         }
     }
 

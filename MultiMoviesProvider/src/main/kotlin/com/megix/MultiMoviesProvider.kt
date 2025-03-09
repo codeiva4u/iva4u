@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -242,58 +242,58 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 when {
                     !link.contains("youtube") -> {
                         if(link.contains("gdmirrorbot.nl"))
-                            {
+                        {
 
-                                val host = getBaseUrl(app.get(link).url)
-                                val embed = link.substringAfterLast("/")
-                                val data = mapOf("sid" to embed)
-                                val jsonString = app.post("$host/embedhelper.php", data = data).toString()
-                                Log.d("Phisher", "$host/embedhelper.php")
+                            val host = getBaseUrl(app.get(link).url)
+                            val embed = link.substringAfterLast("/")
+                            val data = mapOf("sid" to embed)
+                            val jsonString = app.post("$host/embedhelper.php", data = data).toString()
+                            Log.d("Phisher", "$host/embedhelper.php")
 
-                                val jsonElement: JsonElement = JsonParser.parseString(jsonString)
-                                if (!jsonElement.isJsonObject) {
-                                    Log.e("Error:", "Unexpected JSON format: Response is not a JSON object")
-                                    return@apmap
+                            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
+                            if (!jsonElement.isJsonObject) {
+                                Log.e("Error:", "Unexpected JSON format: Response is not a JSON object")
+                                return@apmap
+                            }
+                            val jsonObject = jsonElement.asJsonObject
+                            val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            val mresultEncoded = jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
+                            val mresult = mresultEncoded?.let {
+                                val decodedString = base64Decode(it) // Decode from Base64
+                                JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
+                            }
+                            val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
+                                return@apmap
+                            }
+                            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
+                            commonKeys.forEach { key ->
+                                val siteName = siteFriendlyNames[key]?.asString
+                                if (siteName == null) {
+                                    Log.e("Error:", "Skipping key: $key because siteName is null")
+                                    return@forEach
                                 }
-                                val jsonObject = jsonElement.asJsonObject
-                                val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
-                                val mresultEncoded = jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
-                                val mresult = mresultEncoded?.let {
-                                    val decodedString = base64Decode(it) // Decode from Base64
-                                    JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
+                                val siteUrl = siteUrls[key]?.asString
+                                val resultUrl = mresult[key]?.asString
+                                if (siteUrl == null || resultUrl == null) {
+                                    Log.e("Error:", "Skipping key: $key because siteUrl or resultUrl is null")
+                                    return@forEach
                                 }
-                                val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
-                                if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
-                                    return@apmap
-                                }
-                                val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
-                                commonKeys.forEach { key ->
-                                    val siteName = siteFriendlyNames[key]?.asString
-                                    if (siteName == null) {
-                                        Log.e("Error:", "Skipping key: $key because siteName is null")
-                                        return@forEach
-                                    }
-                                    val siteUrl = siteUrls[key]?.asString
-                                    val resultUrl = mresult[key]?.asString
-                                    if (siteUrl == null || resultUrl == null) {
-                                        Log.e("Error:", "Skipping key: $key because siteUrl or resultUrl is null")
-                                        return@forEach
-                                    }
-                                    val href = siteUrl + resultUrl
-                                    Log.d("Phisher",href)
+                                val href = siteUrl + resultUrl
+                                Log.d("Phisher",href)
 
-                                    loadExtractor(href, subtitleCallback, callback)
-                                }
+                                loadExtractor(href, subtitleCallback, callback)
+                            }
                         }
                         else if (link.contains("deaddrive.xyz"))
-                            {
-                                app.get(link).document.select("ul.list-server-items > li").map {
-                                    val server = it.attr("data-video")
-                                    loadExtractor(server,referer = mainUrl,subtitleCallback, callback)
-                                }
+                        {
+                            app.get(link).document.select("ul.list-server-items > li").map {
+                                val server = it.attr("data-video")
+                                loadExtractor(server,referer = mainUrl,subtitleCallback, callback)
                             }
+                        }
                         else
-                        loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
                     else -> return@apmap
                 }
@@ -309,9 +309,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
 
-private fun getBaseUrl(url: String): String {
-    return URI(url).let {
-        "${it.scheme}://${it.host}"
+    private fun getBaseUrl(url: String): String {
+        return URI(url).let {
+            "${it.scheme}://${it.host}"
+        }
     }
-}
 }

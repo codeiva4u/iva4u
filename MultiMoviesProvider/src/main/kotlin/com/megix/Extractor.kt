@@ -1,4 +1,4 @@
-package com.Phisher98
+package com.phisher98
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
@@ -167,56 +167,21 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val headers = mapOf(
-            "Accept-Language" to "en-US,en;q=0.5",
-            "sec-fetch-dest" to "iframe",
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        )
-        
-        val document = app.get(url).document
-        val iframe = document.selectFirst("iframe")?.attr("src") ?: ""
-        
-        // If iframe is empty, use the direct URL
-        val targetUrl = if (iframe.isNotEmpty()) iframe else url
-        
-        val response = app.get(targetUrl, headers = headers)
-        val scriptData = response.document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        
-        val m3u8 = JsUnpacker(scriptData).unpack()?.let { unPacked ->
+        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
+        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
             Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
         }
-        
-        if (!m3u8.isNullOrEmpty()) {
-            callback.invoke(
-                ExtractorLink(
-                    this.name,
-                    this.name,
-                    m3u8,
-                    targetUrl,
-                    Qualities.P1080.value,
-                    type = ExtractorLinkType.M3U8,
-                    headers = headers
-                )
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                this.name,
+                m3u8 ?:"",
+                url,
+                Qualities.P1080.value,
+                type = ExtractorLinkType.M3U8,
             )
-        } else {
-            // Fallback: If JsUnpacker doesn't find m3u8, search directly in HTML
-            val directM3u8 = Regex("file:\\s*['\"](.+?\\.m3u8)['\"]|source\\s*src=['\"](.+?\\.m3u8)['\"]|file:\\s*['\"](.+?\\.mp4)['\"]|source\\s*src=['\"](.+?\\.mp4)['\"]")
-                .find(response.text)?.groupValues?.firstOrNull { it.isNotEmpty() && (it.contains(".m3u8") || it.contains(".mp4")) }
-            
-            if (!directM3u8.isNullOrEmpty()) {
-                callback.invoke(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        directM3u8,
-                        targetUrl,
-                        Qualities.P1080.value,
-                        type = if (directM3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                        headers = headers
-                    )
-                )
-            }
-        }
+        )
     }
 }
 
@@ -262,72 +227,23 @@ open class VidhideExtractor : ExtractorApi() {
     override val requiresReferer = false
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
+        val response = app.get(
+            url, referer = referer ?: "$mainUrl/", interceptor = WebViewResolver(
+                Regex("""master\.m3u8""")
+            )
+        )
         val sources = mutableListOf<ExtractorLink>()
-        
-        // Try using WebViewResolver first
-        try {
-            val response = app.get(
-                url, referer = referer ?: "$mainUrl/", interceptor = WebViewResolver(
-                    Regex("""master\.m3u8""")
+        if (response.url.contains("m3u8"))
+            sources.add(
+                ExtractorLink(
+                    source = name,
+                    name = name,
+                    url = response.url,
+                    referer = referer ?: "$mainUrl/",
+                    quality = Qualities.Unknown.value,
+                    isM3u8 = true
                 )
             )
-            if (response.url.contains("m3u8")) {
-                sources.add(
-                    ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = response.url,
-                        referer = referer ?: "$mainUrl/",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = true
-                    )
-                )
-                return sources
-            }
-        } catch (e: Exception) {
-            // WebViewResolver failed, continue to fallback method
-        }
-        
-        // Fallback: Try to extract directly from HTML
-        try {
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "*/*",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to (referer ?: url)
-            )
-            
-            val response = app.get(url, headers = headers)
-            val document = response.document
-            
-            // Look for iframe
-            val iframe = document.selectFirst("iframe")?.attr("src")
-            val targetUrl = if (!iframe.isNullOrEmpty()) iframe else url
-            
-            // Get content from iframe if it exists
-            val iframeContent = if (iframe != null) app.get(iframe, headers = headers).text else response.text
-            
-            // Try to find m3u8 or mp4 links in the content
-            val directLink = Regex("file:\\\\s*['\"](.+?\\.m3u8)['\"]|source\\\\s*src=['\"](.+?\\.m3u8)['\"]|file:\\\\s*['\"](.+?\\.mp4)['\"]|source\\\\s*src=['\"](.+?\\.mp4)['\"]")
-                .find(iframeContent)?.groupValues?.firstOrNull { it.isNotEmpty() && (it.contains(".m3u8") || it.contains(".mp4")) }
-            
-            if (!directLink.isNullOrEmpty()) {
-                sources.add(
-                    ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = directLink,
-                        referer = targetUrl,
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = directLink.contains(".m3u8")
-                    )
-                )
-                return sources
-            }
-        } catch (e: Exception) {
-            // Both methods failed
-        }
-        
-        return if (sources.isEmpty()) null else sources
+        return sources
     }
 }
