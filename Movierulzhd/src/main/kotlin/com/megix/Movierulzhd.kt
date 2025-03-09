@@ -295,23 +295,22 @@ open class Movierulzhd : MainAPI() {
         quality: Int? = null,
     ) {
         loadExtractor(url, referer, subtitleCallback) { link ->
-            if(link.quality == Qualities.Unknown.value) {
-                callback.invoke(
-                    ExtractorLink(
-                        link.source,
-                        link.name,
-                        link.url,
-                        link.referer,
-                        when (link.type) {
-                            ExtractorLinkType.M3U8 -> link.quality
-                            else -> quality ?: link.quality
-                        },
-                        link.type,
-                        link.headers,
-                        link.extractorData
-                    )
+            // सभी लिंक को प्रोसेस करें, न कि सिर्फ अज्ञात क्वालिटी वाले
+            callback.invoke(
+                ExtractorLink(
+                    link.source,
+                    link.name,
+                    link.url,
+                    link.referer,
+                    when (link.type) {
+                        ExtractorLinkType.M3U8 -> link.quality
+                        else -> quality ?: link.quality
+                    },
+                    link.type,
+                    link.headers,
+                    link.extractorData
                 )
-            }
+            )
         }
     }
 
