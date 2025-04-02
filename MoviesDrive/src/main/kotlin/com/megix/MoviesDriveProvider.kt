@@ -26,7 +26,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/page/" to "Latest Release",
         "$mainUrl/category/hindi-dubbed/page/" to "Hollywood Hindi",
         "$mainUrl/category/south/page/" to "South Indian Hindi",
-        "$mainUrl/category/south/page/" to "South Indian Hindi",
+        "$mainUrl/category/bollywood/page/" to "Bollywood",
         "$mainUrl/category/amzn-prime-video/page/" to "Prime Video",
         "$mainUrl/category/netflix/page/" to "Netflix",
         "$mainUrl/category/hotstar/page/" to "Hotstar",
