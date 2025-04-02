@@ -23,7 +23,10 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/page/" to "Home",
+        "$mainUrl/page/" to "Latest Release",
+        "$mainUrl/category/south/page/" to "South Indian Hindi",
+        "$mainUrl/category/south/page/" to "South Indian Hindi",
+        "$mainUrl/category/south/page/" to "South Indian Hindi",
         "$mainUrl/category/amzn-prime-video/page/" to "Prime Video",
         "$mainUrl/category/netflix/page/" to "Netflix",
         "$mainUrl/category/hotstar/page/" to "Hotstar",
