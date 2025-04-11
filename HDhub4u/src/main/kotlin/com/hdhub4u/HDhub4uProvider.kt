@@ -28,7 +28,7 @@ import org.jsoup.select.Elements
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl = "https://hdhub4u.soccer"
+    override var mainUrl = "https://hdhub4u.gallery"
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -40,10 +40,10 @@ class HDhub4uProvider : MainAPI() {
     private val cinemeta_url = "https://v3-cinemeta.strem.io/meta"
     override val mainPage = mainPageOf(
         "/" to "Latest",
-        "/category/bollywood-movies/" to "Bollywood",
-        "/category/hollywood-movies/" to "Hollywood",
         "/category/hindi-dubbed/" to "Hindi Dubbed",
         "/category/south-hindi-movies/" to "South Hindi Dubbed",
+        "/category/hollywood-movies/" to "Hollywood",
+        "/category/bollywood-movies/" to "Bollywood",
         "/category/category/web-series/" to "Web Series",
         "/category/adult/" to "Adult",
     )
