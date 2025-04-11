@@ -25,10 +25,70 @@ class MultimoviesAIO: StreamWishExtractor() {
     override var requiresReferer = true
 }
 
-class Multimovies: StreamWishExtractor() {
+class Multimovies: ExtractorApi() {
     override var name = "Multimovies Cloud"
     override var mainUrl = "https://multimovies.cloud"
     override var requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val document = app.get(url, referer = referer).document
+            val script = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            if (script != null) {
+                val unpacked = JsUnpacker(script).unpack()
+                if (unpacked != null) {
+                    val m3u8Url = Regex("file:\\\\s*['\"](.+?)['\"]|src:\\\\s*['\"](.+?)['\"]")
+                        .find(unpacked)?.groupValues?.firstOrNull { it.isNotEmpty() && it.endsWith(".m3u8") }
+                    if (!m3u8Url.isNullOrEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                name,
+                                name,
+                                m3u8Url,
+                                url,
+                                Qualities.P1080.value,
+                                type = ExtractorLinkType.M3U8,
+                            )
+                        )
+                        return
+                    }
+                }
+            }
+            
+            // Fallback to iframe source if direct script extraction fails
+            val iframeSrc = document.selectFirst("iframe")?.attr("src")
+            if (!iframeSrc.isNullOrEmpty()) {
+                val iframeDoc = app.get(iframeSrc, referer = url).document
+                val iframeScript = iframeDoc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+                if (iframeScript != null) {
+                    val unpacked = JsUnpacker(iframeScript).unpack()
+                    if (unpacked != null) {
+                        val m3u8Url = Regex("file:\\\\s*['\"](.+?)['\"]|src:\\\\s*['\"](.+?)['\"]")
+                            .find(unpacked)?.groupValues?.firstOrNull { it.isNotEmpty() && it.endsWith(".m3u8") }
+                        if (!m3u8Url.isNullOrEmpty()) {
+                            callback.invoke(
+                                ExtractorLink(
+                                    name,
+                                    name,
+                                    m3u8Url,
+                                    iframeSrc,
+                                    Qualities.P1080.value,
+                                    type = ExtractorLinkType.M3U8,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Multimovies", "Error extracting video: ${e.message}")
+        }
+    }
 }
 
 class Animezia : VidhideExtractor() {
@@ -123,7 +183,7 @@ class MultimoviesVidstack : ExtractorApi() {
         val hash=url.substringAfterLast("#")
         val encoded= app.get("$mainUrl/api/v1/video?id=$hash",headers=headers).text.trim()
         val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
-        val m3u8=Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?:""
+        val m3u8=Regex("\\\"source\\\":\\\"(.*?)\\\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\\\/","/") ?:""
         return listOf(
             newExtractorLink(
                 this.name,
@@ -158,35 +218,7 @@ object AesHelper {
 }
 
 
-class FilemoonV2 : ExtractorApi() {
-    override var name = "Filemoon"
-    override var mainUrl = "https://movierulz2025.bar"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-        }
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8 ?:"",
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
-    }
-}
-
+// Removed duplicate FilemoonV2 class definition
 class Streamcasthub : ExtractorApi() {
     override var name = "Streamcasthub"
     override var mainUrl = "https://multimovies.streamcasthub.store"
@@ -231,7 +263,7 @@ open class VidhideExtractor : ExtractorApi() {
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(
             url, referer = referer ?: "$mainUrl/", interceptor = WebViewResolver(
-                Regex("""master\.m3u8""")
+                Regex("""master\\.m3u8""")
             )
         )
         val sources = mutableListOf<ExtractorLink>()

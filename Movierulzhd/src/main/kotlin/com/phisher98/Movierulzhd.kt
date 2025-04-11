@@ -254,34 +254,26 @@ open class Movierulzhd : MainAPI() {
                 subtitleCallback,
                 callback
             )
-        } else {
+        } else { // It's a movie URL
             val document = app.get(data).document
-            document.select("ul#playeroptionsul > li").map {
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }.amap { (id, nume, type) ->
-                val source = app.post(
-                    url = "$directUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                Log.d("Phisher repolink", source)
-                when {
-                    !source.contains("youtube") -> {
-                        loadExtractor(source, subtitleCallback, callback)
-                    }
+            // Find the iframe likely containing the player
+            // Adjust selector if needed based on actual movie page structure
+            val iframeSrc = document.selectFirst("div#contenedor iframe, div.playex iframe")?.attr("src")
 
-                    else -> return@amap
-                }
+            if (iframeSrc.isNullOrBlank()) {
+                Log.e(name, "Could not find player iframe src on page: $data")
+                return false
             }
+
+            Log.d(name, "Found iframe src: $iframeSrc")
+            // Load the extractor for the iframe source URL
+            // Ensure the iframeSrc is absolute using abs:src
+            val absoluteIframeSrc = document.selectFirst("div#contenedor iframe, div.playex iframe")?.attr("abs:src")
+            if (absoluteIframeSrc.isNullOrBlank()) {
+                 Log.e(name, "Could not get absolute player iframe src from $iframeSrc on page: $data")
+                 return false
+            }
+            loadExtractor(absoluteIframeSrc, data, subtitleCallback, callback)
         }
         return true
     }
