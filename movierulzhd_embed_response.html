@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <script>
+    (function () {
+        // Get all script tags in the <head>
+        const scripts = document.head.querySelectorAll('script');
+    
+        // Iterate through the scripts to find the one injecting the Proxy
+        scripts.forEach((script) => {
+            if (script.innerHTML.includes('window.open=new Proxy(window.open')) {
+                console.log('Detected and removing injected script:', script);
+                script.remove(); // Remove the script from the <head>
+            }
+        });
+    
+        // Restore the original window.open functionality (optional)
+        const originalOpen = Function.prototype.apply.bind(window.open);
+        window.open = function (...args) {
+            console.log('Restored window.open called:', args);
+            return originalOpen(this, args);
+        };
+    
+        console.log('Injected script removed and window.open restored.');
+    })();
+    </script>
+  <title>404 - Not Found</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="theme-color" content="#FFF">
+  <link rel="apple-touch-icon" href="/assets/images/favicon/apple-touch-icon.png" sizes="180x180">
+  <link rel="icon" href="/assets/images/favicon/favicon-32x32.png" sizes="32x32">
+  <link rel="icon" href="/assets/images/favicon/favicon-16x16.png" sizes="16x16">
+  <link rel="icon" href="/assets/images/favicon/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/404.css?v2">
+</head>
+
+<body>
+</body>
+<div class="container">
+  <div class="error e404">
+    <div class="error-footer">
+      <h1>Page not found</h1>
+      <a href="/" class="button">Return home</a>
+    </div>
+  </div>
+</div>
+
+</html>

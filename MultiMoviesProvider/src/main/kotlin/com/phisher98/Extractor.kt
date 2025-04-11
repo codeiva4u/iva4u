@@ -119,22 +119,51 @@ class MultimoviesVidstack : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
-        val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
-        val hash=url.substringAfterLast("#")
-        val encoded= app.get("$mainUrl/api/v1/video?id=$hash",headers=headers).text.trim()
-        val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
-        val m3u8=Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?:""
-        return listOf(
-            newExtractorLink(
-                this.name,
-                this.name,
-                url = m3u8,
-                ExtractorLinkType.M3U8
-            ) {
-                this.referer = url
-                this.quality = Qualities.P1080.value
-            }
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+            "Referer" to "https://multimovies.rpmhub.site/"
         )
+        
+        try {
+            val hash = url.substringAfterLast("#")
+            val response = app.get("$mainUrl/api/v1/video?id=$hash", headers = headers)
+            
+            if (response.code == 200) {
+                val encoded = response.text.trim()
+                val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
+                
+                // Try multiple patterns to extract the source
+                val m3u8 = Regex(""""source":"(.*?)"""").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/")
+                    ?: Regex("""file:"(.*?)"""").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/")
+                    ?: Regex("""src:\s*"(.*?)"|src:\s*'(.*?)'""").find(decryptedText)?.let {
+                        it.groupValues.getOrNull(1)?.takeIf { it.isNotEmpty() } 
+                            ?: it.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
+                    }?.replace("\\/","/")
+                    ?: Regex("""file:\s*"(.*?)"""").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/")
+                    ?: ""
+                
+                Log.d("Phisher", "Extracted m3u8: $m3u8")
+                
+                if (m3u8.isNotEmpty()) {
+                    return listOf(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = m3u8,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Phisher", "Error in MultimoviesVidstack: ${e.message}")
+            e.printStackTrace()
+        }
+        
+        return emptyList()
     }
 }
 
@@ -169,21 +198,59 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+        try {
+            Log.d("Phisher", "Processing FilemoonV2 URL: $url")
+            val href = app.get(url).document.selectFirst("iframe")?.attr("src") ?: ""
+            Log.d("Phisher", "Found iframe src: $href")
+            
+            if (href.isNotEmpty()) {
+                val headers = mapOf(
+                    "Accept-Language" to "en-US,en;q=0.5",
+                    "sec-fetch-dest" to "iframe",
+                    "Referer" to url,
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0"
+                )
+                
+                val res = app.get(href, headers = headers).document
+                    .selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+                
+                Log.d("Phisher", "Unpacking JavaScript")
+                val unpackedJs = JsUnpacker(res).unpack()
+                
+                if (unpackedJs != null) {
+                    // Try multiple patterns to extract the source
+                    val m3u8 = Regex("""sources:\[\{file:"(.*?)"""").find(unpackedJs)?.groupValues?.get(1)
+                        ?: Regex("""src:\s*"(.*?)"""").find(unpackedJs)?.groupValues?.get(1)
+                        ?: Regex("""file:\s*"(.*?)"""").find(unpackedJs)?.groupValues?.get(1)
+                        ?: Regex("""file:'(.*?)'""").find(unpackedJs)?.groupValues?.get(1)
+                    
+                    Log.d("Phisher", "Extracted m3u8: $m3u8")
+                    
+                    if (!m3u8.isNullOrEmpty()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                this.name,
+                                this.name,
+                                m3u8,
+                                url,
+                                Qualities.P1080.value,
+                                type = ExtractorLinkType.M3U8,
+                                headers = headers
+                            )
+                        )
+                    } else {
+                        Log.e("Phisher", "Failed to extract m3u8 URL from unpacked JavaScript")
+                    }
+                } else {
+                    Log.e("Phisher", "Failed to unpack JavaScript")
+                }
+            } else {
+                Log.e("Phisher", "No iframe found in the page")
+            }
+        } catch (e: Exception) {
+            Log.e("Phisher", "Error in FilemoonV2: ${e.message}")
+            e.printStackTrace()
         }
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8 ?:"",
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
     }
 }
 
