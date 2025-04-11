@@ -3,10 +3,11 @@ version = 1
 
 
 cloudstream {
-    // All of these properties are optional, you can safely remove them
     language = "hi"
-    description = "IPTV Player"
-    authors = listOf("Phisher98,Adippe")
+    // All of these properties are optional, you can safely remove them
+
+     description = "Max resolution is 720p in extensions."
+     authors = listOf("Hexated")
 
     /**
      * Status int as the following:
@@ -17,10 +18,11 @@ cloudstream {
      * */
     status = 1 // will be 3 if unspecified
     tvTypes = listOf(
-        "Live",
+        "TvSeries",
+        "Movie",
     )
 
-    iconUrl = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/IPTV.png"
+    iconUrl = "https://www.google.com/s2/favicons?domain=yomovies.onl&sz=%size%"
 
     isCrossPlatform = true
 }
