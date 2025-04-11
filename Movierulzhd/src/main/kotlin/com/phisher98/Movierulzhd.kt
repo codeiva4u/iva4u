@@ -28,17 +28,14 @@ open class Movierulzhd : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "movies" to "New Release",
-        "genre/hindi-dubbed" to "Hindi Dubbed Movies",
-        "genre/hindi" to "Bollywood Movies",
-        "genre/hindi-dubbed-web-series" to "Hindi Dubbed Web Series",
+        "trending" to "Trending",
+        "movies" to "Movies",
+        "tvshows" to "TV Shows",
         "genre/netflix" to "Netflix",
         "genre/amazon-prime" to "Amazon Prime",
-        "genre/hotstar" to "Hotstar",
         "genre/Zee5" to "Zee5",
-        "genre/jio-cinema" to "Jio Cinema",
-        "genre/voot" to "Voot Original",
-        "genre/sony-liv" to "Sony LIV",
+        "seasons" to "Season",
+        "episodes" to "Episode",
     )
 
     override suspend fun getMainPage(
@@ -78,7 +75,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-       
+
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -170,30 +167,30 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-				if (check) {
-				    document.select("ul#playeroptionsul > li").drop(1).map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+                if (check) {
+                    document.select("ul#playeroptionsul > li").drop(1).map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				} else {
-				    document.select("ul#playeroptionsul > li").map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                    }
+                } else {
+                    document.select("ul#playeroptionsul > li").map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				}
+                    }
+                }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -254,26 +251,34 @@ open class Movierulzhd : MainAPI() {
                 subtitleCallback,
                 callback
             )
-        } else { // It's a movie URL
+        } else {
             val document = app.get(data).document
-            // Find the iframe likely containing the player
-            // Adjust selector if needed based on actual movie page structure
-            val iframeSrc = document.selectFirst("div#contenedor iframe, div.playex iframe")?.attr("src")
+            document.select("ul#playeroptionsul > li").map {
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
+                val source = app.post(
+                    url = "$directUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                Log.d("Phisher repolink", source)
+                when {
+                    !source.contains("youtube") -> {
+                        loadExtractor(source, subtitleCallback, callback)
+                    }
 
-            if (iframeSrc.isNullOrBlank()) {
-                Log.e(name, "Could not find player iframe src on page: $data")
-                return false
+                    else -> return@amap
+                }
             }
-
-            Log.d(name, "Found iframe src: $iframeSrc")
-            // Load the extractor for the iframe source URL
-            // Ensure the iframeSrc is absolute using abs:src
-            val absoluteIframeSrc = document.selectFirst("div#contenedor iframe, div.playex iframe")?.attr("abs:src")
-            if (absoluteIframeSrc.isNullOrBlank()) {
-                 Log.e(name, "Could not get absolute player iframe src from $iframeSrc on page: $data")
-                 return false
-            }
-            loadExtractor(absoluteIframeSrc, data, subtitleCallback, callback)
         }
         return true
     }

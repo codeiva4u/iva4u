@@ -32,16 +32,23 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override val mainPage = mainPageOf(
-        "$mainUrl/movies/" to "Latest Movies",
+        "$mainUrl/trending/" to "Trending",
+        "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
         "$mainUrl/genre/hollywood/" to "Hollywood Movies",
         "$mainUrl/genre/south-indian/" to "South Indian Movies",
-        "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
-        "$mainUrl/genre/netflix/" to "Netflix",
+        "$mainUrl/genre/punjabi/" to "Punjabi Movies",
         "$mainUrl/genre/amazon-prime/" to "Amazon Prime",
         "$mainUrl/genre/disney-hotstar/" to "Disney Hotstar",
         "$mainUrl/genre/jio-ott/" to "Jio OTT",
+        "$mainUrl/genre/netflix/" to "Netfilx",
         "$mainUrl/genre/sony-liv/" to "Sony Live",
+        "$mainUrl/genre/k-drama/" to "KDrama",
         "$mainUrl/genre/zee-5/" to "Zee5",
+        "$mainUrl/genre/anime-hindi/" to "Anime Series",
+        "$mainUrl/genre/anime-movies/" to "Anime Movies",
+        "$mainUrl/genre/cartoon-network/" to "Cartoon Network",
+        "$mainUrl/genre/disney-channel/" to "Disney Channel",
+        "$mainUrl/genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -226,48 +233,100 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun loadLinks(
-        data: String, // This is the movie page URL like https://multimovies.guru/movies/jaat/
+        data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data, referer = mainUrl).document
-        // Find the list containing the video links
-        val videoList = document.selectFirst("ul#videoLinks")
+        Log.d("Phisher",data)
+        val req = app.get(data).document
+        req.select("ul#playeroptionsul li").map {
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
+            )
+        }.amap { (id, nume, type) ->
+            if (!nume.contains("trailer")) {
+                val source = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = mainUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                val link = source.substringAfter("\"").substringBefore("\"").trim()
+                when {
+                    !link.contains("youtube") -> {
+                        if (link.contains("gdmirrorbot.nl")) {
 
-        if (videoList == null) {
-            Log.e(name, "Could not find video links list (ul#videoLinks) on page: $data")
-            return false
-        }
+                            val host = getBaseUrl(app.get(link).url)
+                            val embed = link.substringAfterLast("/")
+                            val data = mapOf("sid" to embed)
+                            val jsonString =
+                                app.post("$host/embedhelper.php", data = data).toString()
+                            Log.d("Phisher", "$host/embedhelper.php")
 
-        // Extract links and source names
-        val extractedLinks = videoList.select("li").mapNotNull { li ->
-            val link = li.attr("data-link").ifBlank { null }
-            // Use the text content as the source name, fallback to "Unknown Source"
-            val sourceName = li.text().ifBlank { null } ?: "Unknown Source"
-            if (link != null) {
-                Pair(sourceName, link)
-            } else {
-                null
+                            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
+                            if (!jsonElement.isJsonObject) {
+                                Log.e(
+                                    "Error:",
+                                    "Unexpected JSON format: Response is not a JSON object"
+                                )
+                                return@amap
+                            }
+                            val jsonObject = jsonElement.asJsonObject
+                            val siteUrls =
+                                jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            val mresultEncoded =
+                                jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
+                            val mresult = mresultEncoded?.let {
+                                val decodedString = base64Decode(it) // Decode from Base64
+                                JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
+                            }
+                            val siteFriendlyNames =
+                                jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
+                                return@amap
+                            }
+                            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
+                            commonKeys.forEach { key ->
+                                val siteName = siteFriendlyNames[key]?.asString
+                                if (siteName == null) {
+                                    Log.e("Error:", "Skipping key: $key because siteName is null")
+                                    return@forEach
+                                }
+                                val siteUrl = siteUrls[key]?.asString
+                                val resultUrl = mresult[key]?.asString
+                                if (siteUrl == null || resultUrl == null) {
+                                    Log.e(
+                                        "Error:",
+                                        "Skipping key: $key because siteUrl or resultUrl is null"
+                                    )
+                                    return@forEach
+                                }
+                                val href = siteUrl + resultUrl
+                                Log.d("Phisher", href)
+
+                                loadExtractor(href, subtitleCallback, callback)
+                            }
+                        } else if (link.contains("deaddrive.xyz")) {
+                            app.get(link).document.select("ul.list-server-items > li").map {
+                                val server = it.attr("data-video")
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                            }
+                        } else
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                    }
+
+                    else -> return@amap
+                }
             }
         }
-
-        if (extractedLinks.isEmpty()) {
-            Log.e(name, "No links found within ul#videoLinks on page: $data")
-            return false
-        }
-
-        // Load each extracted link using the appropriate extractor
-        extractedLinks.amap { (sourceName, link) ->
-            try {
-                Log.d(name, "Loading extractor for source '$sourceName' - URL: $link")
-                // Pass the movie page URL as referer for the extractor
-                loadExtractor(link, data, subtitleCallback, callback)
-            } catch (e: Exception) {
-                Log.e(name, "Failed to load extractor for $link: ${e.message}")
-            }
-        }
-
         return true
     }
 
