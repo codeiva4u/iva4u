@@ -120,9 +120,9 @@ class MultimoviesVidstack : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
         val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
-        val hash=url.substringAfterLast("#")
+        val hash = url.substringAfterLast("#") ?: ""
         val encoded= app.get("$mainUrl/api/v1/video?id=$hash",headers=headers).text.trim()
-        val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
+        val decryptedText = AesHelper.decryptAES(encoded, "new_encryption_key_123", "new_iv_value_456")
         val m3u8=Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?:""
         return listOf(
             newExtractorLink(
@@ -172,7 +172,7 @@ class FilemoonV2 : ExtractorApi() {
         val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
         val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
         val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+            Regex("(?:sources:|file:)\\s*['\"](https?:\\/\\/[^'\"]+)").find(unPacked)?.groupValues?.get(1)
         }
         callback.invoke(
             ExtractorLink(
@@ -199,17 +199,22 @@ class Streamcasthub : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val id=url.substringAfterLast("/#")
-        val m3u8= "https://ss1.rackcloudservice.cyou/ic/$id/master.txt"
-        callback.invoke(
+        val apiResponse = app.get("https://api.movierulzhd.live/player/$id").text
+val m3u8= Regex("""\\"url\\":\\"(.*?master\.m3u8)\\"""").find(apiResponse)?.groupValues?.get(1)?.replace("\\/", "/")
+        m3u8?.let {
             ExtractorLink(
                 this.name,
                 this.name,
-                m3u8,
+                it,
                 url,
                 Qualities.Unknown.value,
                 type = ExtractorLinkType.M3U8,
             )
-        )
+        }?.let {
+            callback.invoke(
+                it
+            )
+        }
     }
 }
 
