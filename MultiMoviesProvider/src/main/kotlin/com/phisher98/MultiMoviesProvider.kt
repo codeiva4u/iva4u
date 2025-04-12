@@ -241,12 +241,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         Log.d("Phisher",data)
         val req = app.get(data).document
         req.select("ul#playeroptionsul li").map {
-            Triple(
-                it.attr("data-post"),
-                it.attr("data-nume"),
-                it.attr("data-type")
-            )
-        }.amap { (id, nume, type) ->
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
                 val source = app.post(
                     url = "$mainUrl/wp-admin/admin-ajax.php",
@@ -259,71 +259,30 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     referer = mainUrl,
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("gdmirrorbot.nl")) {
-
-                            val host = getBaseUrl(app.get(link).url)
-                            val embed = link.substringAfterLast("/")
-                            val data = mapOf("sid" to embed)
-                            val jsonString =
-                                app.post("$host/embedhelper.php", data = data).toString()
-                            Log.d("Phisher", "$host/embedhelper.php")
-
-                            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
-                            if (!jsonElement.isJsonObject) {
-                                Log.e(
-                                    "Error:",
-                                    "Unexpected JSON format: Response is not a JSON object"
-                                )
-                                return@amap
-                            }
-                            val jsonObject = jsonElement.asJsonObject
-                            val siteUrls =
-                                jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
-                            val mresultEncoded =
-                                jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
-                            val mresult = mresultEncoded?.let {
-                                val decodedString = base64Decode(it) // Decode from Base64
-                                JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
-                            }
-                            val siteFriendlyNames =
-                                jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
-                            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
-                                return@amap
-                            }
-                            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
-                            commonKeys.forEach { key ->
-                                val siteName = siteFriendlyNames[key]?.asString
-                                if (siteName == null) {
-                                    Log.e("Error:", "Skipping key: $key because siteName is null")
-                                    return@forEach
-                                }
-                                val siteUrl = siteUrls[key]?.asString
-                                val resultUrl = mresult[key]?.asString
-                                if (siteUrl == null || resultUrl == null) {
-                                    Log.e(
-                                        "Error:",
-                                        "Skipping key: $key because siteUrl or resultUrl is null"
-                                    )
-                                    return@forEach
-                                }
-                                val href = siteUrl + resultUrl
-                                Log.d("Phisher", href)
-
-                                loadExtractor(href, subtitleCallback, callback)
-                            }
-                        } else if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
-                            }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                // Extract the URL correctly, handling potential surrounding quotes or escapes
+                val link = source.let {
+                    // Try parsing as JSON first
+                    try {
+                        AppUtils.tryParseJson<ResponseHash>(it)?.embed_url
+                    } catch (e: Exception) {
+                        // Fallback to regex or simple extraction if not JSON
+                        it.substringAfter("embed_url\":\"").substringBefore("\"")
                     }
+                }?.trim() ?: "" // Ensure link is not null and trimmed
 
-                    else -> return@amap
+                Log.d("Phisher", "Extracted embed link: $link")
+
+                if (link.isNotBlank() && !link.contains("youtube")) {
+                    // Directly use loadExtractor for all valid, non-YouTube links.
+                    // This relies on the extractors defined in Extractor.kt to handle
+                    // specific sites like gdmirrorbot, deaddrive, filemoon, streamwish etc.
+                    try {
+                        loadExtractor(link, referer = data, subtitleCallback, callback) // Use data (original page URL) as referer
+                    } catch (e: Exception) {
+                        Log.e("Phisher", "Failed to load extractor for link '$link': ${e.message}")
+                    }
+                } else if (link.isBlank()) {
+                    Log.w("Phisher", "Empty embed link received for post=$id, nume=$nume, type=$type")
                 }
             }
         }

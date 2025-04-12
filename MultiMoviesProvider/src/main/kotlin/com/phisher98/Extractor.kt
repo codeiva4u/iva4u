@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
@@ -57,8 +58,14 @@ class CdnwishCom : StreamWishExtractor() {
 
 class GDMirrorbot : ExtractorApi() {
     override var name = "GDMirrorbot"
-    override var mainUrl = "https://gdmirrorbot.nl"
+    // Base URL might change
+    override var mainUrl = "https://gdmirrorbot.nl" // Example, might need adjustment
     override val requiresReferer = true
+
+    // Function to get base URL (scheme + host)
+    private fun getBaseUrl(url: String): String {
+        return URI(url).let { "${it.scheme}://${it.host}" }
+    }
 
     override suspend fun getUrl(
         url: String,
@@ -66,48 +73,70 @@ class GDMirrorbot : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("Phisher","I'm here")
+        try {
+            // Get the actual host, as the initial URL might be different
+            val initialResponse = app.get(url, referer = referer) // Follow redirects if any
+            val effectiveUrl = initialResponse.url
+            val host = getBaseUrl(effectiveUrl)
+            val embedId = effectiveUrl.substringAfterLast("/")
 
-        val host = getBaseUrl(app.get(url).url)
-        val embed = url.substringAfterLast("/")
-        val data = mapOf("sid" to embed)
-        val jsonString = app.post("$host/embedhelper.php", data = data).toString()
-        Log.d("Phisher",jsonString)
+            Log.d(name, "Fetching embed helper for ID: $embedId from host: $host")
 
-        val jsonElement: JsonElement = JsonParser.parseString(jsonString)
-        if (!jsonElement.isJsonObject) {
-            Log.e("Error:", "Unexpected JSON format: Response is not a JSON object")
-            return
-        }
-        val jsonObject = jsonElement.asJsonObject
-        val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
-        val mresult = jsonObject["mresult"]?.takeIf { it.isJsonObject }?.asJsonObject
-        val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
-        if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
-            return
-        }
-        val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
-        commonKeys.forEach { key ->
-            val siteName = siteFriendlyNames[key]?.asString
-            if (siteName == null) {
-                Log.e("Error:", "Skipping key: $key because siteName is null")
-                return@forEach
+            val data = mapOf("sid" to embedId)
+            // Use the effective URL as referer for the POST request
+            val jsonString = app.post("$host/embedhelper.php", data = data, referer = effectiveUrl).text
+
+            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
+            if (!jsonElement.isJsonObject) {
+                Log.e(name, "Unexpected JSON format from embedhelper.php for $url: Response is not a JSON object")
+                return
             }
-            val siteUrl = siteUrls[key]?.asString
-            val resultUrl = mresult[key]?.asString
-            if (siteUrl == null || resultUrl == null) {
-                Log.e("Error:", "Skipping key: $key because siteUrl or resultUrl is null")
-                return@forEach
+            val jsonObject = jsonElement.asJsonObject
+
+            val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
+            val mresultEncoded = jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
+            val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+
+            // Decode mresult if it exists and is a string
+            val mresult = mresultEncoded?.let {
+                try {
+                    val decodedString = base64Decode(it) // Decode from Base64
+                    JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
+                } catch (e: Exception) {
+                    Log.e(name, "Failed to decode or parse mresult for $url: ${e.message}")
+                    null
+                }
             }
-            val href = siteUrl + resultUrl
-            loadExtractor(href, subtitleCallback, callback)
-        }
 
-    }
+            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
+                Log.e(name, "Missing required fields (siteUrls, siteFriendlyNames, or mresult) in JSON response for $url")
+                return
+            }
 
-    private fun getBaseUrl(url: String): String {
-        return URI(url).let {
-            "${it.scheme}://${it.host}"
+            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
+            Log.d(name, "Found ${commonKeys.size} common keys for $url")
+
+            commonKeys.forEach { key ->
+                try {
+                    val siteName = siteFriendlyNames[key]?.asString
+                    val siteUrl = siteUrls[key]?.asString
+                    val resultUrl = mresult[key]?.asString
+
+                    if (siteName == null || siteUrl == null || resultUrl == null) {
+                        Log.w(name, "Skipping key '$key' due to missing siteName, siteUrl, or resultUrl for $url")
+                        return@forEach // Continue to next key
+                    }
+
+                    val finalLink = siteUrl + resultUrl
+                    Log.d(name, "Loading extractor for key '$key' ($siteName): $finalLink")
+                    // Pass the original referer down to the next extractor
+                    loadExtractor(finalLink, referer, subtitleCallback, callback)
+                } catch (e: Exception) {
+                     Log.e(name, "Error processing key '$key' for $url: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error extracting GDMirrorbot links for $url: ${e.message}")
         }
     }
 }
@@ -120,9 +149,9 @@ class MultimoviesVidstack : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
         val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
-        val hash = url.substringAfterLast("#") ?: ""
+        val hash=url.substringAfterLast("#")
         val encoded= app.get("$mainUrl/api/v1/video?id=$hash",headers=headers).text.trim()
-        val decryptedText = AesHelper.decryptAES(encoded, "new_encryption_key_123", "new_iv_value_456")
+        val decryptedText = AesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
         val m3u8=Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?:""
         return listOf(
             newExtractorLink(
@@ -158,10 +187,16 @@ object AesHelper {
 }
 
 
+// Update FilemoonV2 extractor similar to the one in Movierulzhd
 class FilemoonV2 : ExtractorApi() {
     override var name = "Filemoon"
-    override var mainUrl = "https://movierulz2025.bar"
+    // mainUrl is often dynamic, avoid hardcoding if possible or update frequently
+    override var mainUrl = "https://filemoon.sx" // Example, might need adjustment
     override val requiresReferer = true
+
+    // Updated Filemoon extractor logic (common pattern)
+    private val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\).*?""")
+    private val sourceRegex = Regex("""sources:\[\{file:"(.*?)"""")
 
     override suspend fun getUrl(
         url: String,
@@ -169,21 +204,45 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("(?:sources:|file:)\\s*['\"](https?:\\/\\/[^'\"]+)").find(unPacked)?.groupValues?.get(1)
+        try {
+            // Sometimes the initial URL is the direct Filemoon link
+            val directUrl = if (URI(url).host.contains("filemoon")) url else {
+                // Otherwise, try to extract iframe src
+                app.get(url, referer = referer).document.selectFirst("iframe[src*=filemoon]")?.attr("abs:src")
+            }
+
+            if (directUrl == null) {
+                Log.e(name, "Could not find Filemoon iframe/link for URL: $url")
+                return
+            }
+
+            val filemoonPage = app.get(directUrl, referer = referer ?: url).document
+            val packed = packedRegex.find(filemoonPage.html())?.value
+            val unpacked = JsUnpacker(packed).unpack()
+
+            if (unpacked == null) {
+                Log.e(name, "Failed to unpack JS for URL: $directUrl")
+                return
+            }
+
+            val m3u8 = sourceRegex.find(unpacked)?.groupValues?.getOrNull(1)
+            if (m3u8 != null) {
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        m3u8,
+                        directUrl, // Use filemoon URL as referer for the stream
+                        Qualities.Unknown.value, // Quality detection from m3u8 is preferred
+                        type = ExtractorLinkType.M3U8,
+                    )
+                )
+            } else {
+                Log.e(name, "Could not find m3u8 source in unpacked JS for URL: $directUrl")
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error extracting Filemoon link for $url: ${e.message}")
         }
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8 ?:"",
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
     }
 }
 
@@ -199,22 +258,17 @@ class Streamcasthub : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val id=url.substringAfterLast("/#")
-        val apiResponse = app.get("https://api.movierulzhd.live/player/$id").text
-val m3u8= Regex("""\\"url\\":\\"(.*?master\.m3u8)\\"""").find(apiResponse)?.groupValues?.get(1)?.replace("\\/", "/")
-        m3u8?.let {
+        val m3u8= "https://ss1.rackcloudservice.cyou/ic/$id/master.txt"
+        callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
-                it,
+                m3u8,
                 url,
                 Qualities.Unknown.value,
                 type = ExtractorLinkType.M3U8,
             )
-        }?.let {
-            callback.invoke(
-                it
-            )
-        }
+        )
     }
 }
 
