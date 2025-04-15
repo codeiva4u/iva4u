@@ -45,24 +45,61 @@ class MovieRulzVidstack : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val hash = url.substringAfterLast("#")
-        val apiUrl = "$mainUrl/api/v1/video?id=$hash"
-        val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
+        println("MovieRulzVidstack: Processing URL: $url")
         
-        val encoded = app.get(apiUrl, headers = headers).text.trim()
-        val decryptedText = MovieRulzAesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
-        val m3u8 = Regex("\"source\":\"(.*?)\"").find(decryptedText)?.groupValues?.get(1)?.replace("\\/","/") ?: ""
-        
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8,
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
+        try {
+            val hash = url.substringAfterLast("#")
+            println("MovieRulzVidstack: Extracted hash: $hash")
+            
+            if (hash.isEmpty()) {
+                println("MovieRulzVidstack: No hash found in URL: $url")
+                return
+            }
+            
+            val apiUrl = "$mainUrl/api/v1/video?id=$hash"
+            println("MovieRulzVidstack: API URL: $apiUrl")
+            
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+                "Accept" to "*/*",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Referer" to url
             )
-        )
+            
+            val response = app.get(apiUrl, headers = headers)
+            val encoded = response.text.trim()
+            println("MovieRulzVidstack: Response status: ${response.code}, Content length: ${encoded.length}")
+            
+            if (encoded.isEmpty()) {
+                println("MovieRulzVidstack: Empty response from API")
+                return
+            }
+            
+            val decryptedText = MovieRulzAesHelper.decryptAES(encoded, "kiemtienmua911ca", "0123456789abcdef")
+            println("MovieRulzVidstack: Decrypted text preview: ${decryptedText.take(100)}...")
+            
+            val m3u8Match = Regex("\"source\":\"(.*?)\"").find(decryptedText)
+            val m3u8 = m3u8Match?.groupValues?.get(1)?.replace("\\/","/") ?: ""
+            println("MovieRulzVidstack: Extracted m3u8 URL: $m3u8")
+            
+            if (m3u8.isNotEmpty()) {
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        m3u8,
+                        url,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+            } else {
+                println("MovieRulzVidstack: Failed to extract m3u8 URL from decrypted text")
+            }
+        } catch (e: Exception) {
+            println("MovieRulzVidstack: Error processing URL: ${e.message}")
+        }
     }
 }
 
@@ -105,49 +142,75 @@ class MovieRulzFilemoon : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href = app.get(url).document.selectFirst("iframe")?.attr("src") ?: ""
-        // Added headers to mimic browser request
-        val headers = mapOf(
-            "Accept-Language" to "en-US,en;q=0.5", 
-            "sec-fetch-dest" to "iframe",
-            "Referer" to url // Often needed for iframe content
-        )
-        val res = app.get(href, headers = headers).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data() ?: ""
+        println("MovieRulzFilemoon: Processing URL: $url")
         
-        // Add debug logging
-        println("Filemoon script content: ${res.take(100)}...")
+        val doc = app.get(url).document
+        val iframe = doc.selectFirst("iframe")
+        val href = iframe?.attr("src") ?: ""
+        
+        println("MovieRulzFilemoon: Found iframe URL: $href")
+        
+        if (href.isEmpty()) {
+            println("MovieRulzFilemoon: No iframe found on page: $url")
+            return
+        }
+        
+        // Enhanced headers to mimic browser request
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.5", 
+            "sec-fetch-dest" to "iframe", 
+            "Referer" to url
+        )
+        
+        val iframeResponse = app.get(href, headers = headers)
+        val iframeDoc = iframeResponse.document
+        val scriptData = iframeDoc.selectFirst("script:containsData(function(p,a,c,k,e,d))")
+        val res = scriptData?.data() ?: ""
+        
+        println("MovieRulzFilemoon: Script found: ${res.isNotEmpty()}")
+        println("MovieRulzFilemoon: Script content preview: ${res.take(100)}...")
         
         // Check if res is not empty before unpacking
         val m3u8 = if (res.isNotEmpty()) {
             try {
                 val unpacked = JsUnpacker(res).unpack()
-                println("Unpacked content: ${unpacked?.take(100)}...")
+                println("MovieRulzFilemoon: Unpacked content preview: ${unpacked?.take(100)}...")
                 
                 // Try multiple regex patterns to extract the m3u8 URL
                 unpacked?.let { unPacked ->
-                    // Try first pattern
-                    Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+                    // Try first pattern - most common in filemoon players
+                    Regex("sources\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*\\}").find(unPacked)?.groupValues?.get(1)
                         // Try alternative patterns if first one fails
-                        ?: Regex("file:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
-                        ?: Regex("source:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("file\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("source\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
                         ?: ""
                 } ?: ""
             } catch (e: Exception) {
-                println("Error unpacking JS: ${e.message}")
+                println("MovieRulzFilemoon: Error unpacking JS: ${e.message}")
                 ""
             }
         } else ""
         
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8,
-                url,
-                Qualities.P1080.value, // Assuming 1080p, adjust if needed
-                type = ExtractorLinkType.M3U8,
+        println("MovieRulzFilemoon: Extracted m3u8 URL: $m3u8")
+        
+        if (m3u8.isNotEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    m3u8,
+                    url,
+                    Qualities.P1080.value,
+                    type = ExtractorLinkType.M3U8,
+                    headers = headers
+                )
             )
-        )
+        } else {
+            println("MovieRulzFilemoon: Failed to extract m3u8 URL from: $url")
+        }
     }
 }
 

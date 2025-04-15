@@ -107,43 +107,75 @@ class MultiMoviesGuruFilemoon : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href = app.get(url).document.selectFirst("iframe")?.attr("src") ?: ""
-        val res = app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5", "sec-fetch-dest" to "iframe", "Referer" to url)).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data() ?: ""
+        Log.i("MultiMoviesGuruFilemoon", "Processing URL: $url")
         
-        // Add debug logging
-        println("Filemoon script content: ${res.take(100)}...")
+        val doc = app.get(url).document
+        val iframe = doc.selectFirst("iframe")
+        val href = iframe?.attr("src") ?: ""
+        
+        Log.i("MultiMoviesGuruFilemoon", "Found iframe URL: $href")
+        
+        if (href.isEmpty()) {
+            Log.e("MultiMoviesGuruFilemoon", "No iframe found on page: $url")
+            return
+        }
+        
+        // Enhanced headers to mimic browser request
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.5", 
+            "sec-fetch-dest" to "iframe", 
+            "Referer" to url
+        )
+        
+        val iframeResponse = app.get(href, headers = headers)
+        val iframeDoc = iframeResponse.document
+        val scriptData = iframeDoc.selectFirst("script:containsData(function(p,a,c,k,e,d))")
+        val res = scriptData?.data() ?: ""
+        
+        Log.i("MultiMoviesGuruFilemoon", "Script found: ${res.isNotEmpty()}")
+        Log.i("MultiMoviesGuruFilemoon", "Script content preview: ${res.take(100)}...")
         
         // Check if res is not empty before unpacking
         val m3u8 = if (res.isNotEmpty()) {
             try {
                 val unpacked = JsUnpacker(res).unpack()
-                println("Unpacked content: ${unpacked?.take(100)}...")
+                Log.i("MultiMoviesGuruFilemoon", "Unpacked content preview: ${unpacked?.take(100)}...")
                 
                 // Try multiple regex patterns to extract the m3u8 URL
                 unpacked?.let { unPacked ->
-                    // Try first pattern
-                    Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+                    // Try first pattern - most common in filemoon players
+                    Regex("sources\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*\\}").find(unPacked)?.groupValues?.get(1)
                         // Try alternative patterns if first one fails
-                        ?: Regex("file:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
-                        ?: Regex("source:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("file\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("source\\s*:\\s*['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("['\"](.+?\\.m3u8.*?)['\"]\\s*").find(unPacked)?.groupValues?.get(1)
                         ?: ""
                 } ?: ""
             } catch (e: Exception) {
-                println("Error unpacking JS: ${e.message}")
+                Log.e("MultiMoviesGuruFilemoon", "Error unpacking JS: ${e.message}")
                 ""
             }
         } else ""
         
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8,
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
+        Log.i("MultiMoviesGuruFilemoon", "Extracted m3u8 URL: $m3u8")
+        
+        if (m3u8.isNotEmpty()) {
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    m3u8,
+                    url,
+                    Qualities.P1080.value,
+                    type = ExtractorLinkType.M3U8,
+                    headers = headers
+                )
             )
-        )
+        } else {
+            Log.e("MultiMoviesGuruFilemoon", "Failed to extract m3u8 URL from: $url")
+        }
     }
 }
 
