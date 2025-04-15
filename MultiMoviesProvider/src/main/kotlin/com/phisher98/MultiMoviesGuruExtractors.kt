@@ -108,15 +108,37 @@ class MultiMoviesGuruFilemoon : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val href = app.get(url).document.selectFirst("iframe")?.attr("src") ?: ""
-        val res = app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5", "sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8 = JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-        }
+        val res = app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5", "sec-fetch-dest" to "iframe", "Referer" to url)).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data() ?: ""
+        
+        // Add debug logging
+        println("Filemoon script content: ${res.take(100)}...")
+        
+        // Check if res is not empty before unpacking
+        val m3u8 = if (res.isNotEmpty()) {
+            try {
+                val unpacked = JsUnpacker(res).unpack()
+                println("Unpacked content: ${unpacked?.take(100)}...")
+                
+                // Try multiple regex patterns to extract the m3u8 URL
+                unpacked?.let { unPacked ->
+                    // Try first pattern
+                    Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+                        // Try alternative patterns if first one fails
+                        ?: Regex("file:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
+                        ?: Regex("source:\"(https?://.*?\\.m3u8)\"").find(unPacked)?.groupValues?.get(1)
+                        ?: ""
+                } ?: ""
+            } catch (e: Exception) {
+                println("Error unpacking JS: ${e.message}")
+                ""
+            }
+        } else ""
+        
         callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
-                m3u8 ?: "",
+                m3u8,
                 url,
                 Qualities.P1080.value,
                 type = ExtractorLinkType.M3U8,

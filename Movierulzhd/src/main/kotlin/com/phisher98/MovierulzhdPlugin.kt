@@ -3,7 +3,6 @@ package com.phisher98
 // Import new extractors
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
-import com.lagradost.cloudstream3.utils.ExtractorApi
 
 @CloudstreamPlugin
 class MovierulzhdPlugin: BasePlugin() {
