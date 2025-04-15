@@ -1,8 +1,8 @@
 package com.phisher98
 
+// Import new extractors
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
-import com.lagradost.cloudstream3.extractors.VidSrcTo
 
 @CloudstreamPlugin
 class MovierulzhdPlugin: BasePlugin() {
@@ -20,5 +20,11 @@ class MovierulzhdPlugin: BasePlugin() {
         registerExtractorAPI(Lulust())
         registerExtractorAPI(Playonion())
         registerExtractorAPI(FilemoonV2())
+        // New extractors for 1movierulzhd.lol
+        registerExtractorAPI(MovieRulzVidstack())
+        registerExtractorAPI(MovieRulzStreamcasthub())
+        registerExtractorAPI(MovieRulzFilemoon())
+        registerExtractorAPI(MovieRulzAkamaicdn())
+        registerExtractorAPI(MovieRulzMocdn())
     }
 }
