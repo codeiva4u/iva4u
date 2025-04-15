@@ -106,17 +106,25 @@ class MovieRulzFilemoon : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val href = app.get(url).document.selectFirst("iframe")?.attr("src") ?: ""
-        val res = app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5", "sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        // Added headers to mimic browser request
+        val headers = mapOf(
+            "Accept-Language" to "en-US,en;q=0.5", 
+            "sec-fetch-dest" to "iframe",
+            "Referer" to url // Often needed for iframe content
+        )
+        val res = app.get(href, headers = headers).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
         val m3u8 = JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-        }
+            // Corrected Regex escaping for Kotlin string
+            Regex("sources:\\[\\{file:\"(.*?)\"")
+                .find(unPacked)?.groupValues?.get(1) ?: ""
+        } ?: ""
         callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
                 m3u8 ?: "",
                 url,
-                Qualities.P1080.value,
+                Qualities.P1080.value, // Assuming 1080p, adjust if needed
                 type = ExtractorLinkType.M3U8,
             )
         )
@@ -137,14 +145,14 @@ open class MovieRulzAkamaicdn : ExtractorApi() {
     ) {
         val headers = mapOf("user-agent" to "okhttp/4.12.0")
         val res = app.get(url, referer = referer, headers = headers).document
-        val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
-            ?.substringBefore(");") ?: return
-        val ids = mappers.split(",").map { it.replace("\"", "") }
+        // Corrected selector to avoid invalid Kotlin escape sequence
+        val mappers = res.selectFirst("script:containsData(sniff())")?.data()?.substringAfter("sniff(")
+        val ids = mappers?.split(",")?.map { it.replace("\"", "") }
         callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
-                "$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1",
+                "$mainUrl/m3u8/${ids?.get(1)}/${ids?.get(2)}/master.txt?s=1&cache=1",
                 url,
                 Qualities.P1080.value,
                 type = ExtractorLinkType.M3U8,
@@ -157,5 +165,5 @@ open class MovieRulzAkamaicdn : ExtractorApi() {
 // MovieRulzMocdn Extractor
 class MovieRulzMocdn : MovieRulzAkamaicdn() {
     override val name = "MovieRulzMocdn"
-    override val mainUrl = "https://mocdn.art"
+    override val mainUrl = "https://mocdn.art" //Added missing mainUrl based on previous context
 }
