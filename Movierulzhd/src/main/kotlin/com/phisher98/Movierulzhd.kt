@@ -298,83 +298,28 @@ open class Movierulzhd : MainAPI() {
         callback: (ExtractorLink) -> Unit,
         quality: Int? = null,
     ) {
-        Log.d("Phisher", "Processing URL: $url")
-        // Try direct extraction first
-        try {
-            val host = URI(url).host.lowercase()
-            Log.d("Phisher", "Host detected: $host")
-            
-            // Handle common video hosts that might need special processing
-            when {
-                host.contains("filemoon") || host.contains("moonplayer") -> {
-                    val res = app.get(url, referer = referer).document
-                        .selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-                    val m3u8 = JsUnpacker(res).unpack()?.let { unPacked ->
-                        Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-                    }
-                    if (!m3u8.isNullOrEmpty()) {
-                        callback.invoke(
-                            ExtractorLink(
-                                "Filemoon",
-                                "Filemoon",
-                                m3u8,
-                                url,
-                                Qualities.P1080.value,
-                                type = ExtractorLinkType.M3U8,
-                                referer = url
-                            )
-                        )
-                        return
-                    }
-                }
-                host.contains("streamtape") -> {
-                    val script = app.get(url, referer = referer).document
-                        .selectFirst("script:containsData(document.getElementById('robotlink'))")?.data().toString()
-                    val match = Regex("document\\.getElementById\\('robotlink'\\)\\.innerHTML = (.*?)\\+").find(script)
-                    val match2 = Regex("\\+ '(.*?)'").find(script)
-                    if (match != null && match2 != null) {
-                        val part1 = match.groupValues[1].trim('\'')
-                        val part2 = match2.groupValues[1]
-                        val videoUrl = "https:$part1$part2"
-                        callback.invoke(
-                            ExtractorLink(
-                                "Streamtape",
-                                "Streamtape",
-                                videoUrl,
-                                url,
-                                Qualities.Unknown.value,
-                                referer = url
-                            )
-                        )
-                        return
-                    }
+        loadExtractor(url, referer, subtitleCallback) { link ->
+            CoroutineScope(Dispatchers.IO).launch {
+                if (link.quality == Qualities.Unknown.value) {
+                    callback.invoke(
+                        newExtractorLink(
+                            link.source,
+                            link.name,
+                            url = link.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = link.referer
+                            this.quality = when (link.type) {
+                                ExtractorLinkType.M3U8 -> link.quality
+                                else -> quality ?: link.quality
+                            }
+                            this.headers = link.headers
+                            this.extractorData = link.extractorData
+                        }
+                    )
                 }
             }
-        } catch (e: Exception) {
-            Log.e("Phisher", "Error in custom extraction: ${e.message}")
         }
-        
-        // Fall back to standard extractor
-        loadExtractor(url, referer, subtitleCallback) { link ->
-            // Always invoke callback for all links, not just unknown quality
-            callback.invoke(
-                newExtractorLink(
-                    link.source,
-                    link.name,
-                    url = link.url,
-                    link.type
-                ) {
-                    this.referer = link.referer
-                    this.quality = when (link.type) {
-                        ExtractorLinkType.M3U8 -> link.quality
-                        else -> quality ?: link.quality
-                    }
-                    this.headers = link.headers
-                    this.extractorData = link.extractorData
-                }
-            )
-        }
-    }
     }
 
     data class LinkData(

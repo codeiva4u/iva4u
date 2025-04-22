@@ -66,13 +66,13 @@ class GDMirrorbot : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("Phisher","I'm here")
+        Log.d("Phisher", "I'm here")
 
         val host = getBaseUrl(app.get(url).url)
         val embed = url.substringAfterLast("/")
         val data = mapOf("sid" to embed)
         val jsonString = app.post("$host/embedhelper.php", data = data).toString()
-        Log.d("Phisher",jsonString)
+        Log.d("Phisher", jsonString)
 
         val jsonElement: JsonElement = JsonParser.parseString(jsonString)
         if (!jsonElement.isJsonObject) {
@@ -82,7 +82,8 @@ class GDMirrorbot : ExtractorApi() {
         val jsonObject = jsonElement.asJsonObject
         val siteUrls = jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
         val mresult = jsonObject["mresult"]?.takeIf { it.isJsonObject }?.asJsonObject
-        val siteFriendlyNames = jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+        val siteFriendlyNames =
+            jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
         if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
             return
         }
@@ -100,17 +101,38 @@ class GDMirrorbot : ExtractorApi() {
                 return@forEach
             }
             val href = siteUrl + resultUrl
-            loadExtractor(href, subtitleCallback, callback)
+            href?.let {
+                if (it.contains("iframe")) {
+                    loadExtractor(it, subtitleCallback, callback)
+                } else {
+                    callback.invoke(newExtractorLink())
+                }
+            }
         }
 
     }
+
+    private fun newExtractorLink(): ExtractorLink {
+        return ExtractorLink(
+            this.name,
+            this.name,
+            "$mainUrl/video",
+            mainUrl,
+            Qualities.P1080.value,
+            type = ExtractorLinkType.M3U8
+        )
+    }
+
+
+}
+
 
     private fun getBaseUrl(url: String): String {
         return URI(url).let {
             "${it.scheme}://${it.host}"
         }
     }
-}
+
 
 
 class MultimoviesVidstack : ExtractorApi() {
@@ -169,10 +191,11 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        val href=app.get(url).document.selectFirst("div.video-container iframe, iframe[src^='//']")?.attr("src").orEmpty()
+        val res = app.get(href, headers = mapOf("Referer" to url)).document.selectFirst("script:containsData(window.open), script:containsData(atob)")?.data().toString()
+        val unPacked = JsUnpacker(res).unpack() ?: ""
         val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+            Regex("(?:sources:|file:|src:\\s*['\"])(\\S+?m3u8\\S*)").find(unPacked)?.groupValues?.get(1)
         }
         callback.invoke(
             ExtractorLink(
