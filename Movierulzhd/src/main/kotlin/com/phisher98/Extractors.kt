@@ -38,7 +38,8 @@ class FilemoonV2 : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        val doc = app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document
+        val res = doc.select("script").firstOrNull { it.data().contains("function(p,a,c,k,e,d)") }?.data().toString()
         val m3u8=JsUnpacker(res).unpack()?.let { unPacked ->
             Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
         }
