@@ -15,7 +15,7 @@ import okhttp3.FormBody
 import java.net.URI
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.guru"
+    override var mainUrl = "https://multimovies.press"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -240,7 +240,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ): Boolean {
         Log.d("Phisher",data)
         val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
+        req.select("[data-post][data-nume][data-type]").map { // Use a more general selector
                 Triple(
                     it.attr("data-post"),
                     it.attr("data-nume"),

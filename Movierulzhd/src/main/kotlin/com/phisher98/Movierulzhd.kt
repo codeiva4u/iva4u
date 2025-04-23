@@ -253,7 +253,7 @@ open class Movierulzhd : MainAPI() {
             )
         } else {
             val document = app.get(data).document
-            document.select("ul#playeroptionsul > li").map {
+            document.select("[data-post][data-nume][data-type]").map { // Use a more general selector
                         Triple(
                             it.attr("data-post"),
                             it.attr("data-nume"),
