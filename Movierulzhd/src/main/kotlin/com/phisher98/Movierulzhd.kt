@@ -253,30 +253,42 @@ open class Movierulzhd : MainAPI() {
             )
         } else {
             val document = app.get(data).document
-            document.select("[data-post][data-nume][data-type]").map { // Use a more general selector
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }.amap { (id, nume, type) ->
-                val source = app.post(
-                    url = "$directUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                Log.d("Phisher repolink", source)
-                when {
-                    !source.contains("youtube") -> {
-                        loadExtractor(source, subtitleCallback, callback)
+            // Try to find iframes first
+            val iframes = document.select("div.playbox iframe, div.video-container iframe, iframe[src*=/embed/]")
+            if (iframes.isNotEmpty()) {
+                iframes.amap { iframe ->
+                    val src = iframe.attr("abs:src") ?: return@amap
+                    if (!src.contains("youtube")) {
+                        loadExtractor(src, subtitleCallback, callback)
                     }
+                }
+            } else {
+                // Fallback to existing logic if no iframes are found
+                document.select("[data-post][data-nume][data-type]").map {
+                            Triple(
+                                it.attr("data-post"),
+                                it.attr("data-nume"),
+                                it.attr("data-type")
+                            )
+                        }.amap { (id, nume, type) ->
+                    val source = app.post(
+                        url = "$directUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to id,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                    ).parsed<ResponseHash>().embed_url
+                    Log.d("Phisher repolink", source)
+                    when {
+                        !source.contains("youtube") -> {
+                            loadExtractor(source, subtitleCallback, callback)
+                        }
 
-                    else -> return@amap
+                        else -> return@amap
+                    }
                 }
             }
         }
