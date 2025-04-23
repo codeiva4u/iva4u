@@ -15,7 +15,7 @@ import okhttp3.FormBody
 import java.net.URI
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.press"
+    override var mainUrl = "https://multimovies.guru"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -240,103 +240,91 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ): Boolean {
         Log.d("Phisher",data)
         val req = app.get(data).document
-        val document = app.get(data).document
-        // Try to find iframes first
-        val iframes = document.select("div.playbox iframe, div.video-container iframe, iframe[src*=/embed/]")
-        if (iframes.isNotEmpty()) {
-            iframes.amap { iframe ->
-                val src = iframe.attr("abs:src") ?: return@amap
-                if (!src.contains("youtube")) {
-                    loadExtractor(src, subtitleCallback, callback)
-                }
-            }
-        } else {
-            // Fallback to existing logic if no iframes are found
-            document.select("[data-post][data-nume][data-type]").map {
-                    Triple(
-                        it.attr("data-post"),
-                        it.attr("data-nume"),
-                        it.attr("data-type")
-                    )
-                }.amap { (id, nume, type) ->
-                if (!nume.contains("trailer")) {
-                    val source = app.post(
-                        url = "$mainUrl/wp-admin/admin-ajax.php",
-                        data = mapOf(
-                            "action" to "doo_player_ajax",
-                            "post" to id,
-                            "nume" to nume,
-                            "type" to type
-                        ),
-                        referer = mainUrl,
-                        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                    ).parsed<ResponseHash>().embed_url
-                    val link = source.substringAfter("\"").substringBefore("\"").trim()
-                    when {
-                        !link.contains("youtube") -> {
-                            if (link.contains("gdmirrorbot.nl")) {
+        req.select("ul#playeroptionsul li").map {
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
+            if (!nume.contains("trailer")) {
+                val source = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = mainUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                Log.d("MultiMovies", "AJAX embed_url: $source")
+                val link = source.substringAfter("\"").substringBefore("\"").trim()
+                when {
+                    !link.contains("youtube") -> {
+                        if (link.contains("gdmirrorbot.nl")) {
 
-                                val host = getBaseUrl(app.get(link).url)
-                                val embed = link.substringAfterLast("/")
-                                val data = mapOf("sid" to embed)
-                                val jsonString =
-                                    app.post("$host/embedhelper.php", data = data).toString()
-                                Log.d("Phisher", "$host/embedhelper.php")
+                            val host = getBaseUrl(app.get(link).url)
+                            val embed = link.substringAfterLast("/")
+                            val data = mapOf("sid" to embed)
+                            val jsonString =
+                                app.post("$host/embedhelper.php", data = data).toString()
+                            Log.d("Phisher", "$host/embedhelper.php")
 
-                                val jsonElement: JsonElement = JsonParser.parseString(jsonString)
-                                if (!jsonElement.isJsonObject) {
+                            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
+                            if (!jsonElement.isJsonObject) {
+                                Log.e(
+                                    "Error:",
+                                    "Unexpected JSON format: Response is not a JSON object"
+                                )
+                                return@amap
+                            }
+                            val jsonObject = jsonElement.asJsonObject
+                            val siteUrls =
+                                jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            val mresultEncoded =
+                                jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
+                            val mresult = mresultEncoded?.let {
+                                val decodedString = base64Decode(it) // Decode from Base64
+                                JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
+                            }
+                            val siteFriendlyNames =
+                                jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
+                            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
+                                return@amap
+                            }
+                            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
+                            commonKeys.forEach { key ->
+                                val siteName = siteFriendlyNames[key]?.asString
+                                if (siteName == null) {
+                                    Log.e("Error:", "Skipping key: $key because siteName is null")
+                                    return@forEach
+                                }
+                                val siteUrl = siteUrls[key]?.asString
+                                val resultUrl = mresult[key]?.asString
+                                if (siteUrl == null || resultUrl == null) {
                                     Log.e(
                                         "Error:",
-                                        "Unexpected JSON format: Response is not a JSON object"
+                                        "Skipping key: $key because siteUrl or resultUrl is null"
                                     )
-                                    return@amap
+                                    return@forEach
                                 }
-                                val jsonObject = jsonElement.asJsonObject
-                                val siteUrls =
-                                    jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
-                                val mresultEncoded =
-                                    jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
-                                val mresult = mresultEncoded?.let {
-                                    val decodedString = base64Decode(it) // Decode from Base64
-                                    JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
-                                }
-                                val siteFriendlyNames =
-                                    jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
-                                if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
-                                    return@amap
-                                }
-                                val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
-                                commonKeys.forEach { key ->
-                                    val siteName = siteFriendlyNames[key]?.asString
-                                    if (siteName == null) {
-                                        Log.e("Error:", "Skipping key: $key because siteName is null")
-                                        return@forEach
-                                    }
-                                    val siteUrl = siteUrls[key]?.asString
-                                    val resultUrl = mresult[key]?.asString
-                                    if (siteUrl == null || resultUrl == null) {
-                                        Log.e(
-                                            "Error:",
-                                            "Skipping key: $key because siteUrl or resultUrl is null"
-                                        )
-                                        return@forEach
-                                    }
-                                    val href = siteUrl + resultUrl
-                                    Log.d("Phisher", href)
+                                val href = siteUrl + resultUrl
+                                Log.d("Phisher", href)
 
-                                    loadExtractor(href, subtitleCallback, callback)
-                                }
-                            } else if (link.contains("deaddrive.xyz")) {
-                                app.get(link).document.select("ul.list-server-items > li").map {
-                                    val server = it.attr("data-video")
-                                    loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
-                                }
-                            } else
-                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
-                        }
-
-                        else -> return@amap
+                                loadExtractor(href, subtitleCallback, callback)
+                            }
+                        } else if (link.contains("deaddrive.xyz")) {
+                            app.get(link).document.select("ul.list-server-items > li").map {
+                                val server = it.attr("data-video")
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                            }
+                        } else
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
+
+                    else -> return@amap
                 }
             }
         }

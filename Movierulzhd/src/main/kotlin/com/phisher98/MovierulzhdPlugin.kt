@@ -9,8 +9,8 @@ class MovierulzhdPlugin: BasePlugin() {
     override fun load() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Movierulzhd())
-        registerMainAPI(Hdmovie2())
-        registerMainAPI(Hdmovie6())
+//        registerMainAPI(Hdmovie2())
+//        registerMainAPI(Hdmovie6())
         registerExtractorAPI(FMHD())
         registerExtractorAPI(VidSrcTo())
         registerExtractorAPI(Akamaicdn())

@@ -28,7 +28,7 @@ import org.jsoup.select.Elements
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl = "https://hdhub4u.gallery"
+    override var mainUrl = "https://hdhub4u.graphics/"
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -40,10 +40,10 @@ class HDhub4uProvider : MainAPI() {
     private val cinemeta_url = "https://v3-cinemeta.strem.io/meta"
     override val mainPage = mainPageOf(
         "/" to "Latest",
+        "/category/bollywood-movies/" to "Bollywood",
+        "/category/hollywood-movies/" to "Hollywood",
         "/category/hindi-dubbed/" to "Hindi Dubbed",
         "/category/south-hindi-movies/" to "South Hindi Dubbed",
-        "/category/hollywood-movies/" to "Hollywood",
-        "/category/bollywood-movies/" to "Bollywood",
         "/category/category/web-series/" to "Web Series",
         "/category/adult/" to "Adult",
     )
@@ -150,7 +150,7 @@ class HDhub4uProvider : MainAPI() {
         val tags = doc.select(".page-meta em").eachText()
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
                 ?.replace("/embed/", "/watch?v=")
-        extractLinksATags(doc.select(".page-body > div a"))
+        val streamingLinks = extractLinksATags(doc.select("h4 span a"))
         val typeraw=doc.select("h1.page-title span").text()
         val tvtype=if (typeraw.contains("movie",ignoreCase = true)) TvType.Movie else TvType.TvSeries
         val tvtypeapi = if (typeraw.contains("movie", ignoreCase = true)) "movie" else "series"
@@ -182,6 +182,8 @@ class HDhub4uProvider : MainAPI() {
                 doc.select("h3 a:matchesOwn(480|720|1080|2160|4K), h4 a:matchesOwn(480|720|1080|2160|4K)")
                     .map { it.attr("href") }
             )
+
+            movieList.addAll(streamingLinks)
 
             return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
                 this.backgroundPosterUrl = background
