@@ -15,7 +15,7 @@ import okhttp3.FormBody
 import java.net.URI
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.guru"
+    override var mainUrl = "https://multimovies.digital/"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -42,13 +42,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/genre/jio-ott/" to "Jio OTT",
         "$mainUrl/genre/netflix/" to "Netfilx",
         "$mainUrl/genre/sony-liv/" to "Sony Live",
-        "$mainUrl/genre/k-drama/" to "KDrama",
         "$mainUrl/genre/zee-5/" to "Zee5",
-        "$mainUrl/genre/anime-hindi/" to "Anime Series",
-        "$mainUrl/genre/anime-movies/" to "Anime Movies",
-        "$mainUrl/genre/cartoon-network/" to "Cartoon Network",
-        "$mainUrl/genre/disney-channel/" to "Disney Channel",
-        "$mainUrl/genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -238,96 +232,123 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("Phisher",data)
-        val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
-            if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                Log.d("MultiMovies", "AJAX embed_url: $source")
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("gdmirrorbot.nl")) {
-
-                            val host = getBaseUrl(app.get(link).url)
-                            val embed = link.substringAfterLast("/")
-                            val data = mapOf("sid" to embed)
-                            val jsonString =
-                                app.post("$host/embedhelper.php", data = data).toString()
-                            Log.d("Phisher", "$host/embedhelper.php")
-
-                            val jsonElement: JsonElement = JsonParser.parseString(jsonString)
-                            if (!jsonElement.isJsonObject) {
-                                Log.e(
-                                    "Error:",
-                                    "Unexpected JSON format: Response is not a JSON object"
-                                )
-                                return@amap
-                            }
-                            val jsonObject = jsonElement.asJsonObject
-                            val siteUrls =
-                                jsonObject["siteUrls"]?.takeIf { it.isJsonObject }?.asJsonObject
-                            val mresultEncoded =
-                                jsonObject["mresult"]?.takeIf { it.isJsonPrimitive }?.asString
-                            val mresult = mresultEncoded?.let {
-                                val decodedString = base64Decode(it) // Decode from Base64
-                                JsonParser.parseString(decodedString).asJsonObject // Convert to JSON object
-                            }
-                            val siteFriendlyNames =
-                                jsonObject["siteFriendlyNames"]?.takeIf { it.isJsonObject }?.asJsonObject
-                            if (siteUrls == null || siteFriendlyNames == null || mresult == null) {
-                                return@amap
-                            }
-                            val commonKeys = siteUrls.keySet().intersect(mresult.keySet())
-                            commonKeys.forEach { key ->
-                                val siteName = siteFriendlyNames[key]?.asString
-                                if (siteName == null) {
-                                    Log.e("Error:", "Skipping key: $key because siteName is null")
-                                    return@forEach
+        Log.d("Phisher", data)
+        
+        try {
+            // First try the new MultiMovies extractor
+            val multiMoviesEmbed = MultiMoviesNewEmbed()
+            multiMoviesEmbed.getUrl(data, null, subtitleCallback, callback)
+            
+            // Then process the traditional player options if available
+            val req = app.get(data).document
+            val playerOptions = req.select("ul#playeroptionsul li")
+            
+            if (playerOptions.isNotEmpty()) {
+                playerOptions.map {
+                    Triple(
+                        it.attr("data-post"),
+                        it.attr("data-nume"),
+                        it.attr("data-type")
+                    )
+                }.amap { (id, nume, type) ->
+                    if (!nume.contains("trailer")) {
+                        try {
+                            val source = app.post(
+                                url = "$mainUrl/wp-admin/admin-ajax.php",
+                                data = mapOf(
+                                    "action" to "doo_player_ajax",
+                                    "post" to id,
+                                    "nume" to nume,
+                                    "type" to type
+                                ),
+                                referer = mainUrl,
+                                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                            ).parsed<ResponseHash>().embed_url
+                            
+                            Log.d("MultiMovies", "AJAX embed_url: $source")
+                            
+                            // Process different embedding sources
+                            when {
+                                source.contains("pro.gtxgamer.site") -> {
+                                    try {
+                                        val gtxDocument = app.get(source, referer = data).document
+                                        gtxDocument.select("ul#videoLinks > li[data-link]").forEach { li ->
+                                            val videoLink = li.attr("data-link")
+                                            Log.d("MultiMovies", "Found gtx link: $videoLink")
+                                            loadExtractor(videoLink, data, subtitleCallback, callback)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("MultiMovies", "Error processing gtx link: ${e.message}")
+                                    }
                                 }
-                                val siteUrl = siteUrls[key]?.asString
-                                val resultUrl = mresult[key]?.asString
-                                if (siteUrl == null || resultUrl == null) {
-                                    Log.e(
-                                        "Error:",
-                                        "Skipping key: $key because siteUrl or resultUrl is null"
-                                    )
-                                    return@forEach
+                                source.contains("gdmirrorbot.nl") -> {
+                                    try {
+                                        // Use updated GDMirrorbot extractor
+                                        val gdMirrorbot = GDMirrorbot()
+                                        gdMirrorbot.getUrl(source, data, subtitleCallback, callback)
+                                    } catch (e: Exception) {
+                                        Log.e("MultiMovies", "Error with GDMirrorbot: ${e.message}")
+                                    }
                                 }
-                                val href = siteUrl + resultUrl
-                                Log.d("Phisher", href)
-
-                                loadExtractor(href, subtitleCallback, callback)
+                                source.contains("deaddrive.xyz") -> {
+                                    try {
+                                        app.get(source, referer = data).document.select("ul.list-server-items > li").forEach { 
+                                            val server = it.attr("data-video")
+                                            Log.d("MultiMovies", "Found deaddrive server: $server")
+                                            loadExtractor(server, data, subtitleCallback, callback)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("MultiMovies", "Error with deaddrive: ${e.message}")
+                                    }
+                                }
+                                !source.contains("youtube") -> {
+                                    try {
+                                        // Try with various extractors for non-YouTube sources
+                                        Log.d("MultiMovies", "Loading extractor for: $source")
+                                        loadExtractor(source, data, subtitleCallback, callback)
+                                        
+                                        // Also try the specialized extractor
+                                        multiMoviesEmbed.getUrl(source, data, subtitleCallback, callback)
+                                    } catch (e: Exception) {
+                                        Log.e("MultiMovies", "Error with generic extractor: ${e.message}")
+                                    }
+                                }
                             }
-                        } else if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
-                            }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e("MultiMovies", "Error processing player option: ${e.message}")
+                        }
                     }
-
-                    else -> return@amap
+                }
+            } else {
+                // For newer site design with direct iframes
+                req.select("iframe").forEach { iframe ->
+                    val src = iframe.attr("src")
+                    if (src.isNotEmpty() && !src.contains("youtube")) {
+                        loadExtractor(src, data, subtitleCallback, callback)
+                    }
+                }
+                
+                // Look for newer player containers
+                req.select(".player-embed-container, .videobox, .embed-player").forEach { container ->
+                    // Process data attributes
+                    val dataEmbedUrl = container.attr("data-embed-url")
+                    if (dataEmbedUrl.isNotEmpty()) {
+                        loadExtractor(dataEmbedUrl, data, subtitleCallback, callback)
+                    }
+                    
+                    // Process nested iframes
+                    container.select("iframe").forEach { iframe ->
+                        val src = iframe.attr("src")
+                        if (src.isNotEmpty() && !src.contains("youtube")) {
+                            loadExtractor(src, data, subtitleCallback, callback)
+                        }
+                    }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "General error in loadLinks: ${e.message}")
         }
+        
         return true
     }
 

@@ -230,7 +230,7 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("Phisher repolink",data)
+        Log.d("Phisher repolink", data)
         if (data.startsWith("{")) {
             val loadData = AppUtils.tryParseJson<LinkData>(data)
             val source = app.post(
@@ -245,38 +245,89 @@ open class Movierulzhd : MainAPI() {
                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
             ).parsed<ResponseHash>().embed_url
             Log.d("Movierulzhd", "AJAX embed_url: $source")
-            if (!source.contains("youtube")) loadCustomExtractor(
-                source,
-                "$directUrl/",
-                subtitleCallback,
-                callback
-            )
+            if (!source.contains("youtube")) {
+                try {
+                    // Try the new extractor first
+                    loadExtractor(source, "$directUrl/", subtitleCallback, callback)
+                    
+                    // Additionally try with specialized extractor for modern embed formats
+                    val movieRulzEmbed = MovieRulzHDEmbed()
+                    movieRulzEmbed.getUrl(source, "$directUrl/", subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e("Movierulzhd", "Error loading source: ${e.message}")
+                    // Fallback to legacy extractors
+                    loadCustomExtractor(source, "$directUrl/", subtitleCallback, callback)
+                }
+            }
         } else {
             val document = app.get(data).document
-            document.select("ul#playeroptionsul > li").map {
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }.amap { (id, nume, type) ->
-                val source = app.post(
-                    url = "$directUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                Log.d("Movierulzhd", "AJAX embed_url: $source")
-                when {
-                    !source.contains("youtube") -> {
-                        loadExtractor(source, subtitleCallback, callback)
+            val playerItems = document.select("ul#playeroptionsul > li")
+            
+            // Check if we have the modern player options format
+            if (playerItems.isNotEmpty()) {
+                playerItems.map {
+                    Triple(
+                        it.attr("data-post"),
+                        it.attr("data-nume"),
+                        it.attr("data-type")
+                    )
+                }.amap { (id, nume, type) ->
+                    try {
+                        val source = app.post(
+                            url = "$directUrl/wp-admin/admin-ajax.php",
+                            data = mapOf(
+                                "action" to "doo_player_ajax",
+                                "post" to id,
+                                "nume" to nume,
+                                "type" to type
+                            ),
+                            referer = data, 
+                            headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                        ).parsed<ResponseHash>().embed_url
+                        Log.d("Movierulzhd", "AJAX embed_url: $source")
+                        
+                        if (!source.contains("youtube")) {
+                            // Try both regular and specialized extractors
+                            loadExtractor(source, data, subtitleCallback, callback)
+                            val movieRulzEmbed = MovieRulzHDEmbed()
+                            movieRulzEmbed.getUrl(source, data, subtitleCallback, callback)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Movierulzhd", "Error loading player option: ${e.message}")
                     }
-
-                    else -> return@amap
+                }
+            } else {
+                // Try to find direct iframes for newer layout
+                document.select("div.play-box iframe").forEach { iframe ->
+                    val src = iframe.attr("src")
+                    if (src.isNotEmpty() && !src.contains("youtube")) {
+                        loadExtractor(src, data, subtitleCallback, callback)
+                        
+                        // Try specialized extractor
+                        val movieRulzEmbed = MovieRulzHDEmbed()
+                        movieRulzEmbed.getUrl(src, data, subtitleCallback, callback)
+                    }
+                }
+                
+                // Also check for new player containers
+                document.select("div.player-embed-container").forEach { container ->
+                    // Process data attributes that might contain player info
+                    val dataEmbedUrl = container.attr("data-embed-url")
+                    if (dataEmbedUrl.isNotEmpty()) {
+                        loadExtractor(dataEmbedUrl, data, subtitleCallback, callback)
+                    }
+                    
+                    // Process nested iframes
+                    container.select("iframe").forEach { iframe ->
+                        val src = iframe.attr("src")
+                        if (src.isNotEmpty() && !src.contains("youtube")) {
+                            loadExtractor(src, data, subtitleCallback, callback)
+                            
+                            // Try specialized extractor
+                            val movieRulzEmbed = MovieRulzHDEmbed()
+                            movieRulzEmbed.getUrl(src, data, subtitleCallback, callback)
+                        }
+                    }
                 }
             }
         }

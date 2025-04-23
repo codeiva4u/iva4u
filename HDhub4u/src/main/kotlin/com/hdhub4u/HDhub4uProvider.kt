@@ -1,6 +1,7 @@
 package com.hdhub4u
 
 import android.annotation.SuppressLint
+import android.util.Log
 import com.google.gson.Gson
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
@@ -22,6 +23,8 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
@@ -311,18 +314,54 @@ class HDhub4uProvider : MainAPI() {
             .map { it.trim().removeSurrounding("\"") }
             .filter { it.isNotEmpty() }
 
-        linksList.forEach { link->
-           if (link.contains("?id="))
-           {
-               val encoded= getRedirectLinks(link.trim())
-               loadExtractor(encoded,subtitleCallback, callback)
-           }
-           else
-           {
-               loadExtractor(link,subtitleCallback, callback)
-           }
-        }
-        return true
+        linksList.forEach { link ->
+            try {
+                // Try with the new HDhub4u extractor first
+                val hdHub4uExtractor = HDhub4uExtractor()
+                hdHub4uExtractor.getUrl(link, null, subtitleCallback, callback)
+                
+                // Check if the link is a redirection link
+                if (link.contains("?id=")) {
+                    val encoded = getRedirectLinks(link.trim())
+                    if (encoded.isNotEmpty()) {
+                        loadExtractor(encoded, subtitleCallback, callback)
+                    }
+                } else {
+                    // Handle direct URLs or special cases
+                    if (link.endsWith(".mp4") || link.endsWith(".mkv")) {
+                        // Direct video link 
+                        callback.invoke(
+                            ExtractorLink(
+                                "HDhub4u Direct",
+                                "HDhub4u Direct",
+                                link,
+                                "",
+                                Qualities.P1080.value,
+                                type = ExtractorLinkType.VIDEO
+                            )
+                        )
+                    } else if (link.contains(".m3u8")) {
+                        // Direct M3U8 link
+                        callback.invoke(
+                            ExtractorLink(
+                                "HDhub4u HLS",
+                                "HDhub4u HLS",
+                                link,
+                                "",
+                                Qualities.P1080.value,
+                                type = ExtractorLinkType.M3U8
+                            )
+                        )
+                    } else {
+                        // Generic extractor for other types of links
+                        loadExtractor(link, subtitleCallback, callback)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("HDhub4u", "Error loading link: $link - ${e.message}")
+            }
+       }
+       return true
     }
 
     /**
