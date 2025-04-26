@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.Interceptor
 import org.jsoup.nodes.Element
 import java.net.URI
 
@@ -28,11 +29,14 @@ open class Movierulzhd : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "movies" to "Latest Release",
+        "trending" to "Trending",
+        "movies" to "Movies",
+        "tvshows" to "TV Shows",
         "genre/netflix" to "Netflix",
         "genre/amazon-prime" to "Amazon Prime",
-        "genre/jio-cinema" to "Jio Cinema",
         "genre/Zee5" to "Zee5",
+        "seasons" to "Season",
+        "episodes" to "Episode",
     )
 
     override suspend fun getMainPage(
@@ -92,7 +96,7 @@ open class Movierulzhd : MainAPI() {
             val title =
                 it.selectFirst("div.title > a")!!.text().replace(Regex("\\(\\d{4}\\)"), "").trim()
             val href = getProperLink(it.selectFirst("div.title > a")!!.attr("href"))
-            val posterUrl = it.selectFirst("img")!!.attr("src").toString()
+            val posterUrl = it.selectFirst("img")!!.attr("src")
             newMovieSearchResponse(title, href, TvType.TvSeries) {
                 this.posterUrl = posterUrl
             }
@@ -134,8 +138,7 @@ open class Movierulzhd : MainAPI() {
         }
 
         val recommendations = document.select("div.owl-item").map {
-            val recName =
-                it.selectFirst("a")!!.attr("href").toString().removeSuffix("/").split("/").last()
+            val recName = it.selectFirst("a")!!.attr("href").removeSuffix("/").split("/").last()
             val recHref = it.selectFirst("a")!!.attr("href")
             val recPosterUrl = it.selectFirst("img")?.getImageAttr()
             newTvSeriesSearchResponse(recName, recHref, TvType.TvSeries) {
@@ -267,7 +270,6 @@ open class Movierulzhd : MainAPI() {
                     ),
                     referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
-                Log.d("Phisher repolink", source)
                 when {
                     !source.contains("youtube") -> {
                         loadExtractor(source, subtitleCallback, callback)
@@ -280,7 +282,7 @@ open class Movierulzhd : MainAPI() {
         return true
     }
 
-    private fun Element.getImageAttr(): String? {
+    private fun Element.getImageAttr(): String {
         return when {
             this.hasAttr("data-src") -> this.attr("abs:data-src")
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
@@ -319,12 +321,68 @@ open class Movierulzhd : MainAPI() {
         }
     }
 
+
+    override fun getVideoInterceptor(extractorLink: ExtractorLink): Interceptor {
+        return Interceptor { chain ->
+            val request = chain.request()
+            val originalUrl = request.url.toString()
+            val modifiedRequest = if (originalUrl.startsWith("https://exxample.com/")) {
+                val encodedPart = originalUrl.removePrefix("https://exxample.com/")
+                val decodedUrl = try {
+                    base64Decode(encodedPart)
+                } catch (e: IllegalArgumentException) {
+                    println("Failed to decode Base64: ${e.message}")
+                    null
+                }
+                if (decodedUrl != null) {
+                    request.newBuilder()
+                        .url(decodedUrl)
+                        .build()
+                } else {
+                    request
+                }
+            } else {
+                request
+            }
+
+            val finalRequest = if (modifiedRequest.url.host.contains("sukumsanghas.com")) {
+                modifiedRequest.newBuilder()
+                    .header("Accept", "*/*")
+                    .header("Accept-Encoding", "gzip, deflate, br")
+                    .header("Accept-Language", "en-US,en;q=0.5")
+                    .header("Cache-Control", "no-cache")
+                    .header("Connection", "keep-alive")
+                    .header("DNT", "1")
+                    .header("Origin", "https://molop.art")
+                    .header("Pragma", "no-cache")
+                    .header("Referer", "https://molop.art/")
+                    .header("Sec-Fetch-Dest", "empty")
+                    .header("Sec-Fetch-Mode", "cors")
+                    .header("Sec-Fetch-Site", "cross-site")
+                    .header("Sec-GPC", "1")
+                    .header(
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0"
+                    )
+                    .build()
+            } else {
+                modifiedRequest
+            }
+            chain.proceed(finalRequest)
+        }
+    }
+
+
+
+
     data class LinkData(
         val tag: String? = null,
         val type: String? = null,
         val post: String? = null,
         val nume: String? = null,
     )
+
+
 
     data class ResponseHash(
         @JsonProperty("embed_url") val embed_url: String,

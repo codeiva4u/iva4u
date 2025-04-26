@@ -62,23 +62,23 @@ open class FMX : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url,referer=mainUrl).document
-        val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                return listOf(
-                    newExtractorLink(
-                        this.name,
-                        this.name,
-                        url = link,
-                        INFER_TYPE
-                    ) {
-                        this.referer = referer ?: ""
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+            val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                    return listOf(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = link,
+                            INFER_TYPE
+                        ) {
+                            this.referer = referer ?: ""
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
             }
-        }
-        return null
+            return null
     }
 }
 
