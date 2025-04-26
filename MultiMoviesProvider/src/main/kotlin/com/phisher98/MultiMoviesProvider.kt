@@ -2,16 +2,37 @@ package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.google.gson.JsonElement
-import com.google.gson.JsonParser
 import com.lagradost.api.Log
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.Actor
+import com.lagradost.cloudstream3.ActorData
+import com.lagradost.cloudstream3.Episode
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import org.jsoup.nodes.Element
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.fixUrl
+import com.lagradost.cloudstream3.fixUrlNull
+import com.lagradost.cloudstream3.getQualityFromString
+import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.newEpisode
+import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.toRatingInt
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
+import org.jsoup.nodes.Element
 import java.net.URI
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
@@ -32,7 +53,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override val mainPage = mainPageOf(
-        "$mainUrl/trending/" to "Trending",
+        "$mainUrl/movies/" to "Latest Release",
         "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
         "$mainUrl/genre/hollywood/" to "Hollywood Movies",
         "$mainUrl/genre/south-indian/" to "South Indian Movies",
@@ -232,123 +253,43 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("Phisher", data)
-        
-        try {
-            // First try the new MultiMovies extractor
-            val multiMoviesEmbed = MultiMoviesNewEmbed()
-            multiMoviesEmbed.getUrl(data, null, subtitleCallback, callback)
-            
-            // Then process the traditional player options if available
-            val req = app.get(data).document
-            val playerOptions = req.select("ul#playeroptionsul li")
-            
-            if (playerOptions.isNotEmpty()) {
-                playerOptions.map {
-                    Triple(
-                        it.attr("data-post"),
-                        it.attr("data-nume"),
-                        it.attr("data-type")
-                    )
-                }.amap { (id, nume, type) ->
-                    if (!nume.contains("trailer")) {
-                        try {
-                            val source = app.post(
-                                url = "$mainUrl/wp-admin/admin-ajax.php",
-                                data = mapOf(
-                                    "action" to "doo_player_ajax",
-                                    "post" to id,
-                                    "nume" to nume,
-                                    "type" to type
-                                ),
-                                referer = mainUrl,
-                                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                            ).parsed<ResponseHash>().embed_url
-                            
-                            Log.d("MultiMovies", "AJAX embed_url: $source")
-                            
-                            // Process different embedding sources
-                            when {
-                                source.contains("pro.gtxgamer.site") -> {
-                                    try {
-                                        val gtxDocument = app.get(source, referer = data).document
-                                        gtxDocument.select("ul#videoLinks > li[data-link]").forEach { li ->
-                                            val videoLink = li.attr("data-link")
-                                            Log.d("MultiMovies", "Found gtx link: $videoLink")
-                                            loadExtractor(videoLink, data, subtitleCallback, callback)
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e("MultiMovies", "Error processing gtx link: ${e.message}")
-                                    }
-                                }
-                                source.contains("gdmirrorbot.nl") -> {
-                                    try {
-                                        // Use updated GDMirrorbot extractor
-                                        val gdMirrorbot = GDMirrorbot()
-                                        gdMirrorbot.getUrl(source, data, subtitleCallback, callback)
-                                    } catch (e: Exception) {
-                                        Log.e("MultiMovies", "Error with GDMirrorbot: ${e.message}")
-                                    }
-                                }
-                                source.contains("deaddrive.xyz") -> {
-                                    try {
-                                        app.get(source, referer = data).document.select("ul.list-server-items > li").forEach { 
-                                            val server = it.attr("data-video")
-                                            Log.d("MultiMovies", "Found deaddrive server: $server")
-                                            loadExtractor(server, data, subtitleCallback, callback)
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e("MultiMovies", "Error with deaddrive: ${e.message}")
-                                    }
-                                }
-                                !source.contains("youtube") -> {
-                                    try {
-                                        // Try with various extractors for non-YouTube sources
-                                        Log.d("MultiMovies", "Loading extractor for: $source")
-                                        loadExtractor(source, data, subtitleCallback, callback)
-                                        
-                                        // Also try the specialized extractor
-                                        multiMoviesEmbed.getUrl(source, data, subtitleCallback, callback)
-                                    } catch (e: Exception) {
-                                        Log.e("MultiMovies", "Error with generic extractor: ${e.message}")
-                                    }
-                                }
+        Log.d("Phisher",data)
+        val req = app.get(data).document
+        req.select("ul#playeroptionsul li").map {
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
+            )
+        }.amap { (id, nume, type) ->
+            if (!nume.contains("trailer")) {
+                val source = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = mainUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                val link = source.substringAfter("\"").substringBefore("\"").trim()
+                when {
+                    !link.contains("youtube") -> {
+                        if (link.contains("deaddrive.xyz")) {
+                            app.get(link).document.select("ul.list-server-items > li").map {
+                                val server = it.attr("data-video")
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
-                        } catch (e: Exception) {
-                            Log.e("MultiMovies", "Error processing player option: ${e.message}")
-                        }
+                        } else
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
-                }
-            } else {
-                // For newer site design with direct iframes
-                req.select("iframe").forEach { iframe ->
-                    val src = iframe.attr("src")
-                    if (src.isNotEmpty() && !src.contains("youtube")) {
-                        loadExtractor(src, data, subtitleCallback, callback)
-                    }
-                }
-                
-                // Look for newer player containers
-                req.select(".player-embed-container, .videobox, .embed-player").forEach { container ->
-                    // Process data attributes
-                    val dataEmbedUrl = container.attr("data-embed-url")
-                    if (dataEmbedUrl.isNotEmpty()) {
-                        loadExtractor(dataEmbedUrl, data, subtitleCallback, callback)
-                    }
-                    
-                    // Process nested iframes
-                    container.select("iframe").forEach { iframe ->
-                        val src = iframe.attr("src")
-                        if (src.isNotEmpty() && !src.contains("youtube")) {
-                            loadExtractor(src, data, subtitleCallback, callback)
-                        }
-                    }
+
+                    else -> return@amap
                 }
             }
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "General error in loadLinks: ${e.message}")
         }
-        
         return true
     }
 

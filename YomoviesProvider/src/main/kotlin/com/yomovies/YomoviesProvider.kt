@@ -10,7 +10,7 @@ import org.jsoup.nodes.Element
 import java.net.URI
 
 open class YomoviesProvider : MainAPI() {
-    override var mainUrl = "https://yomovies.cash/"
+    override var mainUrl = "https://yomovies.yoga/"
     private var directUrl = ""
     override var name = "Yomovies"
     override val hasMainPage = true
@@ -27,7 +27,6 @@ open class YomoviesProvider : MainAPI() {
         "genre/bollywood" to "Bollywood Movies",
         "genre/tv-shows" to "TV Shows Movies",
         "genre/hollywood" to "Hollywood Movies",
-        "series" to "All TV Series",
     )
 
     override suspend fun getMainPage(
