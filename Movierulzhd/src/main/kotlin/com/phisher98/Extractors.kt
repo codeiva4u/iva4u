@@ -1,6 +1,7 @@
 package com.phisher98
 
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.Filesim
 import com.lagradost.cloudstream3.utils.*
@@ -37,19 +38,92 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8=JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
+        // मुख्य iframe source निकालना
+        val doc = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        val iframeSrc = doc.selectFirst("iframe")?.attr("src") ?: ""
+        if (iframeSrc.isEmpty()) {
+            // fallback: alternate iframe या script से ट्राय करें
+            val altIframe = doc.select("iframe").getOrNull(1)?.attr("src") ?: ""
+            if (altIframe.isNotEmpty()) {
+                extractFilemoon(altIframe, url, callback)
+                return
+            }
+            callback.invoke(
+                ExtractorLink(
+                    this.name,
+                    this.name,
+                    "",
+                    url,
+                    Qualities.Unknown.value,
+                    type = ExtractorLinkType.M3U8,
+                )
+            )
+            return
         }
+        extractFilemoon(iframeSrc, url, callback)
+    }
+
+    private suspend fun extractFilemoon(iframeUrl: String, referer: String?, callback: (ExtractorLink) -> Unit) {
+        val headers = mapOf(
+            "Accept-Language" to "en-US,en;q=0.5",
+            "sec-fetch-dest" to "iframe",
+            "Referer" to referer.orEmpty(),
+            "User-Agent" to USER_AGENT
+        )
+        val resDoc = app.get(iframeUrl, headers = headers).document
+        // JS packed script ढूंढना
+        val packedScript = resDoc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
+        if (packedScript.isNotEmpty()) {
+            val unpacked = JsUnpacker(packedScript).unpack()
+            val m3u8 = unpacked?.let {
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
+            }
+            if (!m3u8.isNullOrEmpty()) {
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        m3u8.toString(),
+                        iframeUrl,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            }
+        }
+        // fallback: alternate script या sources
+        val scripts = resDoc.select("script").mapNotNull { it.data() }
+        for (script in scripts) {
+            if (script.contains("sources:[{file:")) {
+                val m3u8 = Regex("sources:\\[\\{file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
+                if (!m3u8.isNullOrEmpty()) {
+                    callback.invoke(
+                        ExtractorLink(
+                            this.name,
+                            this.name,
+                            m3u8.toString(),
+                            iframeUrl,
+                            Qualities.P1080.value,
+                            type = ExtractorLinkType.M3U8,
+                            headers = headers
+                        )
+                    )
+                    return
+                }
+            }
+        }
+        // अगर कुछ नहीं मिला तो empty callback
         callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
-                m3u8 ?:"",
-                url,
-                Qualities.P1080.value,
+                "",
+                iframeUrl,
+                Qualities.Unknown.value,
                 type = ExtractorLinkType.M3U8,
+                headers = headers
             )
         )
     }
@@ -61,10 +135,12 @@ open class FMX : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(url,referer=mainUrl).document
-            val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+        val response = app.get(url, referer = mainUrl, headers = mapOf("User-Agent" to USER_AGENT)).document
+        // packed JS script
+        val packedScript = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
+        if (packedScript.isNotEmpty()) {
+            JsUnpacker(packedScript).unpack()?.let { unPacked ->
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.getOrNull(1)?.let { link ->
                     return listOf(
                         newExtractorLink(
                             this.name,
@@ -73,12 +149,35 @@ open class FMX : ExtractorApi() {
                             INFER_TYPE
                         ) {
                             this.referer = referer ?: ""
-                            this.quality = Qualities.Unknown.value
+                            this.quality = Qualities.P1080.value
+                            this.headers = mapOf("User-Agent" to USER_AGENT)
                         }
                     )
                 }
             }
-            return null
+        }
+        // fallback: alternate script
+        val scripts = response.select("script").mapNotNull { it.data() }
+        for (script in scripts) {
+            if (script.contains("sources:[{file:")) {
+                val link = Regex("sources:\\[\\{file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
+                if (!link.isNullOrEmpty()) {
+                    return listOf(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = link,
+                            INFER_TYPE
+                        ) {
+                            this.referer = referer ?: ""
+                            this.quality = Qualities.P1080.value
+                            this.headers = mapOf("User-Agent" to USER_AGENT)
+                        }
+                    )
+                }
+            }
+        }
+        return null
     }
 }
 
@@ -93,25 +192,39 @@ open class Akamaicdn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val headers= mapOf("user-agent" to "okhttp/4.12.0")
+        val headers = mapOf("user-agent" to USER_AGENT)
         val res = app.get(url, referer = referer, headers = headers).document
-        val mappers = res.selectFirst("script:containsData(sniff\\()")?.data()?.substringAfter("sniff(")
-            ?.substringBefore(");") ?: return
+        // JS sniff function से ids निकालना
+        val mappers = res.selectFirst("script:containsData(sniff()")?.data()?.substringAfter("sniff(")?.substringBefore(");") ?: return
         val ids = mappers.split(",").map { it.replace("\"", "") }
-        val m3u8="$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1"
-        callback.invoke(
-            newExtractorLink(
-                name,
-                name,
-                m3u8,
-                ExtractorLinkType.M3U8
+        if (ids.size > 2) {
+            val m3u8 = "$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1"
+            callback.invoke(
+                newExtractorLink(
+                    name,
+                    name,
+                    m3u8,
+                    ExtractorLinkType.M3U8
+                ) {
+                    this.referer = url
+                    this.quality = Qualities.P1080.value
+                    this.headers = headers
+                }
             )
-            {
-                this.referer=url
-                this.quality=Qualities.P1080.value
-                this.headers=headers
-
-            }
-        )
+        } else {
+            // fallback: alternate script या ids
+            callback.invoke(
+                newExtractorLink(
+                    name,
+                    name,
+                    "",
+                    ExtractorLinkType.M3U8
+                ) {
+                    this.referer = url
+                    this.quality = Qualities.Unknown.value
+                    this.headers = headers
+                }
+            )
+        }
     }
 }
