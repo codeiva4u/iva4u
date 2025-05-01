@@ -28,7 +28,7 @@ import org.jsoup.select.Elements
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl = "https://hdhub4u.mn/"
+    override var mainUrl = "https://hdhub4u.graphics/"
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
