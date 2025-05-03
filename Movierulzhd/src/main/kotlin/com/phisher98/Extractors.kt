@@ -71,27 +71,94 @@ class FilemoonV2 : ExtractorApi() {
             "User-Agent" to USER_AGENT
         )
         
-        // नए डोमेन के लिए URL फिक्स करें
+        // नए डोमेन के लिए URL फिक्स करें - अपडेटेड डोमेन के साथ
         val fixedUrl = if (!iframeUrl.startsWith("http")) {
-            if (iframeUrl.startsWith("/")) "https://movierulz.upn.one$iframeUrl" else "https://movierulz.upn.one/$iframeUrl"
+            // चेक करें कि कौन सा डोमेन काम कर रहा है
+            val domains = listOf("movierulz.upn.one", "movierulz.upn.lol", "movierulz.upn.pw")
+            val workingDomain = domains.firstOrNull { domain ->
+                try {
+                    val testUrl = "https://$domain"
+                    val response = app.get(testUrl, headers = headers)
+                    response.code == 200
+                } catch (e: Exception) {
+                    false
+                }
+            } ?: "movierulz.upn.one"
+            
+            if (iframeUrl.startsWith("/")) "https://$workingDomain$iframeUrl" else "https://$workingDomain/$iframeUrl"
         } else iframeUrl
         
         val resDoc = app.get(fixedUrl, headers = headers).document
         
-        // पोस्टर इमेज से वीडियो ID निकालना
-        val posterUrl = resDoc.select("#player-button-container").firstOrNull()?.attr("style")?.let {
+        // पोस्टर इमेज से वीडियो ID निकालना - अपडेटेड सेलेक्टर
+        val posterUrl = resDoc.select("#player-button-container, .player-button-container").firstOrNull()?.attr("style")?.let {
             Regex("background-image: url\\(\"(.*?)\"\\)").find(it)?.groupValues?.getOrNull(1)
         }
         
         if (!posterUrl.isNullOrEmpty()) {
-            // पोस्टर URL से वीडियो ID निकालें
+            // नया पैटर्न - पूरा पाथ से वीडियो ID बनाना
+            // उदाहरण: /eaS2y4WHuDwBTyx4dLDMhA/il/yg69bkwb/b6ey9d/poster.png
+            val segments = posterUrl.split("/").filter { it.isNotEmpty() }
+            if (segments.size >= 4) {
+                // नए पैटर्न में पहले 4 सेगमेंट्स से वीडियो ID बनाते हैं
+                val videoId = segments.take(4).joinToString("/")
+                // वीडियो ID से m3u8 URL बनाएं - डोमेन से निकालें
+                val domain = fixedUrl.split("/").let { parts ->
+                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
+                }
+                val m3u8Url = "$domain/m3u8/$videoId/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        m3u8Url,
+                        fixedUrl,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            }
+            
+            // पुराना पैटर्न भी ट्राय करें
             val videoId = posterUrl.split("/").let { parts ->
                 if (parts.size >= 3) parts[parts.size - 3] else null
             }
             
             if (!videoId.isNullOrEmpty()) {
-                // वीडियो ID से m3u8 URL बनाएं
-                val m3u8Url = "https://movierulz.upn.one/m3u8/$videoId/master.m3u8"
+                // वीडियो ID से m3u8 URL बनाएं - डोमेन से निकालें
+                val domain = fixedUrl.split("/").let { parts ->
+                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
+                }
+                val m3u8Url = "$domain/m3u8/$videoId/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        m3u8Url,
+                        fixedUrl,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            }
+        }
+        
+        // sniff फंक्शन से वीडियो ID निकालना
+        val sniffScript = resDoc.select("script").find { it.data().contains("sniff") }?.data()
+        if (!sniffScript.isNullOrEmpty()) {
+            val sniffPattern = Regex("sniff\\(([^)]+)\\)")
+            val sniffMatch = sniffPattern.find(sniffScript)
+            val sniffParams = sniffMatch?.groupValues?.getOrNull(1)?.split(",")?.map { it.replace("\"", "").trim() }
+            
+            if (sniffParams != null && sniffParams.size > 2) {
+                val domain = fixedUrl.split("/").let { parts ->
+                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
+                }
+                val m3u8Url = "$domain/m3u8/${sniffParams[1]}/${sniffParams[2]}/master.m3u8"
                 callback.invoke(
                     ExtractorLink(
                         this.name,
@@ -113,6 +180,7 @@ class FilemoonV2 : ExtractorApi() {
             val unpacked = JsUnpacker(packedScript).unpack()
             val m3u8 = unpacked?.let {
                 Regex("sources:\\[\\{file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
+                    ?: Regex("file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
             }
             if (!m3u8.isNullOrEmpty()) {
                 callback.invoke(
@@ -133,8 +201,9 @@ class FilemoonV2 : ExtractorApi() {
         // fallback: alternate script या sources
         val scripts = resDoc.select("script").mapNotNull { it.data() }
         for (script in scripts) {
-            if (script.contains("sources:[{file:")) {
+            if (script.contains("sources:[{file:") || script.contains("file:\"")) {
                 val m3u8 = Regex("sources:\\[\\{file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
+                    ?: Regex("file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
                 if (!m3u8.isNullOrEmpty()) {
                     callback.invoke(
                         ExtractorLink(
@@ -221,7 +290,7 @@ open class FMX : ExtractorApi() {
 
 open class Akamaicdn : ExtractorApi() {
     override val name = "Akamaicdn"
-    override val mainUrl = "https://movierulz.upn.one"
+    override val mainUrl = "https://movierulz.upn.one" // बेस डोमेन, रनटाइम में अपडेट होगा
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -231,22 +300,59 @@ open class Akamaicdn : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val headers = mapOf("user-agent" to USER_AGENT)
+        
+        // वर्किंग डोमेन चेक करें
+        val domains = listOf("movierulz.upn.one", "movierulz.upn.lol", "movierulz.upn.pw")
+        val workingDomain = domains.firstOrNull { domain ->
+            try {
+                val testUrl = "https://$domain"
+                val response = app.get(testUrl, headers = headers)
+                response.code == 200
+            } catch (e: Exception) {
+                false
+            }
+        } ?: "movierulz.upn.one"
+        
+        val currentMainUrl = "https://$workingDomain"
         val res = app.get(url, referer = referer, headers = headers).document
         
-        // पोस्टर इमेज से वीडियो ID निकालना
-        val posterUrl = res.select("#player-button-container").firstOrNull()?.attr("style")?.let {
+        // पोस्टर इमेज से वीडियो ID निकालना - अपडेटेड सेलेक्टर
+        val posterUrl = res.select("#player-button-container, .player-button-container").firstOrNull()?.attr("style")?.let {
             Regex("background-image: url\\(\"(.*?)\"\\)").find(it)?.groupValues?.getOrNull(1)
         }
         
         if (!posterUrl.isNullOrEmpty()) {
-            // पोस्टर URL से वीडियो ID निकालें
+            // नया पैटर्न - पूरा पाथ से वीडियो ID बनाना
+            // उदाहरण: /eaS2y4WHuDwBTyx4dLDMhA/il/yg69bkwb/b6ey9d/poster.png
+            val segments = posterUrl.split("/").filter { it.isNotEmpty() }
+            if (segments.size >= 4) {
+                // नए पैटर्न में पहले 4 सेगमेंट्स से वीडियो ID बनाते हैं
+                val videoId = segments.take(4).joinToString("/")
+                // वीडियो ID से m3u8 URL बनाएं
+                val m3u8Url = "$currentMainUrl/m3u8/$videoId/master.m3u8"
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        m3u8Url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                        this.headers = headers
+                    }
+                )
+                return
+            }
+            
+            // पुराना पैटर्न भी ट्राय करें
             val videoId = posterUrl.split("/").let { parts ->
                 if (parts.size >= 3) parts[parts.size - 3] else null
             }
             
             if (!videoId.isNullOrEmpty()) {
                 // वीडियो ID से m3u8 URL बनाएं
-                val m3u8Url = "$mainUrl/m3u8/$videoId/master.m3u8"
+                val m3u8Url = "$currentMainUrl/m3u8/$videoId/master.m3u8"
                 callback.invoke(
                     newExtractorLink(
                         name,
@@ -264,35 +370,61 @@ open class Akamaicdn : ExtractorApi() {
         }
         
         // पुराना तरीका: JS sniff function से ids निकालना
-        val mappers = res.selectFirst("script:containsData(sniff)")?.data()?.let {
+        val sniffScript = res.select("script").find { it.data().contains("sniff") }?.data()
+        if (!sniffScript.isNullOrEmpty()) {
             val sniffPattern = Regex("sniff\\(([^)]+)\\)")
-            sniffPattern.find(it)?.groupValues?.getOrNull(1)
-        } ?: return
+            val sniffMatch = sniffPattern.find(sniffScript)
+            val sniffParams = sniffMatch?.groupValues?.getOrNull(1)?.split(",")?.map { it.replace("\"", "").trim() }
+            
+            if (sniffParams != null && sniffParams.size > 2) {
+                val m3u8 = "$currentMainUrl/m3u8/${sniffParams[1]}/${sniffParams[2]}/master.m3u8"
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        m3u8,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                        this.headers = headers
+                    }
+                )
+                return
+            }
+        }
         
-        val ids = mappers.split(",").map { it.replace("\"", "").trim() }
-        if (ids.size > 2) {
-            val m3u8 = "$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.m3u8"
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    name,
-                    m3u8,
-                    ExtractorLinkType.M3U8
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.P1080.value
-                    this.headers = headers
-                }
-            )
-        } else {
-            // fallback: alternate script या ids
-            // JS packed script ढूंढना
-            val packedScript = res.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
-            if (packedScript.isNotEmpty()) {
-                val unpacked = JsUnpacker(packedScript).unpack()
-                val m3u8 = unpacked?.let {
-                    Regex("sources:\\[\\{file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
-                }
+        // JS packed script ढूंढना - अपडेटेड रेगेक्स
+        val packedScript = res.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
+        if (packedScript.isNotEmpty()) {
+            val unpacked = JsUnpacker(packedScript).unpack()
+            val m3u8 = unpacked?.let {
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
+                    ?: Regex("file:\"(.*?)\"").find(it)?.groupValues?.getOrNull(1)
+            }
+            if (!m3u8.isNullOrEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        m3u8.toString(),
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                        this.headers = headers
+                    }
+                )
+                return
+            }
+        }
+        
+        // fallback: सभी स्क्रिप्ट्स में वीडियो URL खोजें
+        val scripts = res.select("script").mapNotNull { it.data() }
+        for (script in scripts) {
+            if (script.contains("sources:[{file:") || script.contains("file:\"")) {
+                val m3u8 = Regex("sources:\\[\\{file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
+                    ?: Regex("file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
                 if (!m3u8.isNullOrEmpty()) {
                     callback.invoke(
                         newExtractorLink(
@@ -309,19 +441,20 @@ open class Akamaicdn : ExtractorApi() {
                     return
                 }
             }
-            
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    name,
-                    "",
-                    ExtractorLinkType.M3U8
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
-                    this.headers = headers
-                }
-            )
         }
+        
+        // अगर कुछ नहीं मिला तो empty callback
+        callback.invoke(
+            newExtractorLink(
+                name,
+                name,
+                "",
+                ExtractorLinkType.M3U8
+            ) {
+                this.referer = url
+                this.quality = Qualities.Unknown.value
+                this.headers = headers
+            }
+        )
     }
 }
