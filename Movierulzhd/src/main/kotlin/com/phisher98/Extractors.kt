@@ -1,35 +1,181 @@
 package com.phisher98
 
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.Filesim
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.utils.JsUnpacker
+import com.lagradost.api.Log
 
+/**
+ * Utility functions for common extraction operations
+ * These functions handle HTML parsing, JS unpacking, and error handling
+ */
+object ExtractorUtils {
+    private const val TAG = "ExtractorUtils"
+
+    /**
+     * Safely retrieves an iframe source URL from a given page URL
+     * @param url The page URL to fetch iframe from
+     * @param referer Optional referer for the request
+     * @return The iframe source URL or null if not found
+     */
+    suspend fun getIframeSrc(url: String, referer: String? = null): String? {
+        return try {
+            Log.d(TAG, "Fetching iframe from: $url")
+            val doc = app.get(url, referer = referer).document
+            val iframeSrc = doc.selectFirst("iframe")?.attr("src")
+            
+            if (iframeSrc.isNullOrBlank()) {
+                Log.w(TAG, "No iframe found at: $url")
+                null
+            } else {
+                Log.d(TAG, "Found iframe src: $iframeSrc")
+                iframeSrc
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching iframe: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Extracts packed JavaScript content and unpacks it
+     * @param url The URL containing packed JavaScript
+     * @param headers Optional headers for the request
+     * @return The unpacked JavaScript or null if extraction fails
+     */
+    suspend fun extractAndUnpackJs(url: String, headers: Map<String, String>? = null): String? {
+        return try {
+            Log.d(TAG, "Extracting packed JS from: $url")
+            val doc = app.get(url, headers = headers ?: emptyMap()).document
+            val packedJs = doc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            
+            if (packedJs.isNullOrBlank()) {
+                Log.w(TAG, "No packed JavaScript found at: $url")
+                null
+            } else {
+                Log.d(TAG, "Found packed JS, attempting to unpack")
+                JsUnpacker(packedJs).unpack()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting/unpacking JS: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Extracts m3u8 URL from unpacked JavaScript using regex
+     * @param unpackedJs The unpacked JavaScript content
+     * @param pattern Optional regex pattern to use (defaults to sources array pattern)
+     * @return The extracted m3u8 URL or null if not found
+     */
+    fun extractM3u8FromJs(unpackedJs: String?, pattern: String = "sources:\\[\\{file:\"(.*?)\"") : String? {
+        return try {
+            if (unpackedJs.isNullOrBlank()) {
+                Log.w(TAG, "Cannot extract m3u8: unpacked JS is null or blank")
+                return null
+            }
+            
+            Log.d(TAG, "Extracting m3u8 URL from unpacked JS")
+            val m3u8Url = Regex(pattern).find(unpackedJs)?.groupValues?.getOrNull(1)
+            
+            if (m3u8Url.isNullOrBlank()) {
+                Log.w(TAG, "No m3u8 URL found in unpacked JS")
+                null
+            } else {
+                Log.d(TAG, "Found m3u8 URL: $m3u8Url")
+                m3u8Url
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting m3u8 URL: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Extracts direct download links from movierulzhd page
+     * @param url The URL to fetch download links from
+     * @param referer Optional referer for the request
+     * @return A list of extracted download links or empty list if none found
+     */
+    suspend fun extractDirectLinks(url: String, referer: String? = null): List<String> {
+        return try {
+            Log.d(TAG, "Extracting direct links from: $url")
+            val doc = app.get(url, referer = referer).document
+            val downloadLinks = doc.select("a.downloader-button[href*=download]").map { it.attr("href") }
+            
+            if (downloadLinks.isEmpty()) {
+                Log.w(TAG, "No download links found at: $url")
+                emptyList()
+            } else {
+                Log.d(TAG, "Found ${downloadLinks.size} download links")
+                downloadLinks
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting direct links: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    /**
+     * Determines video quality from filename
+     * @param filename The filename to extract quality from
+     * @return The quality as integer value
+     */
+    fun getQualityFromFilename(filename: String): Int {
+        return when {
+            filename.contains("1080p", ignoreCase = true) -> Qualities.P1080.value
+            filename.contains("720p", ignoreCase = true) -> Qualities.P720.value
+            filename.contains("480p", ignoreCase = true) -> Qualities.P480.value
+            filename.contains("360p", ignoreCase = true) -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
+    }
+}
+
+/**
+ * FMHD Extractor for fmhd.bar
+ * Extends Filesim to extract video links
+ */
 class FMHD : Filesim() {
     override val name = "FMHD"
     override var mainUrl = "https://fmhd.bar/"
     override val requiresReferer = true
 }
 
+/**
+ * Playonion Extractor for playonion.sbs
+ * Extends Filesim to extract video links
+ */
 class Playonion : Filesim() {
     override val mainUrl = "https://playonion.sbs"
 }
 
-
+/**
+ * Luluvdo Extractor for luluvdo.com
+ * Extends StreamWishExtractor to extract video links
+ */
 class Luluvdo : StreamWishExtractor() {
     override val mainUrl = "https://luluvdo.com"
 }
 
+/**
+ * Lulust Extractor for lulu.st
+ * Extends StreamWishExtractor to extract video links
+ */
 class Lulust : StreamWishExtractor() {
     override val mainUrl = "https://lulu.st"
 }
 
+/**
+ * FilemoonV2 Extractor
+ * Extracts m3u8 links from Filemoon video host
+ */
 class FilemoonV2 : ExtractorApi() {
     override var name = "Filemoon"
-    override var mainUrl = "https://1movierulzhd.lol"
+    override var mainUrl = "https://movierulz2025.bar"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -38,381 +184,121 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // मुख्य iframe source निकालना - अपडेटेड सेलेक्टर्स
-        val doc = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
-        
-        // नए सेलेक्टर्स के साथ iframe खोजें
-        val iframeSrc = doc.selectFirst(".metaframe, .player-embed iframe, .playbox iframe, div.video-content iframe")?.attr("src") ?: ""
-        
-        if (iframeSrc.isEmpty()) {
-            // वेबसाइट पर iframe के लिए अतिरिक्त सेलेक्टर्स चेक करें
-            val altIframe = doc.select("iframe").firstOrNull()?.attr("src") ?: ""
-            if (altIframe.isNotEmpty()) {
-                extractFilemoon(altIframe, url, callback)
+        try {
+            Log.d(name, "Processing URL: $url")
+            
+            // Get iframe source
+            val href = ExtractorUtils.getIframeSrc(url)
+            if (href.isNullOrBlank()) {
+                Log.e(name, "Failed to find iframe in $url")
                 return
             }
             
-            // स्क्रिप्ट से iframe URL निकालने का प्रयास करें
-            val scripts = doc.select("script").mapNotNull { it.data() }
-            val iframeRegex = Regex("iframe src=['\"]([^'\"]+)['\"]")
-            val scriptIframe = scripts.mapNotNull { script ->
-                iframeRegex.find(script)?.groupValues?.getOrNull(1)
-            }.firstOrNull()
-            
-            if (!scriptIframe.isNullOrEmpty()) {
-                extractFilemoon(scriptIframe, url, callback)
+            // Extract and unpack JS
+            val headers = mapOf("Accept-Language" to "en-US,en;q=0.5", "sec-fetch-dest" to "iframe")
+            val doc = app.get(href, headers = headers).document
+            val scriptData = doc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            if (scriptData.isNullOrBlank()) {
+                Log.e(name, "Failed to find packed JS in $href")
                 return
             }
             
+            // Unpack JavaScript
+            val unpackedJs = JsUnpacker(scriptData).unpack()
+            if (unpackedJs.isNullOrBlank()) {
+                Log.e(name, "Failed to unpack JS from $href")
+                return
+            }
+            
+            // Extract m3u8 URL
+            val m3u8 = ExtractorUtils.extractM3u8FromJs(unpackedJs)
+            if (m3u8.isNullOrBlank()) {
+                Log.e(name, "Failed to extract m3u8 URL from unpacked JS")
+                return
+            }
+            
+            // Invoke callback with extracted link
+            Log.d(name, "Successfully extracted m3u8 URL: $m3u8")
             callback.invoke(
                 ExtractorLink(
                     this.name,
                     this.name,
-                    "",
+                    m3u8,
                     url,
-                    Qualities.Unknown.value,
+                    Qualities.P1080.value,
                     type = ExtractorLinkType.M3U8,
                 )
             )
-            return
+        } catch (e: Exception) {
+            Log.e(name, "Error in getUrl: ${e.message}")
         }
-        extractFilemoon(iframeSrc, url, callback)
-    }
-
-    private suspend fun extractFilemoon(iframeUrl: String, referer: String?, callback: (ExtractorLink) -> Unit) {
-        val headers = mapOf(
-            "Accept-Language" to "en-US,en;q=0.5",
-            "sec-fetch-dest" to "iframe",
-            "Referer" to referer.orEmpty(),
-            "User-Agent" to USER_AGENT
-        )
-        
-        // नए डोमेन के लिए URL फिक्स करें - अपडेटेड डोमेन के साथ
-        val fixedUrl = if (!iframeUrl.startsWith("http")) {
-            // चेक करें कि कौन सा डोमेन काम कर रहा है
-            val domains = listOf(
-                "movierulz.upn.one", "movierulz.upn.lol", "movierulz.upn.pw",
-                "filemoon.sx", "filemoon.to", "filemoon.in", "filemoon.wf",
-                "filemoon.nl", "filemoon.art", "filemoon.top"
-            )
-            val workingDomain = domains.firstOrNull { domain ->
-                try {
-                    val testUrl = "https://$domain"
-                    val response = app.get(testUrl, headers = headers)
-                    response.code == 200
-                } catch (e: Exception) {
-                    false
-                }
-            } ?: "movierulz.upn.one"
-            
-            if (iframeUrl.startsWith("/")) "https://$workingDomain$iframeUrl" else "https://$workingDomain/$iframeUrl"
-        } else iframeUrl
-        
-        val resDoc = app.get(fixedUrl, headers = headers).document
-        
-        // 1. नया पैटर्न: API से वीडियो URL निकालना
-        val videoIdRegex = Regex("video_id\\s*=\\s*['\"]([^'\"]+)['\"]")
-        val videoId = resDoc.select("script").mapNotNull { it.data() }
-            .mapNotNull { videoIdRegex.find(it)?.groupValues?.getOrNull(1) }
-            .firstOrNull()
-            
-        if (!videoId.isNullOrEmpty()) {
-            val domain = fixedUrl.split("/").let { parts ->
-                if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
-            }
-            
-            try {
-                // API से वीडियो URL प्राप्त करें
-                val apiUrl = "$domain/api/source/$videoId"
-                val apiResponse = app.post(apiUrl, headers = headers).text
-                val fileRegex = Regex("\"file\":\"([^\"]+)\"")
-                val fileUrl = fileRegex.find(apiResponse)?.groupValues?.getOrNull(1)?.replace("\\\\", "")
-                
-                if (!fileUrl.isNullOrEmpty()) {
-                    callback.invoke(
-                        ExtractorLink(
-                            this.name,
-                            this.name,
-                            fileUrl,
-                            fixedUrl,
-                            Qualities.P1080.value,
-                            type = ExtractorLinkType.M3U8,
-                            headers = headers
-                        )
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                // API कॉल फेल होने पर अगले मेथड ट्राय करें
-            }
-        }
-        
-        // 2. पोस्टर इमेज से वीडियो ID निकालना - अपडेटेड सेलेक्टर
-        val posterSelectors = listOf(
-            "#player-button-container", ".player-button-container", ".player-poster",
-            ".jw-preview", ".plyr-poster", ".video-poster"
-        )
-        
-        val posterUrl = resDoc.select(posterSelectors.joinToString(", ")).firstOrNull()?.attr("style")?.let {
-            Regex("background-image:\\s*url\\(['\"]?(.*?)['\"]?\\)").find(it)?.groupValues?.getOrNull(1)
-        } ?: resDoc.select("img.poster, img.video-poster").firstOrNull()?.attr("src")
-        
-        if (!posterUrl.isNullOrEmpty()) {
-            // नया पैटर्न - पूरा पाथ से वीडियो ID बनाना
-            val segments = posterUrl.split("/").filter { it.isNotEmpty() }
-            if (segments.size >= 4) {
-                // नए पैटर्न में पहले 4 सेगमेंट्स से वीडियो ID बनाते हैं
-                val videoId = segments.take(4).joinToString("/")
-                // वीडियो ID से m3u8 URL बनाएं - डोमेन से निकालें
-                val domain = fixedUrl.split("/").let { parts ->
-                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
-                }
-                val m3u8Url = "$domain/m3u8/$videoId/master.m3u8"
-                callback.invoke(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        m3u8Url,
-                        fixedUrl,
-                        Qualities.P1080.value,
-                        type = ExtractorLinkType.M3U8,
-                        headers = headers
-                    )
-                )
-                return
-            }
-            
-            // पुराना पैटर्न भी ट्राय करें
-            val videoId = posterUrl.split("/").let { parts ->
-                if (parts.size >= 3) parts[parts.size - 3] else null
-            }
-            
-            if (!videoId.isNullOrEmpty()) {
-                // वीडियो ID से m3u8 URL बनाएं - डोमेन से निकालें
-                val domain = fixedUrl.split("/").let { parts ->
-                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
-                }
-                val m3u8Url = "$domain/m3u8/$videoId/master.m3u8"
-                callback.invoke(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        m3u8Url,
-                        fixedUrl,
-                        Qualities.P1080.value,
-                        type = ExtractorLinkType.M3U8,
-                        headers = headers
-                    )
-                )
-                return
-            }
-        }
-        
-        // 3. sniff फंक्शन से वीडियो ID निकालना
-        val sniffScript = resDoc.select("script").find { it.data().contains("sniff") }?.data()
-        if (!sniffScript.isNullOrEmpty()) {
-            val sniffPattern = Regex("sniff\\(([^)]+)\\)")
-            val sniffMatch = sniffPattern.find(sniffScript)
-            val sniffParams = sniffMatch?.groupValues?.getOrNull(1)?.split(",")?.map { it.replace("\"", "").trim() }
-            
-            if (sniffParams != null && sniffParams.size > 2) {
-                val domain = fixedUrl.split("/").let { parts ->
-                    if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
-                }
-                val m3u8Url = "$domain/m3u8/${sniffParams[1]}/${sniffParams[2]}/master.m3u8"
-                callback.invoke(
-                    ExtractorLink(
-                        this.name,
-                        this.name,
-                        m3u8Url,
-                        fixedUrl,
-                        Qualities.P1080.value,
-                        type = ExtractorLinkType.M3U8,
-                        headers = headers
-                    )
-                )
-                return
-            }
-        }
-        
-        // 4. JS packed script ढूंढना - अपडेटेड सेलेक्टर्स
-        val packedScripts = resDoc.select("script").mapNotNull { it.data() }
-            .filter { it.contains("function(p,a,c,k,e,d)") }
-        
-        for (packedScript in packedScripts) {
-            try {
-                val unpacked = JsUnpacker(packedScript).unpack()
-                if (unpacked != null) {
-                    // विभिन्न पैटर्न्स के साथ m3u8 URL खोजें
-                    val patterns = listOf(
-                        "sources:\\[\\{file:[\"']([^\"']+)[\"']\\}",
-                        "file:[\"']([^\"']+\\.m3u8[^\"']*)",
-                        "src:[\"']([^\"']+\\.m3u8[^\"']*)",
-                        "file:[\"']([^\"']+)",
-                        "src:[\"']([^\"']+)"
-                    )
-                    
-                    for (pattern in patterns) {
-                        val m3u8 = Regex(pattern).find(unpacked)?.groupValues?.getOrNull(1)
-                        if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
-                            callback.invoke(
-                                ExtractorLink(
-                                    this.name,
-                                    this.name,
-                                    m3u8.toString(),
-                                    fixedUrl,
-                                    Qualities.P1080.value,
-                                    type = if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                                    headers = headers
-                                )
-                            )
-                            return
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // JsUnpacker फेल होने पर अगले स्क्रिप्ट पर जाएं
-            }
-        }
-        
-        // 5. सभी स्क्रिप्ट्स में वीडियो URL खोजें
-        val scripts = resDoc.select("script").mapNotNull { it.data() }
-        val patterns = listOf(
-            "sources:\\[\\{file:[\"']([^\"']+)[\"']\\}",
-            "file:[\"']([^\"']+\\.m3u8[^\"']*)",
-            "src:[\"']([^\"']+\\.m3u8[^\"']*)",
-            "file:[\"']([^\"']+)",
-            "src:[\"']([^\"']+)"
-        )
-        
-        for (script in scripts) {
-            for (pattern in patterns) {
-                val m3u8 = Regex(pattern).find(script)?.groupValues?.getOrNull(1)
-                if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
-                    callback.invoke(
-                        ExtractorLink(
-                            this.name,
-                            this.name,
-                            m3u8.toString(),
-                            fixedUrl,
-                            Qualities.P1080.value,
-                            type = if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                            headers = headers
-                        )
-                    )
-                    return
-                }
-            }
-        }
-        
-        // 6. iframe के अंदर iframe खोजें
-        val nestedIframe = resDoc.select("iframe").firstOrNull()?.attr("src")
-        if (!nestedIframe.isNullOrEmpty() && nestedIframe != iframeUrl) {
-            try {
-                val nestedUrl = if (nestedIframe.startsWith("http")) nestedIframe else {
-                    val domain = fixedUrl.split("/").let { parts ->
-                        if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
-                    }
-                    if (nestedIframe.startsWith("/")) "$domain$nestedIframe" else "$domain/$nestedIframe"
-                }
-                
-                val nestedDoc = app.get(nestedUrl, headers = headers).document
-                val nestedScripts = nestedDoc.select("script").mapNotNull { it.data() }
-                
-                for (script in nestedScripts) {
-                    for (pattern in patterns) {
-                        val m3u8 = Regex(pattern).find(script)?.groupValues?.getOrNull(1)
-                        if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
-                            callback.invoke(
-                                ExtractorLink(
-                                    this.name,
-                                    this.name,
-                                    m3u8.toString(),
-                                    nestedUrl,
-                                    Qualities.P1080.value,
-                                    type = if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                                    headers = headers
-                                )
-                            )
-                            return
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // नेस्टेड iframe फेल होने पर अगले मेथड ट्राय करें
-            }
-        }
-        
-        // अगर कुछ नहीं मिला तो empty callback
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                "",
-                fixedUrl,
-                Qualities.Unknown.value,
-                type = ExtractorLinkType.M3U8,
-                headers = headers
-            )
-        )
     }
 }
 
+/**
+ * FMX Extractor
+ * Base class for extracting m3u8 links from FMX video host
+ */
 open class FMX : ExtractorApi() {
     override var name = "FMX"
     override var mainUrl = "https://fmx.lol"
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(url, referer = mainUrl, headers = mapOf("User-Agent" to USER_AGENT)).document
-        // packed JS script
-        val packedScript = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
-        if (packedScript.isNotEmpty()) {
-            JsUnpacker(packedScript).unpack()?.let { unPacked ->
-                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.getOrNull(1)?.let { link ->
-                    return listOf(
-                        newExtractorLink(
-                            this.name,
-                            this.name,
-                            url = link,
-                            INFER_TYPE
-                        ) {
-                            this.referer = referer ?: ""
-                            this.quality = Qualities.P1080.value
-                            this.headers = mapOf("User-Agent" to USER_AGENT)
-                        }
-                    )
-                }
+        try {
+            Log.d(name, "Processing URL: $url")
+            
+            // Get response
+            val response = app.get(url, referer = mainUrl).document
+            
+            // Extract packed JS
+            val extractedPack = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            if (extractedPack.isNullOrBlank()) {
+                Log.e(name, "Failed to find packed JS in $url")
+                return null
             }
-        }
-        // fallback: alternate script
-        val scripts = response.select("script").mapNotNull { it.data() }
-        for (script in scripts) {
-            if (script.contains("sources:[{file:")) {
-                val link = Regex("sources:\\[\\{file:\"(.*?)\"").find(script)?.groupValues?.getOrNull(1)
-                if (!link.isNullOrEmpty()) {
-                    return listOf(
-                        newExtractorLink(
-                            this.name,
-                            this.name,
-                            url = link,
-                            INFER_TYPE
-                        ) {
-                            this.referer = referer ?: ""
-                            this.quality = Qualities.P1080.value
-                            this.headers = mapOf("User-Agent" to USER_AGENT)
-                        }
-                    )
-                }
+            
+            // Unpack JS
+            val unpackedJs = JsUnpacker(extractedPack).unpack()
+            if (unpackedJs.isNullOrBlank()) {
+                Log.e(name, "Failed to unpack JS from $url")
+                return null
             }
+            
+            // Extract m3u8 URL
+            val m3u8Url = ExtractorUtils.extractM3u8FromJs(unpackedJs)
+            if (m3u8Url.isNullOrBlank()) {
+                Log.e(name, "Failed to extract m3u8 URL from unpacked JS")
+                return null
+            }
+            
+            // Return extracted link
+            Log.d(name, "Successfully extracted m3u8 URL: $m3u8Url")
+            return listOf(
+                newExtractorLink(
+                    this.name,
+                    this.name,
+                    url = m3u8Url,
+                    INFER_TYPE
+                ) {
+                    this.referer = referer ?: ""
+                    this.quality = Qualities.Unknown.value
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(name, "Error in getUrl: ${e.message}")
+            return null
         }
-        return null
     }
 }
 
+/**
+ * Akamaicdn Extractor
+ * Extracts video links from Akamai CDN sources using the sniff function
+ */
 open class Akamaicdn : ExtractorApi() {
     override val name = "Akamaicdn"
-    override val mainUrl = "https://movierulz.upn.one" // बेस डोमेन, रनटाइम में अपडेट होगा
+    override val mainUrl = "https://akamaicdn.life"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -421,263 +307,132 @@ open class Akamaicdn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val headers = mapOf("user-agent" to USER_AGENT)
-        
-        // वर्किंग डोमेन चेक करें - अपडेटेड डोमेन लिस्ट
-        val domains = listOf(
-            "movierulz.upn.one", "movierulz.upn.lol", "movierulz.upn.pw",
-            "filemoon.sx", "filemoon.to", "filemoon.in", "filemoon.wf",
-            "filemoon.nl", "filemoon.art", "filemoon.top"
-        )
-        val workingDomain = domains.firstOrNull { domain ->
-            try {
-                val testUrl = "https://$domain"
-                val response = app.get(testUrl, headers = headers)
-                response.code == 200
-            } catch (e: Exception) {
-                false
-            }
-        } ?: "movierulz.upn.one"
-        
-        val currentMainUrl = "https://$workingDomain"
-        val res = app.get(url, referer = referer, headers = headers).document
-        
-        // 1. नया पैटर्न: API से वीडियो URL निकालना
-        val videoIdRegex = Regex("video_id\\s*=\\s*['\"]([^'\"]+)['\"]")
-        val videoId = res.select("script").mapNotNull { it.data() }
-            .mapNotNull { videoIdRegex.find(it)?.groupValues?.getOrNull(1) }
-            .firstOrNull()
+        try {
+            Log.d(name, "Processing URL: $url")
             
-        if (!videoId.isNullOrEmpty()) {
-            try {
-                // API से वीडियो URL प्राप्त करें
-                val apiUrl = "$currentMainUrl/api/source/$videoId"
-                val apiResponse = app.post(apiUrl, headers = headers).text
-                val fileRegex = Regex("\"file\":\"([^\"]+)\"")
-                val fileUrl = fileRegex.find(apiResponse)?.groupValues?.getOrNull(1)?.replace("\\\\", "")
-                
-                if (!fileUrl.isNullOrEmpty()) {
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            name,
-                            fileUrl,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                            this.headers = headers
-                        }
-                    )
-                    return
+            // Default headers for request
+            val headers = mapOf("user-agent" to "okhttp/4.12.0")
+            
+            // Get document and extract sniff function parameters
+            val doc = app.get(url, referer = referer, headers = headers).document
+            val sniffScript = doc.selectFirst("script:containsData(sniff\\()")?.data()
+            if (sniffScript.isNullOrBlank()) {
+                Log.e(name, "Failed to find sniff function in $url")
+                return
+            }
+            
+            // Extract parameters from sniff function
+            val sniffParams = sniffScript.substringAfter("sniff(").substringBefore(");")
+            if (sniffParams.isBlank()) {
+                Log.e(name, "Failed to extract sniff parameters in $url")
+                return
+            }
+            
+            // Parse IDs from parameters
+            val ids = sniffParams.split(",").map { it.replace("\"", "") }
+            if (ids.size < 3) {
+                Log.e(name, "Invalid sniff parameters format: $sniffParams")
+                return
+            }
+            
+            // Construct m3u8 URL
+            val m3u8 = "$mainUrl/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1"
+            Log.d(name, "Generated m3u8 URL: $m3u8")
+            
+            // Invoke callback with extracted link
+            callback.invoke(
+                newExtractorLink(
+                    name,
+                    name,
+                    m3u8,
+                    ExtractorLinkType.M3U8
+                ) {
+                    this.referer = url
+                    this.quality = Qualities.P1080.value
+                    this.headers = headers
                 }
-            } catch (e: Exception) {
-                // API कॉल फेल होने पर अगले मेथड ट्राय करें
-            }
+            )
+        } catch (e: Exception) {
+            Log.e(name, "Error in getUrl: ${e.message}")
         }
-        
-        // 2. पोस्टर इमेज से वीडियो ID निकालना - अपडेटेड सेलेक्टर
-        val posterSelectors = listOf(
-            "#player-button-container", ".player-button-container", ".player-poster",
-            ".jw-preview", ".plyr-poster", ".video-poster"
-        )
-        
-        val posterUrl = res.select(posterSelectors.joinToString(", ")).firstOrNull()?.attr("style")?.let {
-            Regex("background-image:\\s*url\\(['\"]?(.*?)['\"]?\\)").find(it)?.groupValues?.getOrNull(1)
-        } ?: res.select("img.poster, img.video-poster").firstOrNull()?.attr("src")
-        
-        if (!posterUrl.isNullOrEmpty()) {
-            // नया पैटर्न - पूरा पाथ से वीडियो ID बनाना
-            val segments = posterUrl.split("/").filter { it.isNotEmpty() }
-            if (segments.size >= 4) {
-                // नए पैटर्न में पहले 4 सेगमेंट्स से वीडियो ID बनाते हैं
-                val videoId = segments.take(4).joinToString("/")
-                // वीडियो ID से m3u8 URL बनाएं
-                val m3u8Url = "$currentMainUrl/m3u8/$videoId/master.m3u8"
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        m3u8Url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.P1080.value
-                        this.headers = headers
-                    }
-                )
+    }
+}
+
+/**
+ * MovierulzDirect Extractor
+ * Extracts direct download links from Movierulzhd pages
+ */
+class MovierulzDirect : ExtractorApi() {
+    override val name = "MovierulzDirect"
+    override val mainUrl = "https://1movierulzhd.lol"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d(name, "Processing URL: $url")
+            
+            // Get document
+            val doc = app.get(url, referer = referer).document
+            
+            // Extract direct download links
+            val downloadLinks = ExtractorUtils.extractDirectLinks(url, referer)
+            if (downloadLinks.isEmpty()) {
+                Log.e(name, "No download links found at $url")
                 return
             }
             
-            // पुराना पैटर्न भी ट्राय करें
-            val videoId = posterUrl.split("/").let { parts ->
-                if (parts.size >= 3) parts[parts.size - 3] else null
-            }
-            
-            if (!videoId.isNullOrEmpty()) {
-                // वीडियो ID से m3u8 URL बनाएं
-                val m3u8Url = "$currentMainUrl/m3u8/$videoId/master.m3u8"
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        m3u8Url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.P1080.value
-                        this.headers = headers
-                    }
-                )
-                return
-            }
-        }
-        
-        // 3. JS sniff function से ids निकालना
-        val sniffScript = res.select("script").find { it.data().contains("sniff") }?.data()
-        if (!sniffScript.isNullOrEmpty()) {
-            val sniffPattern = Regex("sniff\\(([^)]+)\\)")
-            val sniffMatch = sniffPattern.find(sniffScript)
-            val sniffParams = sniffMatch?.groupValues?.getOrNull(1)?.split(",")?.map { it.replace("\"", "").trim() }
-            
-            if (sniffParams != null && sniffParams.size > 2) {
-                val m3u8 = "$currentMainUrl/m3u8/${sniffParams[1]}/${sniffParams[2]}/master.m3u8"
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        m3u8,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.P1080.value
-                        this.headers = headers
-                    }
-                )
-                return
-            }
-        }
-        
-        // 4. JS packed script ढूंढना - अपडेटेड सेलेक्टर्स
-        val packedScripts = res.select("script").mapNotNull { it.data() }
-            .filter { it.contains("function(p,a,c,k,e,d)") }
-        
-        for (packedScript in packedScripts) {
-            try {
-                val unpacked = JsUnpacker(packedScript).unpack()
-                if (unpacked != null) {
-                    // विभिन्न पैटर्न्स के साथ m3u8 URL खोजें
-                    val patterns = listOf(
-                        "sources:\\[\\{file:[\"']([^\"']+)[\"']\\}",
-                        "file:[\"']([^\"']+\\.m3u8[^\"']*)",
-                        "src:[\"']([^\"']+\\.m3u8[^\"']*)",
-                        "file:[\"']([^\"']+)",
-                        "src:[\"']([^\"']+)"
-                    )
+            // Process each download link
+            downloadLinks.forEachIndexed { index, link ->
+                try {
+                    // Extract quality from URL or filename
+                    val fileName = link.substringAfterLast("title=").substringBefore(".mp4")
+                    val quality = ExtractorUtils.getQualityFromFilename(fileName)
                     
-                    for (pattern in patterns) {
-                        val m3u8 = Regex(pattern).find(unpacked)?.groupValues?.getOrNull(1)
-                        if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    name,
-                                    name,
-                                    m3u8.toString(),
-                                    if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                                ) {
-                                    this.referer = url
-                                    this.quality = Qualities.P1080.value
-                                    this.headers = headers
-                                }
-                            )
-                            return
-                        }
+                    // Generate a descriptive name
+                    val displayName = if (downloadLinks.size > 1) {
+                        "$name [Source ${index + 1}]"
+                    } else {
+                        name
                     }
-                }
-            } catch (e: Exception) {
-                // JsUnpacker फेल होने पर अगले स्क्रिप्ट पर जाएं
-            }
-        }
-        
-        // 5. सभी स्क्रिप्ट्स में वीडियो URL खोजें
-        val scripts = res.select("script").mapNotNull { it.data() }
-        val patterns = listOf(
-            "sources:\\[\\{file:[\"']([^\"']+)[\"']\\}",
-            "file:[\"']([^\"']+\\.m3u8[^\"']*)",
-            "src:[\"']([^\"']+\\.m3u8[^\"']*)",
-            "file:[\"']([^\"']+)",
-            "src:[\"']([^\"']+)"
-        )
-        
-        for (script in scripts) {
-            for (pattern in patterns) {
-                val m3u8 = Regex(pattern).find(script)?.groupValues?.getOrNull(1)
-                if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
+                    
+                    Log.d(name, "Found link: $link with quality: $quality")
+                    
+                    // Invoke callback with extracted link
                     callback.invoke(
-                        newExtractorLink(
-                            name,
-                            name,
-                            m3u8.toString(),
-                            if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                            this.headers = headers
-                        }
+                        ExtractorLink(
+                            displayName,
+                            displayName,
+                            link,
+                            url,
+                            quality,
+                            type = ExtractorLinkType.VIDEO
+                        )
                     )
-                    return
+                } catch (e: Exception) {
+                    Log.e(name, "Error processing link $link: ${e.message}")
                 }
             }
+            
+            // Also check for embedded watch online players
+            val watchOnlineLinks = doc.select("a.downloader-button[href*=upn]").map { it.attr("href") }
+            
+            // Process watch online links if available
+            watchOnlineLinks.forEach { watchLink ->
+                try {
+                    Log.d(name, "Found watch online link: $watchLink")
+                    loadExtractor(watchLink, url, subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e(name, "Error processing watch online link $watchLink: ${e.message}")
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(name, "Error in getUrl: ${e.message}")
         }
-        
-        // 6. iframe के अंदर iframe खोजें
-        val nestedIframe = res.select("iframe").firstOrNull()?.attr("src")
-        if (!nestedIframe.isNullOrEmpty()) {
-            try {
-                val nestedUrl = if (nestedIframe.startsWith("http")) nestedIframe else {
-                    if (nestedIframe.startsWith("/")) "$currentMainUrl$nestedIframe" else "$currentMainUrl/$nestedIframe"
-                }
-                
-                val nestedDoc = app.get(nestedUrl, headers = headers).document
-                val nestedScripts = nestedDoc.select("script").mapNotNull { it.data() }
-                
-                for (script in nestedScripts) {
-                    for (pattern in patterns) {
-                        val m3u8 = Regex(pattern).find(script)?.groupValues?.getOrNull(1)
-                        if (!m3u8.isNullOrEmpty() && (m3u8.contains(".m3u8") || m3u8.contains(".mp4"))) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    name,
-                                    name,
-                                    m3u8.toString(),
-                                    if (m3u8.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                                ) {
-                                    this.referer = url
-                                    this.quality = Qualities.P1080.value
-                                    this.headers = headers
-                                }
-                            )
-                            return
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // नेस्टेड iframe फेल होने पर अगले मेथड ट्राय करें
-            }
-        }
-        
-        // अगर कुछ नहीं मिला तो empty callback
-        callback.invoke(
-            newExtractorLink(
-                name,
-                name,
-                "",
-                ExtractorLinkType.M3U8
-            ) {
-                this.referer = url
-                this.quality = Qualities.Unknown.value
-                this.headers = headers
-            }
-        )
     }
 }
