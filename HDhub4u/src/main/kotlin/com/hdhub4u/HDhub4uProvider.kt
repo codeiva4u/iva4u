@@ -95,10 +95,13 @@ class HDhub4uProvider : MainAPI() {
     }
 
     private fun toResult(post: Element): SearchResponse {
-        val title = post.select("figcaption:nth-child(2) > a:nth-child(1) > p:nth-child(1)").text().substringBefore("(")
-        val url = post.select("figure:nth-child(1) > a:nth-child(2)").attr("href")
+        val title = post.select("figcaption > a > p").text().substringBefore("(")
+        val url = post.select("figure > a").attr("href")
         return newAnimeSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = post.select("figure:nth-child(1) > img:nth-child(1)").attr("src")
+            this.posterUrl = post.select("figure > img").attr("src")
+            if (this.posterUrl.isNullOrEmpty()) {
+                this.posterUrl = post.select("img").attr("src")
+            }
             this.quality = getSearchQuality(title)
         }
     }
