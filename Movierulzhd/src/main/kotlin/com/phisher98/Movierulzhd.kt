@@ -19,6 +19,10 @@ open class Movierulzhd : MainAPI() {
 
     override var mainUrl = "https://1movierulzhd.lol"
     var directUrl = ""
+    // Additional watch online URLs that can be used by the app
+    private val watchOnlineUrls = listOf(
+        "https://movierulz.upn.one"
+    )
     override var name = "Movierulzhd"
     override val hasMainPage = true
     override var lang = "hi"
@@ -251,6 +255,11 @@ open class Movierulzhd : MainAPI() {
                 subtitleCallback,
                 callback
             )
+            
+            // Check if source contains upn.one domain and load MovierulzDirect extractor
+            if (source.contains("upn.one")) {
+                loadExtractor(source, data, subtitleCallback, callback)
+            }
         } else {
             val document = app.get(data).document
             document.select("ul#playeroptionsul > li").map {
@@ -274,8 +283,16 @@ open class Movierulzhd : MainAPI() {
                     !source.contains("youtube") -> {
                         loadExtractor(source, subtitleCallback, callback)
                     }
-
                     else -> return@amap
+                }
+            }
+            
+            // Also check if direct link to Watch Online is available
+            document.select("a.downloader-button[href*=upn]").forEach { element ->
+                val upnLink = element.attr("href")
+                if (upnLink.isNotBlank() && watchOnlineUrls.any { upnLink.contains(it) }) {
+                    Log.d("Phisher repolink", "Found UPN Watch Online link: $upnLink")
+                    loadExtractor(upnLink, data, subtitleCallback, callback)
                 }
             }
         }

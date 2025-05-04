@@ -365,6 +365,11 @@ open class Akamaicdn : ExtractorApi() {
 class MovierulzDirect : ExtractorApi() {
     override val name = "MovierulzDirect"
     override val mainUrl = "https://1movierulzhd.lol"
+    // Additional domains this extractor can handle
+    private val supportedDomains = listOf(
+        "https://1movierulzhd.lol",
+        "https://movierulz.upn.one"
+    )
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -375,6 +380,16 @@ class MovierulzDirect : ExtractorApi() {
     ) {
         try {
             Log.d(name, "Processing URL: $url")
+            
+            // Check if URL is from a supported domain
+            val currentDomain = supportedDomains.find { url.startsWith(it) } ?: mainUrl
+            Log.d(name, "Using domain: $currentDomain")
+            
+            // Handle movierulz.upn.one domain differently if needed
+            if (url.contains("movierulz.upn.one")) {
+                handleUpnDomain(url, referer, subtitleCallback, callback)
+                return
+            }
             
             // Get document
             val doc = app.get(url, referer = referer).document
@@ -433,6 +448,94 @@ class MovierulzDirect : ExtractorApi() {
             
         } catch (e: Exception) {
             Log.e(name, "Error in getUrl: ${e.message}")
+        }
+    }
+    
+    /**
+     * Handle URLs from movierulz.upn.one domain
+     */
+    private suspend fun handleUpnDomain(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d(name, "Processing UPN domain URL: $url")
+            
+            // Get document from UPN domain
+            val doc = app.get(url, referer = referer).document
+            
+            // Extract video player scripts or iframes
+            val iframeSrc = doc.select("iframe").firstOrNull()?.attr("src")
+            if (!iframeSrc.isNullOrBlank()) {
+                Log.d(name, "Found iframe: $iframeSrc")
+                loadExtractor(iframeSrc, url, subtitleCallback, callback)
+            }
+            
+            // Extract any direct video sources
+            val videoSources = doc.select("video source").map { it.attr("src") }
+            videoSources.forEachIndexed { index, sourceUrl ->
+                if (!sourceUrl.isBlank()) {
+                    Log.d(name, "Found video source: $sourceUrl")
+                    
+                    // Try to determine quality from URL
+                    val quality = when {
+                        sourceUrl.contains("1080") -> Qualities.P1080.value
+                        sourceUrl.contains("720") -> Qualities.P720.value
+                        sourceUrl.contains("480") -> Qualities.P480.value
+                        sourceUrl.contains("360") -> Qualities.P360.value
+                        else -> Qualities.Unknown.value
+                    }
+                    
+                    // Create display name for the source
+                    val displayName = if (videoSources.size > 1) {
+                        "$name UPN [Source ${index + 1}]"
+                    } else {
+                        "$name UPN"
+                    }
+                    
+                    callback.invoke(
+                        ExtractorLink(
+                            displayName,
+                            displayName,
+                            sourceUrl,
+                            url,
+                            quality,
+                            type = if (sourceUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        )
+                    )
+                }
+            }
+            
+            // Extract any packed JavaScript that might contain video URLs
+            val packedJs = doc.select("script:containsData(eval)").map { it.data() }
+            packedJs.forEach { script ->
+                try {
+                    val unpackedJs = JsUnpacker(script).unpack()
+                    if (unpackedJs != null) {
+                        // Look for video URLs in the unpacked JavaScript
+                        val m3u8Url = ExtractorUtils.extractM3u8FromJs(unpackedJs)
+                        if (!m3u8Url.isNullOrBlank()) {
+                            Log.d(name, "Found m3u8 URL in JavaScript: $m3u8Url")
+                            callback.invoke(
+                                ExtractorLink(
+                                    "$name UPN JS",
+                                    "$name UPN JS",
+                                    m3u8Url,
+                                    url,
+                                    Qualities.Unknown.value,
+                                    type = ExtractorLinkType.M3U8
+                                )
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(name, "Error unpacking JavaScript: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error handling UPN domain: ${e.message}")
         }
     }
 }
