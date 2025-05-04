@@ -108,6 +108,78 @@ class FilemoonV2 : ExtractorApi() {
             if (iframeUrl.startsWith("/")) "https://$workingDomain$iframeUrl" else "https://$workingDomain/$iframeUrl"
         } else iframeUrl
         
+        // नए URL पैटर्न के लिए चेक करें - UUID फॉर्मेट
+        val uuidPattern = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        val uuidMatch = uuidPattern.find(fixedUrl)
+        
+        if (uuidMatch != null) {
+            val domain = fixedUrl.split("/").let { parts ->
+                if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
+            }
+            
+            // UUID से वीडियो ID निकालें
+            val uuid = uuidMatch.value
+            
+            try {
+                // वेबसाइट से HTML प्राप्त करें
+                val response = app.get(fixedUrl, headers = headers)
+                val html = response.text
+                
+                // m3u8 URL पैटर्न खोजें
+                val m3u8Pattern = Regex("\"/hls/[^\"]+/master\\.m3u8\"")
+                val m3u8Match = m3u8Pattern.find(html)
+                
+                if (m3u8Match != null) {
+                    // m3u8 URL निकालें और quotes हटाएं
+                    val m3u8Path = m3u8Match.value.replace("\"", "")
+                    val m3u8Url = "$domain$m3u8Path"
+                    
+                    callback.invoke(
+                        ExtractorLink(
+                            this.name,
+                            this.name,
+                            m3u8Url,
+                            fixedUrl,
+                            Qualities.P1080.value,
+                            type = ExtractorLinkType.M3U8,
+                            headers = headers
+                        )
+                    )
+                    return
+                }
+                
+                // अगर पैटर्न नहीं मिला तो फॉलबैक URL का उपयोग करें
+                val fallbackUrl = "$domain/hls/$uuid/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        fallbackUrl,
+                        fixedUrl,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            } catch (e: Exception) {
+                // एक्सेप्शन के मामले में फॉलबैक URL का उपयोग करें
+                val fallbackUrl = "$domain/hls/$uuid/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        fallbackUrl,
+                        fixedUrl,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            }
+        }
+        
         val resDoc = app.get(fixedUrl, headers = headers).document
         
         // 1. नया पैटर्न: API से वीडियो URL निकालना
@@ -422,6 +494,78 @@ open class Akamaicdn : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val headers = mapOf("user-agent" to USER_AGENT)
+        
+        // UUID पैटर्न के लिए चेक करें
+        val uuidPattern = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        val uuidMatch = uuidPattern.find(url)
+        
+        if (uuidMatch != null) {
+            val domain = url.split("/").let { parts ->
+                if (parts.size >= 3) "${parts[0]}//${parts[2]}" else "https://movierulz.upn.one"
+            }
+            
+            // UUID से वीडियो ID निकालें
+            val uuid = uuidMatch.value
+            
+            try {
+                // वेबसाइट से HTML प्राप्त करें
+                val response = app.get(url, headers = headers)
+                val html = response.text
+                
+                // m3u8 URL पैटर्न खोजें
+                val m3u8Pattern = Regex("\"/hls/[^\"]+/master\\.m3u8\"")
+                val m3u8Match = m3u8Pattern.find(html)
+                
+                if (m3u8Match != null) {
+                    // m3u8 URL निकालें और quotes हटाएं
+                    val m3u8Path = m3u8Match.value.replace("\"", "")
+                    val m3u8Url = "$domain$m3u8Path"
+                    
+                    callback.invoke(
+                        ExtractorLink(
+                            this.name,
+                            this.name,
+                            m3u8Url,
+                            url,
+                            Qualities.P1080.value,
+                            type = ExtractorLinkType.M3U8,
+                            headers = headers
+                        )
+                    )
+                    return
+                }
+                
+                // अगर पैटर्न नहीं मिला तो फॉलबैक URL का उपयोग करें
+                val fallbackUrl = "$domain/hls/$uuid/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        fallbackUrl,
+                        url,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            } catch (e: Exception) {
+                // एक्सेप्शन के मामले में फॉलबैक URL का उपयोग करें
+                val fallbackUrl = "$domain/hls/$uuid/master.m3u8"
+                callback.invoke(
+                    ExtractorLink(
+                        this.name,
+                        this.name,
+                        fallbackUrl,
+                        url,
+                        Qualities.P1080.value,
+                        type = ExtractorLinkType.M3U8,
+                        headers = headers
+                    )
+                )
+                return
+            }
+        }
         
         // वर्किंग डोमेन चेक करें - अपडेटेड डोमेन लिस्ट
         val domains = listOf(
