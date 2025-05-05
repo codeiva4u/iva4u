@@ -76,7 +76,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-       
+
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -167,30 +167,30 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-				if (check) {
-				    document.select("ul#playeroptionsul > li").drop(1).map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+                if (check) {
+                    document.select("ul#playeroptionsul > li").drop(1).map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				} else {
-				    document.select("ul#playeroptionsul > li").map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
+                    }
+                } else {
+                    document.select("ul#playeroptionsul > li").map {
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-				    }
-				}
+                    }
+                }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -230,122 +230,69 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        var embedUrl = ""
-
+        Log.d("Phisher repolink",data)
         if (data.startsWith("{")) {
-            try {
-                val loadData = AppUtils.tryParseJson<LinkData>(data)
-                if (loadData != null) {
-                    val postData = mutableMapOf<String, String>()
-                    postData["action"] = "doo_player_ajax"
-                    loadData.post?.let { postData["post"] = it }
-                    loadData.nume?.let { postData["nume"] = it }
-                    loadData.type?.let { postData["type"] = it }
-
-                    val ajaxResponse = app.post(
-                        url = "$directUrl/wp-admin/admin-ajax.php",
-                        data = postData,
-                        referer = directUrl,
-                        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                    ).parsedSafe<ResponseHash>()
-                    embedUrl = ajaxResponse?.embed_url ?: ""
-                    Log.d(TAG, "Ajax embedUrl: $embedUrl")
-                } else {
-                     Log.e(TAG, "Failed to parse LinkData from JSON: $data")
-                     return false
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error fetching embedUrl from ajax: ${e.message}")
-                return false
+            val loadData = AppUtils.tryParseJson<LinkData>(data)
+            val source = app.post(
+                url = "$directUrl/wp-admin/admin-ajax.php",
+                data = mapOf(
+                    "action" to "doo_player_ajax",
+                    "post" to "${loadData?.post}",
+                    "nume" to "${loadData?.nume}",
+                    "type" to "${loadData?.type}"
+                ),
+                referer = data,
+                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+            ).parsed<ResponseHash>().embed_url
+            Log.d("Phisher repolink", source)
+            
+            // Check if it's a movierulz.upn.one link
+            if (source.contains("movierulz.upn.one")) {
+                loadExtractor(source, data, subtitleCallback, callback)
+                return true
             }
-        } else if (data.startsWith("http")) {
-             try {
-                 val document = app.get(data).document
-                 embedUrl = document.selectFirst("div.pframe iframe, div.pframe div.metaframe")?.attr("src") ?: ""
-                 if (embedUrl.isEmpty()) {
-                    val firstPlayerOption = document.selectFirst("ul#playeroptionsul > li.dooplay_player_option")
-                     if(firstPlayerOption != null) {
-                         val post = firstPlayerOption.attr("data-post")
-                         val nume = firstPlayerOption.attr("data-nume")
-                         val type = firstPlayerOption.attr("data-type")
-                          val ajaxResponse = app.post(
-                            url = "$directUrl/wp-admin/admin-ajax.php",
-                            data = mapOf(
-                                "action" to "doo_player_ajax",
-                                "post" to post,
-                                "nume" to nume,
-                                "type" to type
-                            ),
-                            referer = data,
-                            headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                        ).parsedSafe<ResponseHash>()
-                        embedUrl = ajaxResponse?.embed_url ?: ""
-                        Log.d(TAG, "Ajax embedUrl from fallback: $embedUrl")
-                     }
-                 }
-
-                 Log.d(TAG, "Movie embedUrl: $embedUrl")
-             } catch (e: Exception) {
-                  Log.e(TAG, "Error extracting embedUrl from movie page: ${e.message}")
-                  return false
-             }
+            
+            if (!source.contains("youtube")) loadCustomExtractor(
+                source,
+                "$directUrl/",
+                subtitleCallback,
+                callback
+            )
         } else {
-            Log.e(TAG, "Invalid data format for loadLinks: $data")
-            return false
-        }
-
-        if (embedUrl.isEmpty() || !embedUrl.startsWith("http")) {
-            Log.e(TAG, "Failed to get a valid embedUrl. Url: $embedUrl")
-            return false
-        }
-
-        if (embedUrl.contains("movierulz.upn.one") || embedUrl.contains("fmx.lol")) {
-             try {
-                val playerResponse = app.get(embedUrl, referer = directUrl)
-                val playerDocument = playerResponse.document
-
-                val script = playerDocument.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
-
-                if (script != null) {
-                    val unpacked = JsUnpacker(script).unpack()
-                    if (unpacked != null) {
-                        Log.d(TAG, "Unpacked Script: $unpacked")
-                        val m3u8Link = Regex("""sources:\s*\[\{file:"([^"]+)""").find(unpacked)?.groupValues?.getOrNull(1)
-                                       ?: Regex("""file:\s*"([^"]+)""").find(unpacked)?.groupValues?.getOrNull(1)
-
-                        if (m3u8Link != null && m3u8Link.endsWith("m3u8")) {
-                            Log.d(TAG, "Extracted m3u8 link: $m3u8Link")
-                            callback.invoke(
-                                ExtractorLink(
-                                    this.name,
-                                    this.name,
-                                    m3u8Link,
-                                    embedUrl,
-                                    Qualities.Unknown.value,
-                                    type = ExtractorLinkType.M3U8,
-                                    headers = mapOf("Referer" to embedUrl)
-                                )
-                            )
-                            return true
-                        } else {
-                             Log.e(TAG, "Could not extract m3u8 link from unpacked script.")
-                        }
-                    } else {
-                        Log.e(TAG, "Failed to unpack the script.")
+            val document = app.get(data).document
+            document.select("ul#playeroptionsul > li").map {
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
+                val source = app.post(
+                    url = "$directUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                
+                // Check if it's a movierulz.upn.one link
+                if (source.contains("movierulz.upn.one")) {
+                    loadExtractor(source, data, subtitleCallback, callback)
+                    return@amap
+                }
+                
+                when {
+                    !source.contains("youtube") -> {
+                        loadExtractor(source, subtitleCallback, callback)
                     }
-                } else {
-                     Log.e(TAG, "Packed script not found on player page: $embedUrl")
+                    else -> return@amap
                 }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing player page $embedUrl: ${e.message}")
             }
-        } else {
-            Log.d(TAG,"Using default loadExtractor for: $embedUrl")
-            return loadExtractor(embedUrl, directUrl, subtitleCallback, callback)
         }
-
-        return false
+        return true
     }
 
     private fun Element.getImageAttr(): String {
@@ -442,21 +389,16 @@ open class Movierulzhd : MainAPI() {
 
 
     data class LinkData(
-        @JsonProperty("name") val name: String?,
-        @JsonProperty("type") val type: String?,
-        @JsonProperty("post") val post: String?,
-        @JsonProperty("nume") val nume: String?
+        val tag: String? = null,
+        val type: String? = null,
+        val post: String? = null,
+        val nume: String? = null,
     )
 
 
 
     data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String = "",
-        @JsonProperty("type") val type: String = "",
-        @JsonProperty("key") val key: String? = null
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("type") val type: String?,
     )
-
-    companion object {
-        private const val TAG = "Movierulzhd"
-    }
 }

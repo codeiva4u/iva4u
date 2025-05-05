@@ -18,5 +18,7 @@ class MovierulzhdPlugin: BasePlugin() {
         registerExtractorAPI(Lulust())
         registerExtractorAPI(Playonion())
         registerExtractorAPI(FilemoonV2())
+        registerExtractorAPI(MovieRulzUPN())
+        registerExtractorAPI(Streamsn())
     }
 }
