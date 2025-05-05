@@ -28,7 +28,7 @@ class Lulust : StreamWishExtractor() {
 
 class FilemoonV2 : ExtractorApi() {
     override var name = "Filemoon"
-    override var mainUrl = "https://movierulz.upn.one/"
+    override var mainUrl = "https://movierulz2025.bar"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -37,38 +37,16 @@ class FilemoonV2 : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val document = app.get(url).document
-        val playerOption = document.selectFirst("ul#playeroptionsul li.dooplay_player_option")
-        val post = playerOption?.attr("data-post") ?: return
-        val nume = playerOption.attr("data-nume") ?: return
-
-        val ajaxUrl = "$mainUrl/wp-admin/admin-ajax.php"
-        val ajaxResponse = app.post(
-            ajaxUrl,
-            data = mapOf(
-                "action" to "doo_player_ajax",
-                "post" to post,
-                "nume" to nume,
-                "type" to "movie" // Add the missing 'type' parameter
-            ),
-            referer = url,
-            headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-        ).text
-
-        val iframeSrc = Regex("src=\"(.*?)\"").find(ajaxResponse)?.groupValues?.get(1) ?: return
-
-        val iframeDocument = app.get(iframeSrc, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document
-        val script = iframeDocument.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-
-        val m3u8 = JsUnpacker(script).unpack()?.let { unPacked ->
+        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
+        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        val m3u8=JsUnpacker(res).unpack()?.let { unPacked ->
             Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-        } ?: return
-
+        }
         callback.invoke(
             ExtractorLink(
                 this.name,
                 this.name,
-                m3u8,
+                m3u8 ?:"",
                 url,
                 Qualities.P1080.value,
                 type = ExtractorLinkType.M3U8,
@@ -84,23 +62,23 @@ open class FMX : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
         val response = app.get(url,referer=mainUrl).document
-        val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
-                return listOf(
-                    newExtractorLink(
-                        this.name,
-                        this.name,
-                        url = link,
-                        INFER_TYPE
-                    ) {
-                        this.referer = referer ?: ""
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+            val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+            JsUnpacker(extractedpack).unpack()?.let { unPacked ->
+                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                    return listOf(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = link,
+                            INFER_TYPE
+                        ) {
+                            this.referer = referer ?: ""
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
             }
-        }
-        return null
+            return null
     }
 }
 
