@@ -13,7 +13,6 @@ class MovierulzhdPlugin: BasePlugin() {
         registerExtractorAPI(FMHD())
         registerExtractorAPI(VidSrcTo())
         registerExtractorAPI(Akamaicdn())
-        registerExtractorAPI(MovierulzDirect())
         registerExtractorAPI(Luluvdo())
         registerExtractorAPI(FMX())
         registerExtractorAPI(Lulust())

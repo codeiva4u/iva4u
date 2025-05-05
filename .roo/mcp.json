@@ -1,14 +1,28 @@
 {
-    "mcpServers": {
-      "firecrawl-mcp": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "firecrawl-mcp"
-        ],
-        "env": {
-          "FIRECRAWL_API_KEY": "fc-38a74600e4794626a1dab91a6988a9b9"
-        }
+  "mcpServers": {
+    "firecrawl-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "firecrawl-mcp"
+      ],
+      "env": {
+        "FIRECRAWL_API_KEY": "fc-38a74600e4794626a1dab91a6988a9b9"
       }
+    },
+    "crawl4ai": {
+      "transport": "http",
+      "url": "https://mcpserver.duckdns.org/mcp/sse",
+      "disabled": false,
+      "alwaysAllow": [
+        "md",
+        "html",
+        "screenshot",
+        "pdf",
+        "execute_js",
+        "crawl",
+        "ask"
+      ]
     }
   }
+}
