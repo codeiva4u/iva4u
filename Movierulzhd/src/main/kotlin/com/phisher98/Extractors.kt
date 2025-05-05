@@ -28,7 +28,7 @@ class Lulust : StreamWishExtractor() {
 
 class FilemoonV2 : ExtractorApi() {
     override var name = "Filemoon"
-    override var mainUrl = "https://movierulz2025.bar"
+    override var mainUrl = "https://movierulz.upn.one/"
     override val requiresReferer = true
 
     override suspend fun getUrl(
