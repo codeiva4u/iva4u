@@ -48,7 +48,8 @@ class FilemoonV2 : ExtractorApi() {
             data = mapOf(
                 "action" to "doo_player_ajax",
                 "post" to post,
-                "nume" to nume
+                "nume" to nume,
+                "type" to "movie" // Add the missing 'type' parameter
             ),
             referer = url,
             headers = mapOf("X-Requested-With" to "XMLHttpRequest")
