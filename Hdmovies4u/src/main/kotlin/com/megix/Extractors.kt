@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.util.Base64
+import android.net.Uri
 
 class PixelDra : ExtractorApi() {
     override val name            = "PixelDra"
@@ -61,7 +62,16 @@ class DriveTotScanJs : ExtractorApi() {
     ) {
         val base64EncodedUrl = url.substringAfterLast("/")
         val decodedUrl = String(Base64.getDecoder().decode(base64EncodedUrl))
-        loadExtractor(decodedUrl, referer, subtitleCallback, callback)
+
+        val uri = Uri.parse(decodedUrl)
+        val arunlinkParam = uri.getQueryParameter("arunlink")
+
+        if (!arunlinkParam.isNullOrEmpty()) {
+            val finalUrl = String(Base64.getDecoder().decode(arunlinkParam))
+            loadExtractor(finalUrl, referer, subtitleCallback, callback)
+        } else {
+            loadExtractor(decodedUrl, referer, subtitleCallback, callback)
+        }
     }
 }
 
