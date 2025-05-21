@@ -141,7 +141,7 @@ class Hdmovies4u : MainAPI() {
                 trailer?.let { addTrailer(it, null) }
                 this.episodes = episodeLinks.mapIndexed { index, link ->
                     Episode(
-                        data = parseJson(link.source),
+                        data = link.source,
                         name = "Episode ${index + 1}",
                         season = 1,
                         episode = index + 1
@@ -157,15 +157,11 @@ class Hdmovies4u : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val episodeLink = parseJson<EpisodeLink>(data)
-        val url = episodeLink.source
+        val url = data
 
         when {
             url.contains("drivetot.top") -> {
-                // drivetot.top is currently giving 404, so skipping for now.
-                // If it becomes active again, we might need a specific extractor for it.
-                // loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
-                return false
+                loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
             }
             url.contains("hubcloud.bz") || url.contains("hubcloud.ink") || url.contains("hubcloud.art") || url.contains("hubcloud.dad") -> {
                 loadExtractor(url, referer = mainUrl, subtitleCallback, callback)

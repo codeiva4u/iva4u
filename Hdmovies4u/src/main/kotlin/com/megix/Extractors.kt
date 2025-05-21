@@ -89,12 +89,7 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val doc = app.get(url).document
-        val link = if (url.contains("drivetot.top")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-        } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-        }
+        val link = doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
 
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
