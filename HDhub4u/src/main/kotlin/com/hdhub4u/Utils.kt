@@ -30,7 +30,9 @@ suspend fun getRedirectLinks(url: String): String {
     }
     return try {
         val decodedString = base64Decode(pen(base64Decode(base64Decode(combinedString))))
+        Log.d("Decoded String:", decodedString)
         val jsonObject = JSONObject(decodedString)
+        Log.d("JSON Object:", jsonObject.toString())
         val encodedurl = base64Decode(jsonObject.optString("o", "")).trim()
         val data = encode(jsonObject.optString("data", "")).trim()
         val wphttp1 = jsonObject.optString("blog_url", "").trim()
