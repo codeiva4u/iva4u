@@ -327,6 +327,8 @@ class VCloud : ExtractorApi() {
                                 this.quality = getIndexQuality(header)
                             }
                         )
+                    } else {
+
                     }
                 }
 
@@ -462,6 +464,8 @@ open class HubCloud : ExtractorApi() {
                             this.quality = getIndexQuality(header)
                         }
                     )
+                } else {
+                    
                 }
             }
 
@@ -886,6 +890,38 @@ class WLinkFast : ExtractorApi() {
     }
 }
 
+class Uploadever : ExtractorApi() {
+    override val name: String = "Uploadever"
+    override val mainUrl: String = "https://uploadever.com"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // Assuming uploadever.com directly provides the video link or redirects to it
+        loadExtractor(url, referer, subtitleCallback, callback)
+    }
+}
+
+class Playerxdl : ExtractorApi() {
+    override val name: String = "Playerxdl"
+    override val mainUrl: String = "https://playerxdl.com"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // Assuming playerxdl.com directly provides the video link or redirects to it
+        loadExtractor(url, referer, subtitleCallback, callback)
+    }
+}
+
 class Sendcm : ExtractorApi() {
     override val name: String = "Sendcm"
     override val mainUrl: String = "https://send.cm"
@@ -925,5 +961,32 @@ class Sendcm : ExtractorApi() {
                 }
             )
         }
+    }
+}
+
+class Drivetot : ExtractorApi() {
+    override val name: String = "Drivetot"
+    override val mainUrl: String = "https://drivetot.top"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val document = app.get(url).document
+        val script = document.selectFirst("script:containsData(eval)")?.data() ?: return
+        val unpacked = Regex("""eval\(function\(p,a,c,k,e,d\)\{(.*?)\}\('([^']*)','([^']*)','([^']*)','([^']*)','([^']*)','([^']*)'\)\)""").find(script)?.groupValues?.get(0) ?: return
+        val directLink = Regex("""file:\s*["']([^"']+)["']""").find(unpacked)?.groupValues?.get(1) ?: return
+
+        callback.invoke(
+            newExtractorLink(
+                this.name,
+                this.name,
+                directLink,
+                null // Changed from mainUrl to null as per ExtractorLinkType? requirement
+            )
+        )
     }
 }

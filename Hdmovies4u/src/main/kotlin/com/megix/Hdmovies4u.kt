@@ -5,6 +5,10 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import org.jsoup.nodes.Element
+import com.megix.Drivetot
+import com.megix.HubCloud
+import com.megix.Uploadever
+import com.megix.Playerxdl
 
 // Define the EpisodeLink data class outside the Hdmovies4u class
 data class EpisodeLink(
@@ -102,7 +106,7 @@ class Hdmovies4u : MainAPI() {
             it.toSearchResult()
         }
 
-        val episodeLinks = document.select("div.card-body a").mapNotNull {
+        val episodeLinks = document.select("div.card-body a, p > a.uploadever, center > a.playerxdl").mapNotNull {
             val link = it.attr("href")
             if (link.isNotBlank()) {
                 EpisodeLink(link)
@@ -160,17 +164,17 @@ class Hdmovies4u : MainAPI() {
         val url = data
 
         when {
-            url.contains("drivetot.top") -> {
-                loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
+            url.contains("drivetot.top") || url.contains("qkrecipes.com") -> {
+                Drivetot().getUrl(url, mainUrl, subtitleCallback, callback)
             }
             url.contains("hubcloud.bz") || url.contains("hubcloud.ink") || url.contains("hubcloud.art") || url.contains("hubcloud.dad") -> {
-                loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
+                HubCloud().getUrl(url, mainUrl, subtitleCallback, callback)
             }
             url.contains("uploadever.com") -> {
-                loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
+                Uploadever().getUrl(url, mainUrl, subtitleCallback, callback)
             }
             url.contains("playerxdl.com") -> {
-                loadExtractor(url, referer = mainUrl, subtitleCallback, callback)
+                Playerxdl().getUrl(url, mainUrl, subtitleCallback, callback)
             }
             else -> {
                 loadExtractor(url, subtitleCallback, callback)

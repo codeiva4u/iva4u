@@ -1,6 +1,7 @@
 version = 6
 dependencies {
     implementation("androidx.annotation:annotation-jvm:1.9.1")
+    implementation(project(":Extractors"))
 }
 
 cloudstream {
