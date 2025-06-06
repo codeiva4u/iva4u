@@ -159,8 +159,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.select("#contenedor").toString().substringAfter("background-image:url(")
-                .substringBefore(");")
+            doc.select("div.g-item a").attr("href")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -256,12 +255,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         Log.d("Phisher",data)
         val req = app.get(data).document
         req.select("ul#playeroptionsul li").map {
-            Triple(
-                it.attr("data-post"),
-                it.attr("data-nume"),
-                it.attr("data-type")
-            )
-        }.amap { (id, nume, type) ->
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
                 val source = app.post(
                     url = "$mainUrl/wp-admin/admin-ajax.php",
