@@ -43,13 +43,12 @@ class HDhub4uProvider : MainAPI() {
     )
     private val cinemeta_url = "https://v3-cinemeta.strem.io/meta"
     override val mainPage = mainPageOf(
-        "" to "Latest",
-        "category/bollywood-movies/" to "Bollywood",
-        "category/hollywood-movies/" to "Hollywood",
-        "category/hindi-dubbed/" to "Hindi Dubbed",
-        "category/south-hindi-movies/" to "South Hindi Dubbed",
-        "category/category/web-series/" to "Web Series",
-        "category/adult/" to "Adult",
+        "/" to "Latest",
+        "/category/bollywood-movies/" to "Bollywood",
+        "/category/hollywood-movies/" to "Hollywood",
+        "/category/hindi-dubbed/" to "Hindi Dubbed",
+        "/category/south-hindi-movies/" to "South Hindi Dubbed",
+        "/category/category/web-series/" to "Web Series",
     )
     private val headers =
         mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0","Cookie" to "xla=s4t")

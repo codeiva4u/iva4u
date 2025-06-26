@@ -42,23 +42,17 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override val mainPage = mainPageOf(
-        "trending/" to "Trending",
-        "genre/bollywood-movies/" to "Bollywood Movies",
-        "genre/hollywood/" to "Hollywood Movies",
-        "genre/south-indian/" to "South Indian Movies",
-        "genre/punjabi/" to "Punjabi Movies",
-        "genre/amazon-prime/" to "Amazon Prime",
-        "genre/disney-hotstar/" to "Disney Hotstar",
-        "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
-        "genre/sony-liv/" to "Sony Live",
-        "genre/k-drama/" to "KDrama",
-        "genre/zee-5/" to "Zee5",
-        "genre/anime-hindi/" to "Anime Series",
-        "genre/anime-movies/" to "Anime Movies",
-        "genre/cartoon-network/" to "Cartoon Network",
-        "genre/disney-channel/" to "Disney Channel",
-        "genre/hungama/" to "Hungama",
+        "$mainUrl/movies/" to "Latest Release",
+        "$mainUrl/genre/bollywood-movies/" to "Bollywood Movies",
+        "$mainUrl/genre/hollywood/" to "Hollywood Movies",
+        "$mainUrl/genre/south-indian/" to "South Indian Movies",
+        "$mainUrl/genre/punjabi/" to "Punjabi Movies",
+        "$mainUrl/genre/amazon-prime/" to "Amazon Prime",
+        "$mainUrl/genre/disney-hotstar/" to "Disney Hotstar",
+        "$mainUrl/genre/jio-ott/" to "Jio OTT",
+        "$mainUrl/genre/netflix/" to "Netfilx",
+        "$mainUrl/genre/sony-liv/" to "Sony Live",
+        "$mainUrl/genre/zee-5/" to "Zee5",
     )
 
     override suspend fun getMainPage(
