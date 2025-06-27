@@ -26,37 +26,22 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime
     )
 
-    companion object {
-        val basemainUrl: String? by lazy {
-            runBlocking {
-                try {
-                    val response = app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json")
-                    val json = response.text
-                    val jsonObject = JSONObject(json)
-                    jsonObject.optString("moviesdrive")
-                } catch (e: Exception) {
-                    null
-                }
-            }
-        }
-    }
-
     override val mainPage = mainPageOf(
-        "${basemainUrl ?: mainUrl}/page/" to "Latest Release",
-        "${basemainUrl ?: mainUrl}/category/hollywood/page/" to "Hollywood Movies",
-        "${basemainUrl ?: mainUrl}/hindi-dubbed/page/" to "Hindi Dubbed Movies",
-        "${basemainUrl ?: mainUrl}/category/south/page/" to "South Movies",
-        "${basemainUrl ?: mainUrl}/category/bollywood/page/" to "Bollywood Movies",
-        "${basemainUrl ?: mainUrl}/category/amzn-prime-video/page/" to "Prime Video",
-        "${basemainUrl ?: mainUrl}/category/netflix/page/" to "Netflix",
-        "${basemainUrl ?: mainUrl}/category/hotstar/page/" to "Hotstar",
+        "${mainUrl}/page/" to "Latest Release",
+        "${mainUrl}/category/hollywood/page/" to "Hollywood Movies",
+        "${mainUrl}/hindi-dubbed/page/" to "Hindi Dubbed Movies",
+        "${mainUrl}/category/south/page/" to "South Movies",
+        "${mainUrl}/category/bollywood/page/" to "Bollywood Movies",
+        "${mainUrl}/category/amzn-prime-video/page/" to "Prime Video",
+        "${mainUrl}/category/netflix/page/" to "Netflix",
+        "${mainUrl}/category/hotstar/page/" to "Hotstar",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get("${basemainUrl ?: mainUrl}${request.data}${page}").document
+        val document = app.get("${mainUrl}${request.data}${page}").document
         val home = document.select("ul.recent-movies > li").mapNotNull {
             it.toSearchResult()
         }
@@ -83,7 +68,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val searchResponse = mutableListOf<SearchResponse>()
 
         for (i in 1..7) {
-            val document = app.get("${basemainUrl ?: mainUrl}/page/$i/?s=$query").document
+            val document = app.get("${mainUrl}/page/$i/?s=$query").document
 
             val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
 
