@@ -27,7 +27,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrives.co"
+    override var mainUrl = "https://moviesdrive.design"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -49,13 +49,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         "${mainUrl}/category/amzn-prime-video/page/" to "Prime Video",
         "${mainUrl}/category/netflix/page/" to "Netflix",
         "${mainUrl}/category/hotstar/page/" to "Hotstar",
+        "${mainUrl}/category/web/page/" to "Web Series",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get("${mainUrl}${request.data}${page}").document
+        val document = app.get("$mainUrl${request.data}$page").document
         val home = document.select("ul.recent-movies > li").mapNotNull {
             it.toSearchResult()
         }
