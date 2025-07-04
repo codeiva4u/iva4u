@@ -17,5 +17,6 @@
   },
   "editor.detectIndentation": false,
   "editor.indentSize": "tabSize",
-  "editor.tabSize": 4
+"editor.tabSize": 4,
+"terminal.integrated.sendKeybindingsToShell": true
 }

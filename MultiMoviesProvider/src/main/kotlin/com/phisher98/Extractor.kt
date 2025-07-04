@@ -1,71 +1,76 @@
 package com.phisher98
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.extractors.StreamWishExtractor
+import com.lagradost.cloudstream3.extractors.VidHidePro
 import com.lagradost.cloudstream3.network.WebViewResolver
-import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.M3u8Helper
 import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
+import com.lagradost.cloudstream3.utils.M3u8Helper2
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 
-// Base class for StreamWish-like hosts
-abstract class StreamWishExtractor : ExtractorApi() {
-    override val name = "StreamWish"
-    override val mainUrl = "https://streamwish.com"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val response = app.get(url, referer = referer)
-        val script = response.document.selectFirst("script:containsData(sources)")?.data()
-            ?: return
-        val sources =
-            Regex("""sources:\s*(\[.*?\])""").find(script)?.groupValues?.getOrNull(1) ?: return
-        try {
-            val links =
-                parseJson<List<ExtractorLink>>(sources.replace(Regex("file")) { "url" })
-            links.forEach {
-                callback.invoke(it)
-            }
-        } catch (e: Exception) {
-            Log.e(name, "Failed to parse sources: ${e.message}")
-        }
-    }
+class MultimoviesAIO: StreamWishExtractor() {
+    override var name = "Multimovies Cloud AIO"
+    override var mainUrl = "https://allinonedownloader.fun"
+    override var requiresReferer = true
 }
 
-// Extractor for StreamHG
-class StreamHG : ExtractorApi() {
-    override var name = "StreamHG"
-    override var mainUrl = "https://multimoviesshg.com"
+class Dhcplay: VidHidePro() {
+    override var name = "DHC Play"
+    override var mainUrl = "https://dhcplay.com"
+    override var requiresReferer = true
+}
+
+class Multimovies: StreamWishExtractor() {
+    override var name = "Multimovies Cloud"
+    override var mainUrl = "https://multimovies.cloud"
+    override var requiresReferer = true
+}
+
+class Animezia : VidhideExtractor() {
+    override var name = "Animezia"
+    override var mainUrl = "https://animezia.cloud"
+    override var requiresReferer = true
+}
+
+class server1 : VidStack() {
+    override var name = "MultimoviesVidstack"
+    override var mainUrl = "https://server1.uns.bio"
+    override var requiresReferer = true
+}
+
+class server2 : VidhideExtractor() {
+    override var name = "Multimovies Vidhide"
+    override var mainUrl = "https://server2.shop"
+    override var requiresReferer = true
+}
+
+class Asnwish : StreamWishExtractor() {
+    override val name = "Streanwish Asn"
+    override val mainUrl = "https://asnwish.com"
     override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val m3u8Url = app.get(url, interceptor = WebViewResolver(Regex("master\\.m3u8|master\\.txt"))).url
-        generateM3u8(
-            this.name,
-            m3u8Url,
-            url,
-        ).forEach(callback)
-    }
 }
 
-// Aggregator for GDMirrorbot
+class CdnwishCom : StreamWishExtractor() {
+    override val name = "Cdnwish"
+    override val mainUrl = "https://cdnwish.com"
+    override val requiresReferer = true
+}
+
 class GDMirrorbot : ExtractorApi() {
     override var name = "GDMirrorbot"
     override var mainUrl = "https://gdmirrorbot.nl"
@@ -77,42 +82,76 @@ class GDMirrorbot : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        coroutineScope {
-            val document = app.get(url, referer = referer).document
-            document.select("li.server-item[data-link]").map { server ->
-                async {
-                    val link = server.attr("data-link")
-                    val serverName = server.select(".server-name").text()
-                    try {
-                        when {
-                            serverName.contains("StreamHG", true) || link.contains("multimoviesshg") -> {
-                                StreamHG().getUrl(link, url, subtitleCallback, callback)
-                            }
-                            serverName.contains("RpmShare", true) ||
-                                    serverName.contains("UpnShare", true) ||
-                                    serverName.contains("StreamP2p", true) ||
-                                    link.contains("rpmhub") ||
-                                    link.contains("uns.bio") ||
-                                    link.contains("p2pplay") -> {
-                                VidStack().getUrl(link, url, subtitleCallback, callback)
-                            }
-                            serverName.contains("EarnVids", true) || link.contains("smoothpre") -> {
-                                VidhideExtractor().getUrl(link, url)?.forEach(callback)
-                            }
-                            else -> {
-                                loadExtractor(link, url, subtitleCallback, callback)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(name, "Failed to load extractor for $serverName ($link): ${e.message}")
+        val host = getBaseUrl(app.get(url).url)
+        val embedId = url.substringAfterLast("/")
+        val postData = mapOf("sid" to embedId)
+
+        val responseJson = app.post("$host/embedhelper.php", data = postData).text
+        val jsonElement = JsonParser.parseString(responseJson)
+        if (!jsonElement.isJsonObject) return
+
+        val root = jsonElement.asJsonObject
+        val siteUrls = root["siteUrls"]?.asJsonObject ?: return
+        val siteFriendlyNames = root["siteFriendlyNames"]?.asJsonObject
+
+        val decodedMresult: JsonObject = when {
+            root["mresult"]?.isJsonObject == true -> {
+                root["mresult"]?.asJsonObject!!
+            }
+            root["mresult"]?.isJsonPrimitive == true -> {
+                val mresultBase64 = root["mresult"]?.asString ?: return
+                try {
+                    val jsonStr = base64Decode(mresultBase64)
+                    JsonParser.parseString(jsonStr).asJsonObject
+                } catch (e: Exception) {
+                    Log.e("Phisher", "Failed to decode mresult base64: $e")
+                    return
+                }
+            }
+            else -> return
+        }
+
+        val commonKeys = siteUrls.keySet().intersect(decodedMresult.keySet())
+
+        for (key in commonKeys) {
+            val base = siteUrls[key]?.asString?.trimEnd('/') ?: continue
+            val path = decodedMresult[key]?.asString?.trimStart('/') ?: continue
+            val fullUrl = "$base/$path"
+
+            val friendlyName = siteFriendlyNames?.get(key)?.asString ?: key
+            try {
+                when (friendlyName) {
+                    "EarnVids" -> {
+                        VidhideExtractor().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    }
+                    "StreamHG" -> {
+                        VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    }
+                    "RpmShare", "UpnShare", "StreamP2p" -> {
+                        VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    }
+                    else -> {
+                        loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
                     }
                 }
-            }.awaitAll()
+            } catch (e: Exception) {
+                Log.e("Error:", "Failed to extract from $friendlyName at $fullUrl")
+                continue
+            }
         }
+
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return URI(url).let { "${it.scheme}://${it.host}" }
     }
 }
 
-// Extractor for VidStack and its variants
+
+
+
+
+
 open class VidStack : ExtractorApi() {
     override var name = "Vidstack"
     override var mainUrl = "https://vidstack.io"
@@ -168,7 +207,6 @@ open class VidStack : ExtractorApi() {
     }
 }
 
-// Helper for AES decryption
 object AesHelper {
     private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
 
@@ -188,7 +226,43 @@ object AesHelper {
     }
 }
 
-// Generic Vidhide extractor
+
+class Streamcasthub : ExtractorApi() {
+    override var name = "Streamcasthub"
+    override var mainUrl = "https://multimovies.streamcasthub.store"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val id=url.substringAfterLast("/#")
+        val m3u8= "https://ss1.rackcloudservice.cyou/ic/$id/master.txt"
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                this.name,
+                m3u8,
+                url,
+                Qualities.Unknown.value,
+                type = ExtractorLinkType.M3U8,
+            )
+        )
+    }
+}
+
+
+
+class Strwishcom : StreamWishExtractor() {
+    override val name = "Strwish"
+    override val mainUrl = "https://strwish.com"
+    override val requiresReferer = true
+}
+
+
+
 open class VidhideExtractor : ExtractorApi() {
     override var name = "VidHide"
     override var mainUrl = "https://vidhide.com"
@@ -207,11 +281,12 @@ open class VidhideExtractor : ExtractorApi() {
                     source = name,
                     name = name,
                     url = response.url,
-                    type = ExtractorLinkType.M3U8
+                    ExtractorLinkType.M3U8
                 ) {
                     this.referer = referer ?: "$mainUrl/"
                     this.quality = Qualities.Unknown.value
                 }
+
             )
         return sources
     }

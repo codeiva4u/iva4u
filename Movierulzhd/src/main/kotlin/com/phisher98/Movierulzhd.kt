@@ -17,7 +17,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://1movierulzhd.art"
+    override var mainUrl = "https://1movierulzhd.art/"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
@@ -76,7 +76,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-
+       
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -167,30 +167,30 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-                if (check) {
-                    document.select("ul#playeroptionsul > li").drop(1).map {
-                        val name = it.selectFirst("span.title")?.text()
-                        val type = it.attr("data-type")
-                        val post = it.attr("data-post")
-                        val nume = it.attr("data-nume")
+            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+				if (check) {
+				    document.select("ul#playeroptionsul > li").drop(1).map {
+				        val name = it.selectFirst("span.title")?.text()
+				        val type = it.attr("data-type")
+				        val post = it.attr("data-post")
+				        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-                    }
-                } else {
-                    document.select("ul#playeroptionsul > li").map {
-                        val name = it.selectFirst("span.title")?.text()
-                        val type = it.attr("data-type")
-                        val post = it.attr("data-post")
-                        val nume = it.attr("data-nume")
+				    }
+				} else {
+				    document.select("ul#playeroptionsul > li").map {
+				        val name = it.selectFirst("span.title")?.text()
+				        val type = it.attr("data-type")
+				        val post = it.attr("data-post")
+				        val nume = it.attr("data-nume")
                         newEpisode(LinkData(name, type, post, nume).toJson())
                         {
                             this.name=name
                         }
-                    }
-                }
+				    }
+				}
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -245,23 +245,21 @@ open class Movierulzhd : MainAPI() {
                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
             ).parsed<ResponseHash>().embed_url
             Log.d("Phisher repolink", source)
-            
-            // Check if it's a movierulz.upn.one link
-            if (source.contains("movierulz.upn.one") || source.contains("movierulz2025.upns.pro")) {
-                loadExtractor(source, data, subtitleCallback, callback)
-                return true
-            }
-            
-            if (!source.contains("youtube")) loadExtractor(source, "$directUrl/", subtitleCallback, callback)
+            if (!source.contains("youtube")) loadCustomExtractor(
+                source,
+                "$directUrl/",
+                subtitleCallback,
+                callback
+            )
         } else {
             val document = app.get(data).document
             document.select("ul#playeroptionsul > li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
+                        Triple(
+                            it.attr("data-post"),
+                            it.attr("data-nume"),
+                            it.attr("data-type")
+                        )
+                    }.amap { (id, nume, type) ->
                 val source = app.post(
                     url = "$directUrl/wp-admin/admin-ajax.php",
                     data = mapOf(
@@ -272,17 +270,11 @@ open class Movierulzhd : MainAPI() {
                     ),
                     referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
-                
-                // Check if it's a movierulz.upn.one link
-                if (source.contains("movierulz.upn.one") || source.contains("movierulz2025.upns.pro")) {
-                    loadExtractor(source, data, subtitleCallback, callback)
-                    return@amap
-                }
-                
                 when {
                     !source.contains("youtube") -> {
                         loadExtractor(source, subtitleCallback, callback)
                     }
+
                     else -> return@amap
                 }
             }
@@ -298,6 +290,37 @@ open class Movierulzhd : MainAPI() {
             else -> this.attr("abs:src")
         }
     }
+    private suspend fun loadCustomExtractor(
+        url: String,
+        referer: String? = null,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+        quality: Int? = null,
+    ) {
+        loadExtractor(url, referer, subtitleCallback) { link ->
+            CoroutineScope(Dispatchers.IO).launch {
+                if (link.quality == Qualities.Unknown.value) {
+                    callback.invoke(
+                        newExtractorLink(
+                            link.source,
+                            link.name,
+                            url = link.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = link.referer
+                            this.quality = when (link.type) {
+                                ExtractorLinkType.M3U8 -> link.quality
+                                else -> quality ?: link.quality
+                            }
+                            this.headers = link.headers
+                            this.extractorData = link.extractorData
+                        }
+                    )
+                }
+            }
+        }
+    }
+
 
     override fun getVideoInterceptor(extractorLink: ExtractorLink): Interceptor {
         return Interceptor { chain ->
@@ -341,11 +364,6 @@ open class Movierulzhd : MainAPI() {
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0"
                     )
-                    .build()
-            } else if (modifiedRequest.url.host.contains("sunl.thurberdvob.sbs")) {
-                modifiedRequest.newBuilder()
-                    .header("Referer", "https://movierulz2025.upns.pro/")
-                    .header("Origin", "https://movierulz2025.upns.pro")
                     .build()
             } else {
                 modifiedRequest

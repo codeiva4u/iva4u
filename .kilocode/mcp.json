@@ -74,7 +74,9 @@
         "puppeteer_fill",
         "puppeteer_select",
         "puppeteer_hover",
-        "puppeteer_evaluate"
+        "puppeteer_evaluate",
+        "close",
+        "puppeteer_close"
       ]
     },
     "github.com/executeautomation/mcp-playwright": {
