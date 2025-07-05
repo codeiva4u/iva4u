@@ -10,6 +10,7 @@ class MovierulzhdPlugin: BasePlugin() {
         registerMainAPI(Movierulzhd())
     //    registerMainAPI(Hdmovie2())
         registerExtractorAPI(FMHD())
+        registerExtractorAPI(VidStack())
         registerExtractorAPI(VidSrcTo())
         registerExtractorAPI(Server1uns())
         registerExtractorAPI(Akamaicdn())
@@ -19,6 +20,7 @@ class MovierulzhdPlugin: BasePlugin() {
         registerExtractorAPI(Playonion())
         registerExtractorAPI(Movierulz())
         registerExtractorAPI(GDFlix())
+        registerExtractorAPI(Gofile())
         
     }
 }
