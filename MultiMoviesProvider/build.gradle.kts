@@ -29,6 +29,3 @@ cloudstream {
 
     isCrossPlatform = true
 }
-
-dependencies {
-}
