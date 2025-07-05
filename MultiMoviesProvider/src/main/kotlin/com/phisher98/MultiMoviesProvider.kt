@@ -48,7 +48,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         val document = app.get(url).document
 
-        val home = document.select("article.item").mapNotNull {
+        val home = document.select("#archive-content article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
