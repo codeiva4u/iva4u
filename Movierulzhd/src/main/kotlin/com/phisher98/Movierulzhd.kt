@@ -2,38 +2,12 @@ package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.Actor
-import com.lagradost.cloudstream3.HomePageResponse
-import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.api.Log
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
-import com.lagradost.cloudstream3.fixTitle
-import com.lagradost.cloudstream3.fixUrl
-import com.lagradost.cloudstream3.fixUrlNull
-import com.lagradost.cloudstream3.getQualityFromString
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.newEpisode
-import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.toRatingInt
-import com.lagradost.cloudstream3.utils.AppUtils
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -43,7 +17,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://1movierulzhd.fit"
+    override var mainUrl = "https://1movierulzhd.art/"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
@@ -61,9 +35,6 @@ open class Movierulzhd : MainAPI() {
         "genre/netflix" to "Netflix",
         "genre/amazon-prime" to "Amazon Prime",
         "genre/Zee5" to "Zee5",
-        "genre/sony-liv" to "Sony Liv",
-        "genre/hotstar" to "Hotstar",
-        "genre/jio-cinema" to "Jio Cinema",
         "seasons" to "Season",
         "episodes" to "Episode",
     )
@@ -259,6 +230,7 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        Log.d("Phisher repolink",data)
         if (data.startsWith("{")) {
             val loadData = AppUtils.tryParseJson<LinkData>(data)
             val source = app.post(
@@ -272,6 +244,7 @@ open class Movierulzhd : MainAPI() {
                 referer = data,
                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
             ).parsed<ResponseHash>().embed_url
+            Log.d("Phisher repolink", source)
             if (!source.contains("youtube")) loadCustomExtractor(
                 source,
                 "$directUrl/",
