@@ -17,7 +17,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://1movierulzhd.art/"
+    override var mainUrl = "https://1movierulzhd.fit"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
@@ -35,6 +35,9 @@ open class Movierulzhd : MainAPI() {
         "genre/netflix" to "Netflix",
         "genre/amazon-prime" to "Amazon Prime",
         "genre/Zee5" to "Zee5",
+        "genre/sony-liv" to "Sony Liv",
+        "genre/hotstar" to "Hotstar",
+        "genre/jio-cinema" to "Jio Cinema",
         "seasons" to "Season",
         "episodes" to "Episode",
     )
@@ -230,7 +233,6 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("Phisher repolink",data)
         if (data.startsWith("{")) {
             val loadData = AppUtils.tryParseJson<LinkData>(data)
             val source = app.post(
@@ -244,7 +246,6 @@ open class Movierulzhd : MainAPI() {
                 referer = data,
                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
             ).parsed<ResponseHash>().embed_url
-            Log.d("Phisher repolink", source)
             if (!source.contains("youtube")) loadCustomExtractor(
                 source,
                 "$directUrl/",
