@@ -29,10 +29,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
+        "genre/netflix/" to "Netfilx",
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
         "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
         "genre/zee-5/" to "Zee5",
     )
@@ -58,7 +58,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleElement = this.selectFirst(".data h3 a") ?: return null
         val title = titleElement.text().trim()
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src") ?: this.selectFirst(".image img")?.attr("src"))
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
         val isMovie = href.contains("movie", ignoreCase = true)
 
