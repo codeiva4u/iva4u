@@ -22,7 +22,23 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
+    companion object {
+        //val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0", "X-Requested-With" to "XMLHttpRequest")
+        private const val DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
+        private var cachedDomains: DomainsParser? = null
 
+        suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
+            if (cachedDomains == null || forceRefresh) {
+                try {
+                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<DomainsParser>()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    return null
+                }
+            }
+            return cachedDomains
+        }
+    }
 
     override val mainPage = mainPageOf(
         "movies/" to "Latest Release",
