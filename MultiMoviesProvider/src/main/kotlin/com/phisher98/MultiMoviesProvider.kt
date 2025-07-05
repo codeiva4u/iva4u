@@ -46,21 +46,32 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
+
+        // The line below is the source of the issue. The website is protected by Cloudflare,
+        // which blocks this simple get request. A more advanced method (like a webview or
+        // a library that can solve JS challenges) is needed to get the correct HTML.
         val document = app.get(url).document
 
-        val home = document.select("article.item").mapNotNull {
+        // The selectors below are correct for the HTML structure of the site.
+        val home = document.select("div#archive-content article.item, div#featured-titles article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
+        // The href and title are in the same element
         val titleElement = this.selectFirst(".data h3 a") ?: return null
-        val title = titleElement.text().trim()
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src") ?: this.selectFirst(".image img")?.attr("src"))
+        val title = titleElement.text().trim()
+
+        // Poster image is in the 'src' attribute.
+        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
-        val isMovie = href.contains("movie", ignoreCase = true)
+
+        // Differentiate between movies and TV shows by the URL
+        val isMovie = href.contains("/movies/", ignoreCase = true)
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
