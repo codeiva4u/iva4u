@@ -22,6 +22,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
+
     companion object {
         //val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0", "X-Requested-With" to "XMLHttpRequest")
         private const val DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
@@ -40,15 +41,17 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
+
     override val mainPage = mainPageOf(
         "movies/" to "Latest Release",
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
-        "genre/netflix/" to "Netfilx",
+        "genre/punjabi/" to "Punjabi Movies",
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
         "genre/jio-ott/" to "Jio OTT",
+        "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
         "genre/zee-5/" to "Zee5",
     )
@@ -62,32 +65,21 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-
-        // The line below is the source of the issue. The website is protected by Cloudflare,
-        // which blocks this simple get request. A more advanced method (like a webview or
-        // a library that can solve JS challenges) is needed to get the correct HTML.
         val document = app.get(url).document
 
-        // The selectors below are correct for the HTML structure of the site.
-        val home = document.select("div#archive-content article.item, div#featured-titles article.item").mapNotNull {
+        val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // The href and title are in the same element
         val titleElement = this.selectFirst(".data h3 a") ?: return null
-        val href = fixUrl(titleElement.attr("href"))
         val title = titleElement.text().trim()
-
-        // Poster image is in the 'src' attribute.
+        val href = fixUrl(titleElement.attr("href"))
         val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
-
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
-
-        // Differentiate between movies and TV shows by the URL
-        val isMovie = href.contains("/movies/", ignoreCase = true)
+        val isMovie = href.contains("movie", ignoreCase = true)
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
