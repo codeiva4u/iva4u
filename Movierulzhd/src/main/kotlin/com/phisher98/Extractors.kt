@@ -1,16 +1,229 @@
 package com.phisher98
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.extractors.AnyVidplay
+import com.lagradost.cloudstream3.extractors.FileMoon
 import com.lagradost.cloudstream3.extractors.Filesim
-import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.extractors.RowdyAvocadoKeys
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
-import com.lagradost.cloudstream3.extractors.VidStack
-import com.lagradost.cloudstream3.utils.JsUnpacker
+import com.lagradost.cloudstream3.mvvm.logError
+import com.lagradost.cloudstream3.utils.*
 import okhttp3.FormBody
 import org.json.JSONObject
+import java.net.URI
+import java.net.URLDecoder
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+
+class Server1uns : VidStack() {
+    override var name = "Vidstack"
+    override var mainUrl = "https://server1.uns.bio"
+    override var requiresReferer = true
+}
+
+
+open class VidStack : ExtractorApi() {
+    override var name = "Vidstack"
+    override var mainUrl = "https://vidstack.io"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    )
+    {
+        val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
+        val hash = url.substringAfterLast("#").substringAfter("/")
+        val baseurl = getBaseUrl(url)
+
+        val encoded = app.get("$baseurl/api/v1/video?id=$hash", headers = headers).text.trim()
+
+        val key = "kiemtienmua911ca"
+        val ivList = listOf("1234567890oiuytr", "0123456789abcdef")
+
+        val decryptedText = ivList.firstNotNullOfOrNull { iv ->
+            try {
+                AesHelper.decryptAES(encoded, key, iv)
+            } catch (e: Exception) {
+                null
+            }
+        } ?: throw Exception("Failed to decrypt with all IVs")
+
+        val m3u8 = Regex("\"source\":\"(.*?)\"").find(decryptedText)
+            ?.groupValues?.get(1)
+            ?.replace("\\/", "/") ?: ""
+
+        callback.invoke(
+            ExtractorLink(
+                this.name,
+                this.name,
+                m3u8,
+                url,
+                Qualities.P1080.value,
+                type = ExtractorLinkType.M3U8,
+            )
+        )
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (e: Exception) {
+            Log.e("Vidstack", "getBaseUrl fallback: ${e.message}")
+            mainUrl
+        }
+    }
+}
+
+object AesHelper {
+    private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
+
+    fun decryptAES(inputHex: String, key: String, iv: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
+        val ivSpec = IvParameterSpec(iv.toByteArray(Charsets.UTF_8))
+
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
+        val decryptedBytes = cipher.doFinal(inputHex.hexToByteArray())
+        return String(decryptedBytes, Charsets.UTF_8)
+    }
+
+    private fun String.hexToByteArray(): ByteArray {
+        check(length % 2 == 0) { "Hex string must have an even length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
+}
+
+@OptIn(ExperimentalEncodingApi::class)
+open class VidSrcTo : ExtractorApi() {
+    override val name = "VidSrcTo"
+    override val mainUrl = "https://vidsrc2.to"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
+    ) {
+        val mediaId = app.get(url).document.selectFirst("ul.episodes li a")?.attr("data-id") ?: return
+        val subtitlesLink = "$mainUrl/ajax/embed/episode/$mediaId/subtitles"
+        val subRes = app.get(subtitlesLink).parsedSafe<Array<VidsrctoSubtitles>>()
+        subRes?.forEach {
+            if (it.kind.equals("captions")) subtitleCallback.invoke(SubtitleFile(it.label, it.file))
+        }
+        val sourcesLink = "$mainUrl/ajax/embed/episode/$mediaId/sources?token=${vrfEncrypt(
+            RowdyAvocadoKeys.getKeys(), mediaId)}"
+        val res = app.get(sourcesLink).parsedSafe<VidsrctoEpisodeSources>() ?: return
+        if (res.status != 200) return
+        res.result?.amap { source ->
+            try {
+                val embedResUrl = "$mainUrl/ajax/embed/source/${source.id}?token=${vrfEncrypt(RowdyAvocadoKeys.getKeys(), source.id)}"
+                val embedRes = app.get(embedResUrl).parsedSafe<VidsrctoEmbedSource>() ?: return@amap
+                val finalUrl = vrfDecrypt(RowdyAvocadoKeys.getKeys(), embedRes.result.encUrl)
+                if(finalUrl.equals(embedRes.result.encUrl)) return@amap
+                when (source.title) {
+                    "Server 1" -> AnyVidplay(finalUrl.substringBefore("/e/")).getUrl(finalUrl, referer, subtitleCallback, callback)
+                    "Server 2" -> FileMoon().getUrl(finalUrl, referer, subtitleCallback, callback)
+                }
+            } catch (e: Exception) {
+                logError(e)
+            }
+        }
+    }
+
+    private fun vrfEncrypt(keys: RowdyAvocadoKeys.KeysData, input: String): String {
+        var vrf = input
+        keys.vidsrcto.sortedBy { it.sequence }.forEach { step ->
+            when(step.method) {
+                "exchange" -> vrf = exchange(vrf, step.keys?.get(0) ?: return@forEach, step.keys!!.get(1))
+                "rc4" -> vrf = rc4Encryption(step.keys?.get(0) ?: return@forEach, vrf)
+                "reverse" -> vrf = vrf.reversed()
+                "base64" -> vrf = Base64.UrlSafe.encode(vrf.toByteArray())
+                "else" -> {}
+            }
+        }
+        // vrf = java.net.URLEncoder.encode(vrf, "UTF-8")
+        return vrf
+    }
+
+    private fun vrfDecrypt(keys: RowdyAvocadoKeys.KeysData, input: String): String {
+        var vrf = input
+        keys.vidsrcto.sortedByDescending { it.sequence }.forEach { step ->
+            when(step.method) {
+                "exchange" -> vrf = exchange(vrf, step.keys?.get(1) ?: return@forEach, step.keys!!.get(0))
+                "rc4" -> vrf = rc4Decryption(step.keys?.get(0) ?: return@forEach, vrf)
+                "reverse" -> vrf = vrf.reversed()
+                "base64" -> vrf = Base64.UrlSafe.decode(vrf).toString(Charsets.UTF_8)
+                "else" -> {}
+            }
+        }
+        return URLDecoder.decode(vrf, "utf-8")
+    }
+
+    private fun rc4Encryption(key: String, input: String): String {
+        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
+        val cipher = Cipher.getInstance("RC4")
+        cipher.init(Cipher.DECRYPT_MODE, rc4Key, cipher.parameters)
+        var output = cipher.doFinal(input.toByteArray())
+        output = Base64.UrlSafe.encode(output).toByteArray()
+        return output.toString(Charsets.UTF_8)
+    }
+
+    private fun rc4Decryption(key: String, input: String): String {
+        var vrf = input.toByteArray()
+        vrf = Base64.UrlSafe.decode(vrf)
+        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
+        val cipher = Cipher.getInstance("RC4")
+        cipher.init(Cipher.DECRYPT_MODE, rc4Key, cipher.parameters)
+        vrf = cipher.doFinal(vrf)
+
+        return vrf.toString(Charsets.UTF_8)
+    }
+
+    private fun exchange(input: String, key1: String, key2: String): String {
+        return input.map { i -> 
+            val index = key1.indexOf(i)
+            if (index != -1) {
+                key2[index]
+            } else {
+                i
+            }
+        }.joinToString("")
+    }
+
+    data class VidsrctoEpisodeSources(
+            @JsonProperty("status") val status: Int,
+            @JsonProperty("result") val result: List<VidsrctoResult>?
+    )
+
+    data class VidsrctoResult(
+            @JsonProperty("id") val id: String,
+            @JsonProperty("title") val title: String
+    )
+
+    data class VidsrctoEmbedSource(
+            @JsonProperty("status") val status: Int,
+            @JsonProperty("result") val result: VidsrctoUrl
+    )
+
+    data class VidsrctoSubtitles(
+            @JsonProperty("file") val file: String,
+            @JsonProperty("label") val label: String,
+            @JsonProperty("kind") val kind: String
+    )
+
+    data class VidsrctoUrl(@JsonProperty("url") val encUrl: String)
+}
 
 class FMHD : Filesim() {
     override val name = "FMHD"
@@ -82,7 +295,21 @@ open class Akamaicdn : ExtractorApi() {
             ?.substringBefore(");") ?: return
         val ids = sniffScript.split(",").map { it.replace("\"", "").trim() }
         val m3u8 = "https://molop.art/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1&plt=${ids[16].substringBefore(" //")}"
-        M3u8Helper.generateM3u8(name, m3u8, mainUrl, headers = headers).forEach(callback)
+
+        callback.invoke(
+            newExtractorLink(
+                name,
+                name,
+                m3u8,
+                ExtractorLinkType.M3U8
+            )
+            {
+                this.referer=url
+                this.quality=Qualities.P1080.value
+                this.headers=headers
+
+            }
+        )
     }
 }
 
@@ -282,55 +509,52 @@ class Gofile : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
 
-        try {
-            val id = Regex("/(?:\\?c=|d/)([\\da-zA-Z-]+)").find(url)?.groupValues?.get(1) ?: return
-            val responseText = app.post("$mainApi/accounts").text
-            val json = JSONObject(responseText)
-            val token = json.getJSONObject("data").getString("token")
+        //val res = app.get(url).document
+        val id = Regex("/(?:\\?c=|d/)([\\da-zA-Z-]+)").find(url)?.groupValues?.get(1) ?: return
+        val genAccountRes = app.post("$mainApi/accounts").text
+        val jsonResp = JSONObject(genAccountRes)
+        val token = jsonResp.getJSONObject("data").getString("token") ?: return
 
-            val globalJs = app.get("$mainUrl/dist/js/global.js").text
-            val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""")
-                .find(globalJs)?.groupValues?.getOrNull(1) ?: return
+        val globalRes = app.get("$mainUrl/dist/js/global.js").text
+        val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
 
-            val responseTextfile = app.get(
-                "$mainApi/contents/$id?wt=$wt",
-                headers = mapOf("Authorization" to "Bearer $token")
-            ).text
-
-            val fileDataJson = JSONObject(responseTextfile)
-
-            val data = fileDataJson.getJSONObject("data")
-            val children = data.getJSONObject("children")
-            val firstFileId = children.keys().asSequence().first()
-            val fileObj = children.getJSONObject(firstFileId)
-
-            val link = fileObj.getString("link")
-            val fileName = fileObj.getString("name")
-            val fileSize = fileObj.getLong("size")
-
-            val sizeFormatted = if (fileSize < 1024L * 1024 * 1024) {
-                "%.2f MB".format(fileSize / 1024.0 / 1024)
-            } else {
-                "%.2f GB".format(fileSize / 1024.0 / 1024 / 1024)
-            }
-
-            callback.invoke(
-                newExtractorLink(
-                    "Gofile",
-                    "Gofile [$sizeFormatted]",
-                    link
-                ) {
-                    this.quality = getQuality(fileName)
-                    this.headers = mapOf("Cookie" to "accountToken=$token")
-                }
+        val response = app.get("$mainApi/contents/$id?wt=$wt",
+            headers = mapOf(
+                "Authorization" to "Bearer $token",
             )
-        } catch (e: Exception) {
-            Log.e("Gofile", "Error occurred: ${e.message}")
+        ).text
+
+        val jsonResponse = JSONObject(response)
+        val data = jsonResponse.getJSONObject("data")
+        val children = data.getJSONObject("children")
+        val oId = children.keys().next()
+        val link = children.getJSONObject(oId).getString("link")
+        val fileName = children.getJSONObject(oId).getString("name")
+        val size = children.getJSONObject(oId).getLong("size")
+        val formattedSize = if (size < 1024L * 1024 * 1024) {
+            val sizeInMB = size.toDouble() / (1024 * 1024)
+            "%.2f MB".format(sizeInMB)
+        } else {
+            val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
+            "%.2f GB".format(sizeInGB)
         }
+
+        callback.invoke(
+            newExtractorLink(
+                "Gofile",
+                "Gofile [$formattedSize]",
+                link,
+            ) {
+                this.quality = getQuality(fileName)
+                this.headers = mapOf(
+                    "Cookie" to "accountToken=$token"
+                )
+            }
+        )
     }
 
-    private fun getQuality(fileName: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(fileName ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+    private fun getQuality(str: String?): Int {
+        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
     }
 }
