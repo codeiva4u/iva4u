@@ -23,9 +23,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.AnimeMovie,
     )
 
-
     override val mainPage = mainPageOf(
-        "movies/" to "Latest Release",
+        "trending/" to "Trending",
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
@@ -35,35 +34,42 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/jio-ott/" to "Jio OTT",
         "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
+        "genre/k-drama/" to "KDrama",
         "genre/zee-5/" to "Zee5",
+        "genre/anime-hindi/" to "Anime Series",
+        "genre/anime-movies/" to "Anime Movies",
+        "genre/cartoon-network/" to "Cartoon Network",
+        "genre/disney-channel/" to "Disney Channel",
+        "genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val url = if (page == 1) {
-            "$mainUrl${request.data}"
+        val document = if (page == 1) {
+            app.get("$mainUrl/${request.data}").document
         } else {
-            "$mainUrl${request.data}page/$page/"
+            app.get("$mainUrl/${request.data}" + "page/$page/").document
         }
-        val document = app.get(url).document
-
-        val home = document.select("article.item").mapNotNull {
-            it.toSearchResult()
+        val home = if (request.data.contains("/movies")) {
+            document.select("#archive-content > article").mapNotNull {
+                it.toSearchResult()
+            }
+        } else {
+            document.select("div.items > article").mapNotNull {
+                it.toSearchResult()
+            }
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val titleElement = this.selectFirst(".data h3 a") ?: return null
-        val title = titleElement.text().trim()
-        val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
-        val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
-        val isMovie = href.contains("movie", ignoreCase = true)
-
-        return if (isMovie) {
+        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
+        return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -77,19 +83,31 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val response = app.get("$mainUrl/wp-json/dooplay/search/?s=$query").parsed<List<SearchAPIResponse>>()
-        return response.mapNotNull {
-            newMovieSearchResponse(it.title, it.url, TvType.Movie) {
-                posterUrl = it.img
+        val document = app.get("$mainUrl/?s=$query").document
+        return document.select("div.result-item").mapNotNull {
+            val title =
+                it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
+            val href = fixUrl(
+                it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
+            )
+            val posterUrl = fixUrlNull(
+                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
+            )
+            val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
+            val type = it.select("article > div.image > div.thumbnail > a > span").text()
+            if (type.contains("Movie")) {
+                newMovieSearchResponse(title, href, TvType.Movie) {
+                    this.posterUrl = posterUrl
+                    this.quality = quality
+                }
+            } else {
+                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                    this.posterUrl = posterUrl
+                    this.quality = quality
+                }
             }
         }
     }
-
-    data class SearchAPIResponse(
-        @JsonProperty("title") val title: String,
-        @JsonProperty("url") val url: String,
-        @JsonProperty("img") val img: String?
-    )
 
     private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
         val body = FormBody.Builder()
@@ -118,8 +136,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("#dt_galery .g-item img")?.attr("src") ?:
-            doc.selectFirst("div.sheader div.poster img")?.attr("src")
+            doc.select("div.g-item a").attr("href")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -214,12 +231,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ): Boolean {
         val req = app.get(data).document
         req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
+            )
+        }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
                 val source = app.post(
                     url = "$mainUrl/wp-admin/admin-ajax.php",
@@ -256,6 +273,4 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("key") val key: String? = null,
         @JsonProperty("type") val type: String? = null,
     )
-
-
 }
