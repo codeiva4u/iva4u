@@ -21,23 +21,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
-
-    companion object {
-        private const val DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
-        private var cachedDomains: DomainsParser? = null
-
-        suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
-            if (cachedDomains == null || forceRefresh) {
-                try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<DomainsParser>()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    return null
-                }
-            }
-            return cachedDomains
-        }
-    }
     
     // Helper function to handle lazy loaded images
     private fun Element.getImageUrl(): String? {
@@ -68,11 +51,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val multiMoviesAPI = getDomains()?.multiMovies ?: mainUrl
         val url = if (page == 1) {
-            "$multiMoviesAPI/${request.data}"
+            "$mainUrl/${request.data}"
         } else {
-            "$multiMoviesAPI/${request.data}" + "page/$page/"
+            "$mainUrl/${request.data}" + "page/$page/"
         }
         val document = app.get(url).document
         
@@ -116,8 +98,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val multiMoviesAPI = getDomains()?.multiMovies ?: mainUrl
-        val document = app.get("$multiMoviesAPI/?s=$query").document
+        val document = app.get("$mainUrl/?s=$query").document
         
         // Search results can have different structures
         val searchResults = document.select("div.result-item article, article.item").mapNotNull {
@@ -248,7 +229,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val doc = app.get(data).document
-        val multiMoviesAPI = getDomains()?.multiMovies ?: mainUrl
 
         doc.select("ul#playeroptionsul > li").not("[data-nume=trailer]").apmap {
             val postId = it.attr("data-post")
@@ -256,7 +236,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val type = it.attr("data-type")
 
             val source = app.post(
-                url = "$multiMoviesAPI/wp-admin/admin-ajax.php",
+                url = "$mainUrl/wp-admin/admin-ajax.php",
                 data = mapOf(
                     "action" to "doo_player_ajax",
                     "post" to postId,
@@ -271,7 +251,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 // The embed_url is often a string containing an iframe, we need to extract the src
                 val embedLink = Regex("src=\"(.*?)\"").find(source)?.groupValues?.get(1)
                 if (embedLink != null) {
-                    loadExtractor(embedLink, multiMoviesAPI, subtitleCallback, callback)
+                    loadExtractor(embedLink, mainUrl, subtitleCallback, callback)
                 }
             }
         }
