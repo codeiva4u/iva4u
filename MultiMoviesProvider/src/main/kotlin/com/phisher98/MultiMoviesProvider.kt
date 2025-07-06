@@ -42,8 +42,12 @@ class MultiMoviesProvider : MainAPI() {
 
     // आलसी लोड की गई छवियों को संभालने के लिए सहायक फ़ंक्शन
     private fun Element.getImageUrl(): String? {
-        // पहले डेटा-src की जाँच करता है, फिर src पर वापस आता है।
-        return this.attr("data-src").ifBlank { this.attr("src") }.ifBlank { null }
+        return when {
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            else -> this.attr("abs:src")
+        }.ifBlank { null }
     }
 
     override val mainPage = mainPageOf(
@@ -87,7 +91,7 @@ class MultiMoviesProvider : MainAPI() {
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         
         // FIX 2: सही img टैग से आलसी-लोड किए गए पोस्टर URL प्राप्त करने के लिए सहायक फ़ंक्शन का उपयोग करें।
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.getImageUrl())
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster img")?.getImageUrl())
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         
         // अविश्वसनीय टेक्स्ट के बजाय URL के आधार पर प्रकार निर्धारित करें।
@@ -115,7 +119,7 @@ class MultiMoviesProvider : MainAPI() {
             val href = fixUrl(it.selectFirst("div.title > a")?.attr("href").toString())
             
             // FIX 2: आलसी लोड किए गए खोज परिणाम पोस्टर के लिए सहायक का उपयोग करें।
-            val posterUrl = fixUrlNull(it.selectFirst("div.poster > img")?.getImageUrl())
+            val posterUrl = fixUrlNull(it.selectFirst("div.image img, div.poster img")?.getImageUrl())
             val typeText = it.selectFirst("div.meta span.item-type")?.text() ?: ""
             val type = if (typeText.contains("Movie", true)) TvType.Movie else TvType.TvSeries
 
@@ -182,7 +186,7 @@ class MultiMoviesProvider : MainAPI() {
                 seasonElement.select("ul.episodios > li").mapNotNull { epElement ->
                     val epHref = epElement.selectFirst(".episodiotitle > a")?.attr("href") ?: return@mapNotNull null
                     val epName = epElement.selectFirst(".episodiotitle > a")?.text()
-                    val epThumb = epElement.selectFirst("div.poster > img")?.getImageUrl()
+                    val epThumb = epElement.selectFirst(".imagen img, div.poster img")?.getImageUrl()
                     val epNum = epElement.selectFirst(".numerando")?.text()?.split("x")?.getOrNull(1)?.trim()?.toIntOrNull()
 
                     newEpisode(epHref) {
