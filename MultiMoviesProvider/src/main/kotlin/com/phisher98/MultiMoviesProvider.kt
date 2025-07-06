@@ -11,7 +11,7 @@ import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() {
     // FIX 1: मुख्य यूआरएल को HTML में पाए गए एक अधिक विश्वसनीय डोमेन पर अपडेट किया गया।
-    override var mainUrl = "https://multimovies.bond/"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
