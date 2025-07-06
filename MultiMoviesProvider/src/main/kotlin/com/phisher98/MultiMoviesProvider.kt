@@ -10,7 +10,7 @@ import org.jsoup.nodes.Element
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
     // FIX 1: Changed the mainUrl to a working domain.
-    override var mainUrl = "https://multimovies.agency/"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
