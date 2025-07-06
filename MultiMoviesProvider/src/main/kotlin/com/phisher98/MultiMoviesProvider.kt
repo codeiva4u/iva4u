@@ -10,7 +10,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() {
-    // FIX 1: Updated the mainUrl to a more reliable domain found in the HTML.
+    // FIX 1: मुख्य यूआरएल को HTML में पाए गए एक अधिक विश्वसनीय डोमेन पर अपडेट किया गया।
     override var mainUrl = "https://multimovies.bond/"
     override var name = "MultiMovies"
     override val hasMainPage = true
@@ -40,9 +40,9 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
-    // Helper function to handle lazy loaded images
+    // आलसी लोड की गई छवियों को संभालने के लिए सहायक फ़ंक्शन
     private fun Element.getImageUrl(): String? {
-        // Checks for data-src first, then falls back to src.
+        // पहले डेटा-src की जाँच करता है, फिर src पर वापस आता है।
         return this.attr("data-src").ifBlank { this.attr("src") }.ifBlank { null }
     }
 
@@ -75,7 +75,7 @@ class MultiMoviesProvider : MainAPI() {
         }
         val document = app.get(url).document
         
-        // FIX: Use a more generic selector to handle both movie and tv-show archive pages.
+        // FIX: मूवी और टीवी-शो दोनों के आर्काइव पेजों को संभालने के लिए एक अधिक सामान्य चयनकर्ता का उपयोग करें।
         val home = document.select("div.items > article, #archive-content > article").mapNotNull {
             it.toSearchResult()
         }
@@ -86,11 +86,11 @@ class MultiMoviesProvider : MainAPI() {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         
-        // FIX 2: Use helper function to get lazy-loaded poster URL from the correct img tag.
+        // FIX 2: सही img टैग से आलसी-लोड किए गए पोस्टर URL प्राप्त करने के लिए सहायक फ़ंक्शन का उपयोग करें।
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.getImageUrl())
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         
-        // Determine type based on the URL instead of text which can be unreliable.
+        // अविश्वसनीय टेक्स्ट के बजाय URL के आधार पर प्रकार निर्धारित करें।
         val type = if (href.contains("/movies/")) TvType.Movie else TvType.TvSeries
 
         return if (type == TvType.Movie) {
@@ -109,12 +109,12 @@ class MultiMoviesProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val multiMoviesAPI = getDomains()?.multiMovies ?: mainUrl
         val document = app.get("$multiMoviesAPI/?s=$query").document
-        // The search result structure is different, so we adapt it here.
+        // खोज परिणाम संरचना अलग है, इसलिए हम इसे यहाँ अनुकूलित करते हैं।
         return document.select("div.result-item").mapNotNull {
             val title = it.selectFirst("div.title > a")?.text()?.trim() ?: return@mapNotNull null
             val href = fixUrl(it.selectFirst("div.title > a")?.attr("href").toString())
             
-            // FIX 2: Use helper for lazy loaded search result posters.
+            // FIX 2: आलसी लोड किए गए खोज परिणाम पोस्टर के लिए सहायक का उपयोग करें।
             val posterUrl = fixUrlNull(it.selectFirst("div.image img")?.getImageUrl())
             val typeText = it.selectFirst("div.meta span.item-type")?.text() ?: ""
             val type = if (typeText.contains("Movie", true)) TvType.Movie else TvType.TvSeries
@@ -131,7 +131,7 @@ class MultiMoviesProvider : MainAPI() {
         val doc = app.get(url).document
         val title = doc.selectFirst("div.sheader div.data > h1")?.text()?.trim() ?: return null
 
-        // FIX 3: Corrected the poster selector for the details page.
+        // FIX 3: विवरण पृष्ठ के लिए पोस्टर चयनकर्ता को सही किया गया।
         val poster = fixUrlNull(doc.selectFirst("div.sheader div.poster > img")?.getImageUrl())
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.split(",")?.getOrNull(1)?.trim()?.toIntOrNull()
@@ -235,7 +235,7 @@ class MultiMoviesProvider : MainAPI() {
             ).parsedSafe<ResponseHash>()?.embed_url
 
             if (source != null) {
-                // The embed_url is often a string containing an iframe, we need to extract the src
+                // embed_url में अक्सर एक iframe वाला स्ट्रिंग होता है, हमें src निकालने की आवश्यकता है
                 val embedLink = Regex("""src=["'](.*?)["']""").find(source)?.groupValues?.get(1)
                 if (embedLink != null) {
                     loadExtractor(embedLink, multiMoviesAPI, subtitleCallback, callback)
