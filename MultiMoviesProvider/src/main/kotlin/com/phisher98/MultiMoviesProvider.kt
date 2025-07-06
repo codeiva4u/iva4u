@@ -85,11 +85,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         println("MultiMovies: Fetching URL - $url")
         val document = app.get(url, headers = headers).document
         val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content > article, .movies-list article, .movie-item, article").mapNotNull {
+            document.select("#archive-content article.item").mapNotNull {
                 it.toSearchResult()
             }
         } else {
-            document.select("div.items > article, .movies-list article, .movie-item, article").mapNotNull {
+            document.select("div.items article.item").mapNotNull {
                 it.toSearchResult()
             }
         }
@@ -97,18 +97,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a, h3 > a, .title a, .entry-title a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a, h3 > a, .title a, .entry-title a")?.attr("href").toString())
+        val title = this.selectFirst("div.data h3 a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("div.data h3 a")?.attr("href").toString())
         val posterUrl = fixUrlNull(
-            this.selectFirst("div.poster > img")?.attr("data-src") 
-            ?: this.selectFirst("div.poster > img")?.attr("src")
-            ?: this.selectFirst(".poster img")?.attr("data-src")
-            ?: this.selectFirst(".poster img")?.attr("src")
-            ?: this.selectFirst("img")?.attr("data-src")
+            this.selectFirst("div.poster img")?.attr("src")
+            ?: this.selectFirst("div.image img")?.attr("src")
             ?: this.selectFirst("img")?.attr("src")
         )
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, .quality, .qlty").text())
-        return if (href.contains("Movie")) {
+        val quality = getQualityFromString(this.select("div.mepo span.quality, span.quality").text())
+        val type = this.select("span.item_type").text()
+        return if (href.contains("/movies/") || type.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -126,23 +124,20 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val url = "$multiMoviesAPI/?s=$query"
         println("MultiMovies: Search URL - $url")
         val document = app.get(url, headers = headers).document
-        return document.select("div.result-item, .search-item, article").mapNotNull {
+        return document.select("div.result-item, article.item").mapNotNull {
             val title =
-                it.selectFirst("article > div.details > div.title > a, .title a, h3 a, .entry-title a")?.text().toString().trim()
+                it.selectFirst("div.details div.title a, div.data h3 a")?.text().toString().trim()
             val href = fixUrl(
-                it.selectFirst("article > div.details > div.title > a, .title a, h3 a, .entry-title a")?.attr("href").toString()
+                it.selectFirst("div.details div.title a, div.data h3 a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("data-src") 
-                ?: it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
-                ?: it.selectFirst(".thumbnail img")?.attr("data-src")
-                ?: it.selectFirst(".thumbnail img")?.attr("src")
-                ?: it.selectFirst("img")?.attr("data-src")
+                it.selectFirst("div.image div.thumbnail a img")?.attr("src")
+                ?: it.selectFirst("div.poster img")?.attr("src")
                 ?: it.selectFirst("img")?.attr("src")
             )
-            val quality = getQualityFromString(it.select("div.poster > div.mepo > span, .quality, .qlty").text())
-            val type = it.select("article > div.image > div.thumbnail > a > span, .type, .movie-type").text()
-            if (type.contains("Movie")) {
+            val quality = getQualityFromString(it.select("div.mepo span.quality, span.quality").text())
+            val type = it.select("div.image div.thumbnail a span, span.item_type").text()
+            if (href.contains("/movies/") || type.contains("Movie")) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
                     this.posterUrl = posterUrl
                     this.quality = quality
@@ -184,16 +179,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("div.poster img")?.attr("data-src") 
-            ?: doc.selectFirst("div.poster img")?.attr("src") 
-            ?: doc.selectFirst("div.sheader div.poster img")?.attr("data-src")
-            ?: doc.selectFirst("div.sheader div.poster img")?.attr("src")
-            ?: doc.selectFirst(".movie-poster img")?.attr("data-src")
-            ?: doc.selectFirst(".movie-poster img")?.attr("src")
-            ?: doc.selectFirst(".poster img")?.attr("data-src")
-            ?: doc.selectFirst(".poster img")?.attr("src")
-            ?: doc.selectFirst("img.wp-post-image")?.attr("data-src")
-            ?: doc.selectFirst("img.wp-post-image")?.attr("src")
+            doc.selectFirst("div.sheader div.poster img")?.attr("src")
+            ?: doc.selectFirst("div.poster img")?.attr("src")
+            ?: doc.selectFirst(".wp-post-image")?.attr("src")
+            ?: doc.selectFirst("img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
