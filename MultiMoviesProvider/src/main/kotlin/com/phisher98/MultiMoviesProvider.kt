@@ -11,7 +11,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.agency/"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -38,10 +38,21 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
             if (cachedDomains == null || forceRefresh) {
                 try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<DomainsParser>()
+                    val response = app.get(DOMAINS_URL)
+                    cachedDomains = response.parsedSafe<DomainsParser>()
+                    println("MultiMovies: Successfully fetched domains - ${cachedDomains?.multiMovies}")
+                    
+                    // Override with working domain if fetched domain is different
+                    if (cachedDomains?.multiMovies != "https://multimovies.agency") {
+                        cachedDomains = DomainsParser("https://multimovies.agency")
+                        println("MultiMovies: Using override domain - https://multimovies.agency")
+                    }
                 } catch (e: Exception) {
+                    println("MultiMovies: Error fetching domains - ${e.message}")
                     e.printStackTrace()
-                    return null
+                    // Use fallback domain
+                    cachedDomains = DomainsParser("https://multimovies.agency")
+                    println("MultiMovies: Using fallback domain - https://multimovies.agency")
                 }
             }
             return cachedDomains
@@ -65,12 +76,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val multiMoviesAPI = getDomains()?.multiMovies
-        val document = if (page == 1) {
-            app.get("$multiMoviesAPI/${request.data}", headers = headers).document
+        val multiMoviesAPI = (getDomains()?.multiMovies ?: mainUrl).removeSuffix("/")
+        val url = if (page == 1) {
+            "$multiMoviesAPI/${request.data}"
         } else {
-            app.get("$multiMoviesAPI/${request.data}" + "page/$page/", headers = headers).document
+            "$multiMoviesAPI/${request.data}page/$page/"
         }
+        println("MultiMovies: Fetching URL - $url")
+        val document = app.get(url, headers = headers).document
         val home = if (request.data.contains("/movies")) {
             document.select("#archive-content > article, .movies-list article, .movie-item, article").mapNotNull {
                 it.toSearchResult()
@@ -109,8 +122,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val multiMoviesAPI = getDomains()?.multiMovies
-        val document = app.get("$multiMoviesAPI/?s=$query", headers = headers).document
+        val multiMoviesAPI = (getDomains()?.multiMovies ?: mainUrl).removeSuffix("/")
+        val url = "$multiMoviesAPI/?s=$query"
+        println("MultiMovies: Search URL - $url")
+        val document = app.get(url, headers = headers).document
         return document.select("div.result-item, .search-item, article").mapNotNull {
             val title =
                 it.selectFirst("article > div.details > div.title > a, .title a, h3 a, .entry-title a")?.text().toString().trim()
@@ -148,9 +163,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             .addEncoded("nume", nume)
             .addEncoded("type", "movie")
             .build()
-
+        
+        val multiMoviesAPI = (getDomains()?.multiMovies ?: mainUrl).removeSuffix("/")
         return app.post(
-            "$mainUrl/wp-admin/admin-ajax.php",
+            "$multiMoviesAPI/wp-admin/admin-ajax.php",
             requestBody = body,
             referer = referUrl
         )
@@ -279,7 +295,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             )
         }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
-                val multiMoviesAPI = getDomains()?.multiMovies
+                val multiMoviesAPI = (getDomains()?.multiMovies ?: mainUrl).removeSuffix("/")
                 val source = app.post(
                     url = "$multiMoviesAPI/wp-admin/admin-ajax.php",
                     data = mapOf(
