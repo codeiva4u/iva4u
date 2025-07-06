@@ -36,7 +36,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
         "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
+        "genre/netflix/" to "Netflix",
         "genre/sony-liv/" to "Sony Live",
         "genre/k-drama/" to "KDrama",
         "genre/zee-5/" to "Zee5",
@@ -78,7 +78,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val fixedHref = fixUrl(href)
         
         // Get poster image from div.poster img or div.image img
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster img, div.image img")?.getImageUrl())
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster img, div.image img, div.thumbnail img")?.getImageUrl())
         
         // Get quality from mepo span
         val quality = getQualityFromString(this.select("div.mepo span").text())
@@ -143,7 +143,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         
         // Get poster from div.poster img with proper src attribute handling
         val poster = fixUrlNull(
-            doc.selectFirst("div.sheader div.poster img, div.poster img")?.getImageUrl()
+            doc.selectFirst("div.sheader div.poster img, div.poster img, div.thumbnail img")?.getImageUrl()
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.split(",")?.getOrNull(1)?.trim()?.toIntOrNull()
@@ -201,7 +201,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 newEpisode(epHref) {
                     this.name = it.selectFirst("div.episodiotitle > a")?.text()
                     // FIX 2: Use helper for episode poster
-                    this.posterUrl = fixUrlNull(it.selectFirst("div.poster img, div.imagen > img")?.getImageUrl())
+                    this.posterUrl = fixUrlNull(it.selectFirst("div.poster img, div.imagen > img, div.thumbnail img")?.getImageUrl())
                     this.season = it.parent()?.parent()?.selectFirst(".se-t")?.text()
                         ?.filter { c -> c.isDigit() }?.toIntOrNull()
                     this.episode = it.selectFirst(".numerando")?.text()?.split("x")?.getOrNull(1)
