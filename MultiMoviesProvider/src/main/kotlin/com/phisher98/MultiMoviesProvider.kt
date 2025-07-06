@@ -115,7 +115,7 @@ class MultiMoviesProvider : MainAPI() {
             val href = fixUrl(it.selectFirst("div.title > a")?.attr("href").toString())
             
             // FIX 2: आलसी लोड किए गए खोज परिणाम पोस्टर के लिए सहायक का उपयोग करें।
-            val posterUrl = fixUrlNull(it.selectFirst("div.image img")?.getImageUrl())
+            val posterUrl = fixUrlNull(it.selectFirst("div.poster > img")?.getImageUrl())
             val typeText = it.selectFirst("div.meta span.item-type")?.text() ?: ""
             val type = if (typeText.contains("Movie", true)) TvType.Movie else TvType.TvSeries
 
@@ -155,7 +155,7 @@ class MultiMoviesProvider : MainAPI() {
             ActorData(
                 Actor(
                     it.select("div.data > div.name > a").text(),
-                    it.select("div.img > a > img").getImageUrl()
+                    it.selectFirst("div.img > a > img")?.getImageUrl()
                 ),
                 roleString = it.select("div.data > div.caracter").text(),
             )
@@ -182,7 +182,7 @@ class MultiMoviesProvider : MainAPI() {
                 seasonElement.select("ul.episodios > li").mapNotNull { epElement ->
                     val epHref = epElement.selectFirst(".episodiotitle > a")?.attr("href") ?: return@mapNotNull null
                     val epName = epElement.selectFirst(".episodiotitle > a")?.text()
-                    val epThumb = epElement.selectFirst(".imagen > img")?.getImageUrl()
+                    val epThumb = epElement.selectFirst("div.poster > img")?.getImageUrl()
                     val epNum = epElement.selectFirst(".numerando")?.text()?.split("x")?.getOrNull(1)?.trim()?.toIntOrNull()
 
                     newEpisode(epHref) {
