@@ -84,35 +84,70 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         println("MultiMovies: Fetching URL - $url")
         val document = app.get(url, headers = headers).document
-        val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content article.item").mapNotNull {
+        
+        // Debug: Print document structure
+        println("MultiMovies: Document title - ${document.title()}")
+        println("MultiMovies: Archive content found - ${document.select("#archive-content").size}")
+        println("MultiMovies: Items div found - ${document.select("div.items").size}")
+        println("MultiMovies: All articles found - ${document.select("article").size}")
+        
+        var home = if (request.data.contains("/movies")) {
+            document.select("#archive-content article, article.item").mapNotNull {
                 it.toSearchResult()
             }
         } else {
-            document.select("div.items article.item").mapNotNull {
+            document.select("div.items article, article.item, .items article").mapNotNull {
                 it.toSearchResult()
             }
         }
+        
+        // Fallback if no items found
+        if (home.isEmpty()) {
+            println("MultiMovies: No items found, trying fallback selectors")
+            home = document.select("article, .item, .movie-item").mapNotNull {
+                it.toSearchResult()
+            }
+        }
+        
+        println("MultiMovies: Found ${home.size} items for ${request.name}")
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data h3 a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data h3 a")?.attr("href").toString())
+        // Debug element structure
+        println("MultiMovies: Processing element - ${this.tagName()}")
+        println("MultiMovies: Element classes - ${this.classNames()}")
+        
+        val title = this.selectFirst("div.data h3 a, .data h3 a, h3 a, .title a")?.text()?.trim()
+        if (title == null) {
+            println("MultiMovies: No title found, trying alternative selectors")
+            val altTitle = this.selectFirst("a")?.text()?.trim()
+            println("MultiMovies: Alt title found - $altTitle")
+            if (altTitle == null) return null
+        }
+        
+        val href = fixUrl(this.selectFirst("div.data h3 a, .data h3 a, h3 a, .title a, a")?.attr("href").toString())
+        println("MultiMovies: Title - $title, Href - $href")
+        
         val posterUrl = fixUrlNull(
             this.selectFirst("div.poster img")?.attr("src")
             ?: this.selectFirst("div.image img")?.attr("src")
+            ?: this.selectFirst(".poster img")?.attr("src")
+            ?: this.selectFirst(".image img")?.attr("src")
             ?: this.selectFirst("img")?.attr("src")
         )
-        val quality = getQualityFromString(this.select("div.mepo span.quality, span.quality").text())
-        val type = this.select("span.item_type").text()
+        println("MultiMovies: Poster URL - $posterUrl")
+        
+        val quality = getQualityFromString(this.select("div.mepo span.quality, span.quality, .quality").text())
+        val type = this.select("span.item_type, .item_type").text()
+        
         return if (href.contains("/movies/") || type.contains("Movie")) {
-            newMovieSearchResponse(title, href, TvType.Movie) {
+            newMovieSearchResponse(title ?: "Unknown Title", href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
             }
         } else {
-            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            newTvSeriesSearchResponse(title ?: "Unknown Title", href, TvType.TvSeries) {
                 this.posterUrl = posterUrl
                 this.quality = quality
             }
