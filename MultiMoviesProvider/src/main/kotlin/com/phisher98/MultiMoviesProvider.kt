@@ -86,9 +86,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster img, div.thumbnail img, img.attachment-post-thumbnail")?.let {
-            it.attr("data-src").ifBlank { it.attr("src") }
-        })
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster img")?.let {
+             it.attr("data-src").ifBlank { it.attr("src") }
+         })
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -113,7 +113,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article div.image img, article div.thumbnail img, img.attachment-post-thumbnail")?.let { img ->
+                it.selectFirst("article div.poster img")?.let { img ->
                     img.attr("data-src").ifBlank { img.attr("src") }
                 }
             )
@@ -160,7 +160,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("div.poster img, div.sheader div.poster img, img.attachment-post-thumbnail")?.let {
+            doc.selectFirst("div.poster img")?.let {
                 it.attr("data-src").ifBlank { it.attr("src") }
             }
         )
@@ -211,7 +211,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         this.name = it.select("div.episodiotitle > a").text()
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen img, div.thumbnail img, img.attachment-post-thumbnail").let { img ->
+                        this.posterUrl = it.select("div.imagen img").let { img ->
                             img.attr("data-src").ifBlank { img.attr("src") }
                         }
                     }

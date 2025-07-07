@@ -1,5 +1,49 @@
 {
   "mcpServers": {
+    "puppeteer-real-browser": {
+      "command": "npx",
+      "args": [
+        "puppeteer-real-browser-mcp-server@latest"
+      ],
+      "env": {
+        "CHROME_PATH": "C:/Program Files/Google/Chrome/Application/chrome.exe"
+      },
+      "autoApprove": [
+        "browser_init",
+        "navigate",
+        "get_content",
+        "browser_close",
+        "click",
+        "type",
+        "wait",
+        "find_selector",
+        "random_scroll",
+        "solve_captcha"
+      ],
+      "alwaysAllow": [
+        "browser_init",
+        "navigate",
+        "get_content",
+        "browser_close",
+        "click",
+        "type",
+        "wait",
+        "find_selector",
+        "random_scroll",
+        "solve_captcha"
+      ],
+      "toolConfig": {
+        "solve_captcha": {
+          "supportedTypes": [
+            "recaptcha",
+            "hCaptcha", 
+            "turnstile"
+          ],
+          "defaultType": "recaptcha",
+          "autoDetect": true
+        }
+      }
+    },
     "firecrawl-mcp": {
       "command": "npx",
       "args": [
@@ -49,34 +93,6 @@
       ],
       "disabledTools": [
         "pdf"
-      ]
-    },
-    "puppeteer": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-puppeteer"
-      ],
-      "autoApprove": [
-        "md",
-        "html",
-        "screenshot",
-        "pdf",
-        "execute_js",
-        "crawl",
-        "ask"
-      ],
-      "timeout": 60,
-      "alwaysAllow": [
-        "puppeteer_navigate",
-        "puppeteer_screenshot",
-        "puppeteer_click",
-        "puppeteer_fill",
-        "puppeteer_select",
-        "puppeteer_hover",
-        "puppeteer_evaluate",
-        "close",
-        "puppeteer_close"
       ]
     },
     "context7": {
