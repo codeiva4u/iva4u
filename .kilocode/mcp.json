@@ -6,7 +6,7 @@
         "puppeteer-real-browser-mcp-server@latest"
       ],
       "env": {
-        "CHROME_PATH": "C:/Program Files/Google/Chrome/Application/chrome.exe"
+        "CHROME_PATH": "C:\\Users\\Ivan-Sunil\\AppData\\Local\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
       },
       "autoApprove": [
         "browser_init",
