@@ -11,7 +11,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.agency/"
+    override var mainUrl = "https://multimovies.boutique"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -86,9 +86,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > a > img")?.let {
-             it.attr("data-src").ifBlank { it.attr("src") }
-         })
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -113,9 +111,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article div.poster img")?.let { img ->
-                    img.attr("data-src").ifBlank { img.attr("src") }
-                }
+                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
             )
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail > a > span").text()
@@ -160,9 +156,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("div.poster > img")?.let {
-                it.attr("data-src").ifBlank { it.attr("src") }
-            }
+            doc.select("div.g-item a").attr("href")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -211,9 +205,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         this.name = it.select("div.episodiotitle > a").text()
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen > a > img").let { img ->
-                            img.attr("data-src").ifBlank { img.attr("src") }
-                        }
+                        this.posterUrl = it.select("div.imagen > img").attr("src")
                     }
                 )
             }
