@@ -71,14 +71,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             app.get("$multiMoviesAPI/${request.data}" + "page/$page/").document
         }
-        val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content > article").mapNotNull {
-                it.toSearchResult()
-            }
-        } else {
-            document.select("div.items > article").mapNotNull {
-                it.toSearchResult()
-            }
+        val home = document.select("div.items > article").mapNotNull {
+            it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
@@ -86,7 +80,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.let {
+            it.attr("data-src").ifBlank { it.attr("src") }
+        })
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -110,9 +106,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val href = fixUrl(
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
-            val posterUrl = fixUrlNull(
-                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
-            )
+            val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.let {
+                it.attr("data-src").ifBlank { it.attr("src") }
+            })
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail > a > span").text()
             if (type.contains("Movie")) {
@@ -155,9 +151,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
-        val poster = fixUrlNull(
-            doc.select("div.g-item a").attr("href")
-        )
+        val poster = fixUrlNull(doc.selectFirst("div.poster > img")?.let {
+            it.attr("data-src").ifBlank { it.attr("src") }
+        })
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
