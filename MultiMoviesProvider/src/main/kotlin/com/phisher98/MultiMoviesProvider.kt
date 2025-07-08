@@ -56,20 +56,20 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             app.get("$mainUrl/${request.data}" + "page/$page/", headers = headers).document
         }
-        // Updated selectors for new website structure - target specific containers and their articles
-        val home = document.select("#dt-movies article.item, #dt-tvshows article.item, #featured-titles article.item, #slider-movies-tvshows article.item, .items article.item, .normal article.item, .featured article.item, div.items > article, article.item").mapNotNull {
+        // More specific selectors for better content extraction
+        val home = document.select("article.item, .movie-item, .tv-item, .content-item, div.items article, .normal article, .featured article").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Multiple selectors for title
-        val title = this.selectFirst("div.data > h3 > a, .title > a, h3 > a, h2 > a, .entry-title > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a, .title > a, h3 > a, h2 > a, .entry-title > a")?.attr("href").toString())
+        // Multiple selectors for title - updated for actual website structure
+        val title = this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a, .entry-title > a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a, .entry-title > a")?.attr("href").toString())
         
-        // Multiple selectors for poster with different possible attributes
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img, .poster img, .thumbnail img, .image img, img")?.let {
+        // Updated selectors for poster - website uses div.poster > img structure
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img, div.image > a > img, .poster img, .thumbnail img, .image img, img")?.let {
             it.attr("data-src").ifBlank {
                 it.attr("src").ifBlank {
                     it.attr("data-lazy-src").ifBlank {
@@ -79,10 +79,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         })
         
-        // Multiple selectors for quality
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, .quality, .ribbon, .hd").text())
+        // Updated selectors for quality - website uses div.mepo structure
+        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, div.mepo span.quality, .quality, .ribbon, .hd").text())
         
-        return if (href.contains("Movie") || href.contains("movies")) {
+        return if (href.contains("movies") || href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -101,12 +101,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "referer" to mainUrl
         )
         val document = app.get("$mainUrl/?s=$query", headers = headers).document
-        return document.select("div.result-item article, .search-item, .movie-item, .tvshow-item, article").mapNotNull {
-            val title = it.selectFirst("div.details > div.title > a, .title > a, h3 > a, h2 > a, div.data > h3 > a")?.text()?.trim() ?: return@mapNotNull null
-            val href = fixUrl(it.selectFirst("div.details > div.title > a, .title > a, h3 > a, h2 > a, div.data > h3 > a")?.attr("href").toString())
+        return document.select("div.result-item, article.item, .search-item, .movie-item, .tvshow-item, article").mapNotNull {
+            val title = it.selectFirst("div.details > div.title > a, div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.text()?.trim() ?: return@mapNotNull null
+            val href = fixUrl(it.selectFirst("div.details > div.title > a, div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.attr("href").toString())
             
-            // Multiple selectors for poster in search results
-            val posterUrl = fixUrlNull(it.selectFirst("div.image > div.thumbnail > a > img, div.poster > img, .poster img, .thumbnail img, .image img, img")?.let { img ->
+            // Updated selectors for poster in search results - matching website structure
+            val posterUrl = fixUrlNull(it.selectFirst("div.image > div.thumbnail > a > img, div.poster > img, div.image > a > img, .poster img, .thumbnail img, .image img, img")?.let { img ->
                 img.attr("data-src").ifBlank {
                     img.attr("src").ifBlank {
                         img.attr("data-lazy-src").ifBlank {
@@ -116,7 +116,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             })
             
-            val quality = getQualityFromString(it.select("div.image > div.thumbnail > a > span, div.poster > div.mepo > span, .quality, .ribbon, .hd").text())
+            val quality = getQualityFromString(it.select("div.image > div.thumbnail > a > span, div.poster > div.mepo > span, div.mepo span.quality, .quality, .ribbon, .hd").text())
             val type = it.select("div.image > div.thumbnail > a > span, .type, .movie-type").text()
             
             if (type.contains("Movie") || href.contains("movies")) {
