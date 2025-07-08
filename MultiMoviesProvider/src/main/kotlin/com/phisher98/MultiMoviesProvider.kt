@@ -56,20 +56,33 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             app.get("$mainUrl/${request.data}" + "page/$page/", headers = headers).document
         }
-        val home = document.select("div.items > article").mapNotNull {
+        // Updated selectors for new website structure - target specific containers and their articles
+        val home = document.select("#dt-movies article.item, #dt-tvshows article.item, #featured-titles article.item, #slider-movies-tvshows article.item, .items article.item, .normal article.item, .featured article.item, div.items > article, article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.let {
-            it.attr("src").ifBlank { it.attr("data-src") }
+        // Multiple selectors for title
+        val title = this.selectFirst("div.data > h3 > a, .title > a, h3 > a, h2 > a, .entry-title > a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("div.data > h3 > a, .title > a, h3 > a, h2 > a, .entry-title > a")?.attr("href").toString())
+        
+        // Multiple selectors for poster with different possible attributes
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img, .poster img, .thumbnail img, .image img, img")?.let {
+            it.attr("data-src").ifBlank {
+                it.attr("src").ifBlank {
+                    it.attr("data-lazy-src").ifBlank {
+                        it.attr("data-original")
+                    }
+                }
+            }
         })
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
-        return if (href.contains("Movie")) {
+        
+        // Multiple selectors for quality
+        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, .quality, .ribbon, .hd").text())
+        
+        return if (href.contains("Movie") || href.contains("movies")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -88,18 +101,25 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "referer" to mainUrl
         )
         val document = app.get("$mainUrl/?s=$query", headers = headers).document
-        return document.select("div.result-item").mapNotNull {
-            val title =
-                it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
-            val href = fixUrl(
-                it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
-            )
-            val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.let {
-                it.attr("src").ifBlank { it.attr("data-src") }
+        return document.select("div.result-item article, .search-item, .movie-item, .tvshow-item, article").mapNotNull {
+            val title = it.selectFirst("div.details > div.title > a, .title > a, h3 > a, h2 > a, div.data > h3 > a")?.text()?.trim() ?: return@mapNotNull null
+            val href = fixUrl(it.selectFirst("div.details > div.title > a, .title > a, h3 > a, h2 > a, div.data > h3 > a")?.attr("href").toString())
+            
+            // Multiple selectors for poster in search results
+            val posterUrl = fixUrlNull(it.selectFirst("div.image > div.thumbnail > a > img, div.poster > img, .poster img, .thumbnail img, .image img, img")?.let { img ->
+                img.attr("data-src").ifBlank {
+                    img.attr("src").ifBlank {
+                        img.attr("data-lazy-src").ifBlank {
+                            img.attr("data-original")
+                        }
+                    }
+                }
             })
-            val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
-            val type = it.select("article > div.image > div.thumbnail > a > span").text()
-            if (type.contains("Movie")) {
+            
+            val quality = getQualityFromString(it.select("div.image > div.thumbnail > a > span, div.poster > div.mepo > span, .quality, .ribbon, .hd").text())
+            val type = it.select("div.image > div.thumbnail > a > span, .type, .movie-type").text()
+            
+            if (type.contains("Movie") || href.contains("movies")) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
                     this.posterUrl = posterUrl
                     this.quality = quality
@@ -148,8 +168,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
-        val poster = fixUrlNull(doc.selectFirst("div.poster > img")?.let {
-            it.attr("src").ifBlank { it.attr("data-src") }
+        val poster = fixUrlNull(doc.selectFirst("div.poster > img, .poster img, .movie-poster img, .thumbnail img, .featured-image img, img.wp-post-image")?.let {
+            it.attr("data-src").ifBlank {
+                it.attr("src").ifBlank {
+                    it.attr("data-lazy-src").ifBlank {
+                        it.attr("data-original")
+                    }
+                }
+            }
         })
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -192,7 +218,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         this.name = it.select("div.episodiotitle > a").text()
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen > img").attr("data-src")
+                        this.posterUrl = it.select("div.imagen > img, .episode-poster img, .thumb img, img").attr("data-src").ifBlank {
+                            it.select("div.imagen > img, .episode-poster img, .thumb img, img").attr("src")
+                        }
                     }
                 )
             }

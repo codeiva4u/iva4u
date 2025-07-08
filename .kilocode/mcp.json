@@ -44,36 +44,6 @@
         }
       }
     },
-    "firecrawl-mcp": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "firecrawl-mcp"
-      ],
-      "env": {
-        "FIRECRAWL_API_KEY": "fc-38a74600e4794626a1dab91a6988a9b9"
-      },
-      "autoApprove": [
-        "firecrawl_scrape",
-        "firecrawl_map",
-        "firecrawl_crawl",
-        "firecrawl_check_crawl_status",
-        "firecrawl_search",
-        "firecrawl_extract",
-        "firecrawl_deep_research",
-        "firecrawl_generate_llmstxt"
-      ],
-      "alwaysAllow": [
-        "firecrawl_scrape",
-        "firecrawl_map",
-        "firecrawl_crawl",
-        "firecrawl_check_crawl_status",
-        "firecrawl_search",
-        "firecrawl_extract",
-        "firecrawl_deep_research",
-        "firecrawl_generate_llmstxt"
-      ]
-    },
     "crawl4ai": {
       "transport": "sse",
       "url": "https://mcpserver.duckdns.org/mcp/sse",
