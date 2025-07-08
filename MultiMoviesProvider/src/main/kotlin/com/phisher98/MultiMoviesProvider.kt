@@ -59,14 +59,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val document = app.get(mainUrl, headers = headers).document
             val home = ArrayList<HomePageList>()
             
-            document.select("div.items.full, div.items.featured, #slider-movies-tvshows").forEach { section ->
+            
+            document.select("div.tab-content").forEach { section ->
                 val titleElement = section.previousElementSibling()
                 val title = titleElement?.selectFirst("span.title")?.text()?.ifEmpty {
                     titleElement.text()
                 } ?: "Featured"
 
                 val items = section.select("article.item").mapNotNull { it.toSearchResult() }
-
                 if (items.isNotEmpty()) {
                     home.add(HomePageList(title, items))
                 }
@@ -87,12 +87,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.attr("href").toString())
+        val title = this.selectFirst("h3.title > a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("h3.title > a")?.attr("href").toString())
         
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img, div.image > a > img")?.let {
-            it.attr("data-src").ifBlank { it.attr("src") }
-        })
+        val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
         
         val quality = getQualityFromString(this.select("div.poster div.mepo span.quality, span.quality").text())
         val typeText = this.select("div.poster > a > span, .type, .dtyear").text()
@@ -112,7 +110,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query").document
-        return document.select(".search-page .result-item article, .results-post article").mapNotNull {
+        return document.select(".search-page .result-item article, .results-post article, div.items article.item").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -145,15 +143,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url).document
         
-        val title = doc.selectFirst("div.sheader div.data h1")?.text()?.trim() ?: return null
-        val poster = fixUrlNull(doc.selectFirst("div.poster > img")?.attr("src"))
+        val title = doc.selectFirst("div.single-content div.sheader div.data h1")?.text()?.trim() ?: return null
+        val poster = fixUrlNull(doc.selectFirst("div.thumb > img")?.attr("src"))
         val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val yearElement = doc.selectFirst("span.date, .extra .date")
+        val yearElement = doc.selectFirst(".date")
         val year = yearElement?.text()?.let {
             Regex("(\\d{4})").find(it)?.value?.toIntOrNull()
         }
 
-        val description = doc.selectFirst("#info .wp-content p, .single_contenido p")?.text()?.trim()
+        val description = doc.selectFirst(".text")?.text()?.trim()
         val type = if (doc.selectFirst("#episodes") != null || url.contains("tvshows")) TvType.TvSeries else TvType.Movie
         
         val trailer = doc.selectFirst("#player-option-trailer")?.attr("data-post")?.let { postId ->
@@ -170,17 +168,17 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             ActorData(Actor(name, image), roleString = role)
         }
 
-        val recommendations = doc.select("#dtw_content_related-2 article, #related-movies article").mapNotNull {
+        val recommendations = doc.select("div.dtw_content_related article").mapNotNull {
             it.toSearchResult()
         }
 
         val episodes = doc.select("#seasons .se-c")
             .flatMapIndexed { seasonNum, seasonElement ->
-                seasonElement.select(".episodios li").mapNotNull { epElement ->
+                seasonElement.select(".season_item").mapNotNull { epElement ->
                     val href = epElement.selectFirst("a")?.attr("href") ?: return@mapNotNull null
-                    val name = epElement.selectFirst(".episodiotitle a")?.text()
-                    val posterEp = fixUrlNull(epElement.selectFirst(".imagen img")?.attr("src"))
-                    val episode = epElement.selectFirst(".numerando")?.text()?.filter { it.isDigit() }?.toIntOrNull()
+                    val name = epElement.selectFirst(".title a")?.text()
+                    val posterEp = fixUrlNull(epElement.selectFirst(".img a img")?.attr("src"))
+                    val episode = epElement.selectFirst(".number")?.text()?.filter { it.isDigit() }?.toIntOrNull()
                     
                     newEpisode(href) {
                         this.name = name
