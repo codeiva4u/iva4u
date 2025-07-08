@@ -23,8 +23,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.AnimeMovie,
     )
 
+
     override val mainPage = mainPageOf(
-        "trending/" to "Trending",
+        "movies/" to "Latest Release",
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
@@ -34,44 +35,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/jio-ott/" to "Jio OTT",
         "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
-        "genre/k-drama/" to "KDrama",
         "genre/zee-5/" to "Zee5",
-        "genre/anime-hindi/" to "Anime Series",
-        "genre/anime-movies/" to "Anime Movies",
-        "genre/cartoon-network/" to "Cartoon Network",
-        "genre/disney-channel/" to "Disney Channel",
-        "genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = if (page == 1) {
-            app.get("$mainUrl/${request.data}").document
+        val url = if (page == 1) {
+            "$mainUrl${request.data}"
         } else {
-            app.get("$mainUrl/${request.data}" + "page/$page/").document
+            "$mainUrl${request.data}page/$page/"
         }
-        val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content > article").mapNotNull {
-                it.toSearchResult()
-            }
-        } else {
-            document.select("div.items > article").mapNotNull {
-                it.toSearchResult()
-            }
+        val document = app.get(url).document
+
+        val home = document.select("div.items article").mapNotNull {
+            it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster img")?.let {
-             it.attr("data-src").ifBlank { it.attr("src") }
-         })
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
-        return if (href.contains("Movie")) {
+        val titleElement = this.selectFirst(".data h3 a") ?: return null
+        val title = titleElement.text().trim()
+        val href = fixUrl(titleElement.attr("href"))
+        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+        val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
+        val isMovie = href.contains("movie", ignoreCase = true)
+
+        return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -85,33 +77,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query").document
-        return document.select("div.result-item").mapNotNull {
-            val title =
-                it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
-            val href = fixUrl(
-                it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
-            )
-            val posterUrl = fixUrlNull(
-                it.selectFirst("article div.image img")?.let { img ->
-                    img.attr("data-src").ifBlank { img.attr("src") }
-                }
-            )
-            val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
-            val type = it.select("article > div.image > div.thumbnail > a > span").text()
-            if (type.contains("Movie")) {
-                newMovieSearchResponse(title, href, TvType.Movie) {
-                    this.posterUrl = posterUrl
-                    this.quality = quality
-                }
-            } else {
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                    this.quality = quality
-                }
+        val response = app.get("$mainUrl/wp-json/dooplay/search/?s=$query").parsed<List<SearchAPIResponse>>()
+        return response.mapNotNull {
+            newMovieSearchResponse(it.title, it.url, TvType.Movie) {
+                posterUrl = it.img
             }
         }
     }
+
+    data class SearchAPIResponse(
+        @JsonProperty("title") val title: String,
+        @JsonProperty("url") val url: String,
+        @JsonProperty("img") val img: String?
+    )
 
     private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
         val body = FormBody.Builder()
@@ -140,9 +118,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("div.poster img")?.let {
-                it.attr("data-src").ifBlank { it.attr("src") }
-            }
+            doc.selectFirst("#dt_galery .g-item img")?.attr("src") ?:
+            doc.selectFirst("div.sheader div.poster img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -191,9 +168,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         this.name = it.select("div.episodiotitle > a").text()
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen img").let { img ->
-                            img.attr("data-src").ifBlank { img.attr("src") }
-                        }
+                        this.posterUrl = it.select("div.imagen > img").attr("src")
                     }
                 )
             }
@@ -263,10 +238,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         if (link.contains("deaddrive.xyz")) {
                             app.get(link).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
-                                loadExtractor(server, referer = multiMoviesAPI, subtitleCallback, callback)
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
                         } else
-                            loadExtractor(link, referer = multiMoviesAPI, subtitleCallback, callback)
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
 
                     else -> return@amap
