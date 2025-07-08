@@ -23,7 +23,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.AnimeMovie,
     )
 
+    // Re-introducing the static main page list with a special homepage request
     override val mainPage = mainPageOf(
+        "@homepage" to "Home",
         "trending/" to "Trending",
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
@@ -51,14 +53,44 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
             "referer" to mainUrl
         )
+
+        // Handle the dynamic homepage request
+        if (request.data == "@homepage") {
+            if (page > 1) return HomePageResponse(emptyList()) // No pagination on main page
+
+            val document = app.get(mainUrl, headers = headers).document
+            val home = ArrayList<HomePageList>()
+            
+            // Find all sections on the homepage
+            document.select("div.items.full, div.items.featured, #slider-movies-tvshows").forEach { section ->
+                val titleElement = section.previousElementSibling()
+                val title = titleElement?.selectFirst("span.title")?.text()?.ifEmpty {
+                    titleElement.text()
+                } ?: "Featured"
+
+                val items = section.select("article.item").mapNotNull { it.toSearchResult() }
+
+                if (items.isNotEmpty()) {
+                    home.add(HomePageList(title, items))
+                }
+            }
+            return HomePageResponse(home)
+        }
+
+        // Handle static category page requests
         val document = if (page == 1) {
             app.get("$mainUrl/${request.data}", headers = headers).document
         } else {
             app.get("$mainUrl/${request.data}" + "page/$page/", headers = headers).document
         }
-        // More specific selectors for better content extraction
-        val home = document.select("article.item, .movie-item, .tv-item, .content-item, div.items article, .normal article, .featured article").mapNotNull {
+        
+        var home = document.select("div.items article.item, #archive-content article.item").mapNotNull {
             it.toSearchResult()
+        }
+        if (home.isEmpty()) {
+            home = document.select("article.item").mapNotNull {
+                it.toSearchResult()
+            }
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
@@ -101,35 +133,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "referer" to mainUrl
         )
         val document = app.get("$mainUrl/?s=$query", headers = headers).document
-        return document.select("div.result-item, article.item, .search-item, .movie-item, .tvshow-item, article").mapNotNull {
-            val title = it.selectFirst("div.details > div.title > a, div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.text()?.trim() ?: return@mapNotNull null
-            val href = fixUrl(it.selectFirst("div.details > div.title > a, div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a")?.attr("href").toString())
-            
-            // Updated selectors for poster in search results - matching website structure
-            val posterUrl = fixUrlNull(it.selectFirst("div.image > div.thumbnail > a > img, div.poster > img, div.image > a > img, .poster img, .thumbnail img, .image img, img")?.let { img ->
-                img.attr("data-src").ifBlank {
-                    img.attr("src").ifBlank {
-                        img.attr("data-lazy-src").ifBlank {
-                            img.attr("data-original")
-                        }
-                    }
-                }
-            })
-            
-            val quality = getQualityFromString(it.select("div.image > div.thumbnail > a > span, div.poster > div.mepo > span, div.mepo span.quality, .quality, .ribbon, .hd").text())
-            val type = it.select("div.image > div.thumbnail > a > span, .type, .movie-type").text()
-            
-            if (type.contains("Movie") || href.contains("movies")) {
-                newMovieSearchResponse(title, href, TvType.Movie) {
-                    this.posterUrl = posterUrl
-                    this.quality = quality
-                }
-            } else {
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                    this.quality = quality
-                }
-            }
+        // Use a consistent element mapping function for search results.
+        return document.select("div.result-item article.item, .search-page article.item").mapNotNull {
+            it.toSearchResult()
         }
     }
 
