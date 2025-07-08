@@ -59,7 +59,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleElement = this.selectFirst(".data h3 a") ?: return null
         val title = titleElement.text().trim()
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("data-src"))
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
         val isMovie = href.contains("movie", ignoreCase = true)
 
@@ -168,7 +168,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         this.name = it.select("div.episodiotitle > a").text()
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen > img").attr("src")
+                        this.posterUrl = it.select("div.imagen > img").attr("data-src")
                     }
                 )
             }
