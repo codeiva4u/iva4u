@@ -11,7 +11,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.agency/"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -22,24 +22,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
-
-    companion object {
-        //val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0", "X-Requested-With" to "XMLHttpRequest")
-        private const val DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
-        private var cachedDomains: DomainsParser? = null
-
-        suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
-            if (cachedDomains == null || forceRefresh) {
-                try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<DomainsParser>()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    return null
-                }
-            }
-            return cachedDomains
-        }
-    }
 
     override val mainPage = mainPageOf(
         "trending/" to "Trending",
@@ -65,11 +47,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val multiMoviesAPI = getDomains()?.multiMovies
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0"
+        )
         val document = if (page == 1) {
-            app.get("$multiMoviesAPI/${request.data}").document
+            app.get("$mainUrl/${request.data}", headers = headers).document
         } else {
-            app.get("$multiMoviesAPI/${request.data}" + "page/$page/").document
+            app.get("$mainUrl/${request.data}" + "page/$page/", headers = headers).document
         }
         val home = document.select("div.items > article").mapNotNull {
             it.toSearchResult()
@@ -98,8 +82,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val multiMoviesAPI = getDomains()?.multiMovies
-        val document = app.get("$multiMoviesAPI/?s=$query").document
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0"
+        )
+        val document = app.get("$mainUrl/?s=$query", headers = headers).document
         return document.select("div.result-item").mapNotNull {
             val title =
                 it.selectFirst("article > div.details > div.title > a")?.text().toString().trim()
@@ -125,19 +111,24 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
-    private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
-        val body = FormBody.Builder()
-            .addEncoded("action", "doo_player_ajax")
-            .addEncoded("post", postid.toString())
-            .addEncoded("nume", nume)
-            .addEncoded("type", "movie")
-            .build()
+    private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse? {
+        return try {
+            val body = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", postid.toString())
+                .addEncoded("nume", nume)
+                .addEncoded("type", "movie")
+                .build()
 
-        return app.post(
-            "$mainUrl/wp-admin/admin-ajax.php",
-            requestBody = body,
-            referer = referUrl
-        )
+            app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = body,
+                referer = referUrl
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     data class TrailerUrl(
@@ -146,7 +137,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0"
+        )
+        val doc = app.get(url, headers = headers).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
@@ -161,14 +155,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val trailerRegex = Regex("\"http.*\"")
 
         var trailer: String? = if (type == TvType.Movie) {
-            try {
-                val postId = doc.select("#player-option-trailer").attr("data-post")
-                val embedResponse = getEmbed(postId, "trailer", url)
-                val parsed = embedResponse.parsed<TrailerUrl>()
-                parsed.embedUrl?.let { fixUrlNull(it) }
-            } catch (e: Exception) {
-                null
-            }
+            val postId = doc.select("#player-option-trailer").attr("data-post")
+            getEmbed(postId, "trailer", url)?.parsed<TrailerUrl>()?.embedUrl?.let { fixUrlNull(it) }
         } else {
             val iframeSrc = doc.select("iframe.rptss").attr("src")
             fixUrlNull(iframeSrc)
@@ -245,7 +233,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).document
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0"
+        )
+        val req = app.get(data, headers = headers).document
         req.select("ul#playeroptionsul li").map {
                 Triple(
                     it.attr("data-post"),
@@ -254,16 +245,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 )
             }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
-                val multiMoviesAPI = getDomains()?.multiMovies
                 val source = app.post(
-                    url = "$multiMoviesAPI/wp-admin/admin-ajax.php",
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
                     data = mapOf(
                         "action" to "doo_player_ajax",
                         "post" to id,
                         "nume" to nume,
                         "type" to type
                     ),
-                    referer = multiMoviesAPI,
+                    referer = mainUrl,
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
@@ -272,10 +262,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         if (link.contains("deaddrive.xyz")) {
                             app.get(link).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
-                                loadExtractor(server, referer = multiMoviesAPI, subtitleCallback, callback)
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
                         } else
-                            loadExtractor(link, referer = multiMoviesAPI, subtitleCallback, callback)
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
 
                     else -> return@amap
@@ -289,11 +279,5 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("embed_url") val embed_url: String,
         @JsonProperty("key") val key: String? = null,
         @JsonProperty("type") val type: String? = null,
-    )
-
-
-    data class DomainsParser(
-        @JsonProperty("MultiMovies")
-        val multiMovies: String,
     )
 }
