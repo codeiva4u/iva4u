@@ -49,7 +49,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         val document = app.get(url).document
 
-        val home = document.select("div.items article").mapNotNull {
+        val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
@@ -59,7 +59,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleElement = this.selectFirst(".data h3 a") ?: return null
         val title = titleElement.text().trim()
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("data-src"))
+        val posterUrl = fixUrlNull(this.selectFirst("img[data-src]")?.attr("data-src"))
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
         val isMovie = href.contains("movie", ignoreCase = true)
 
