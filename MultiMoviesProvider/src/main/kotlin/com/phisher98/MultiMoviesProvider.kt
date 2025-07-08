@@ -49,10 +49,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         val document = app.get(url).document
 
-        val home = document.select("article.item").mapNotNull {
+        // 👇 सेलेक्टर को ठीक कर दिया गया है ताकि यह दोनों तरह के पेज पर काम करे
+        val home = document.select("div#archive-content article, div.items article").mapNotNull {
             it.toSearchResult()
         }
-        // 👇 बस इस लाइन को ठीक किया गया है
         return newHomePageResponse(request.name, home)
     }
 
