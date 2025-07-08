@@ -2,6 +2,7 @@ package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.utils.CloudflareKiller
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.*
@@ -47,9 +48,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url).document
 
-        // 👇 सेलेक्टर को ठीक कर दिया गया है ताकि यह दोनों तरह के पेज पर काम करे
+        // 👇 यहाँ CloudflareKiller को जोड़ा गया है
+        val document = app.get(url, interceptor = CloudflareKiller()).document
+
         val home = document.select("div#archive-content article, div.items article").mapNotNull {
             it.toSearchResult()
         }
