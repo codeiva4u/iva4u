@@ -56,20 +56,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
         // Handle the dynamic homepage request
         if (request.data == "@homepage") {
-            if (page > 1) return HomePageResponse(emptyList()) // No pagination on main page
+            if (page > 1) return HomePageResponse(emptyList())
 
             val document = app.get(mainUrl, headers = headers).document
             val home = ArrayList<HomePageList>()
-            
-            // Find all sections on the homepage
-            document.select("div.items.full, div.items.featured, #slider-movies-tvshows").forEach { section ->
-                val titleElement = section.previousElementSibling()
-                val title = titleElement?.selectFirst("span.title")?.text()?.ifEmpty {
-                    titleElement.text()
-                } ?: "Featured"
 
-                val items = section.select("article.item").mapNotNull { it.toSearchResult() }
-
+            document.select("div.module").forEach { module ->
+                val title = module.selectFirst("h2")?.text()?.trim() ?: "Unknown"
+                val items = module.select("article.item").mapNotNull { it.toSearchResult() }
                 if (items.isNotEmpty()) {
                     home.add(HomePageList(title, items))
                 }
@@ -84,37 +78,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             app.get("$mainUrl/${request.data}" + "page/$page/", headers = headers).document
         }
         
-        var home = document.select("div.items article.item, #archive-content article.item").mapNotNull {
+        val home = document.select("div.items article.item, #archive-content article.item").mapNotNull {
             it.toSearchResult()
-        }
-        if (home.isEmpty()) {
-            home = document.select("article.item").mapNotNull {
-                it.toSearchResult()
-            }
         }
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Multiple selectors for title - updated for actual website structure
-        val title = this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a, .entry-title > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a, div.data h3 a, .title > a, h3 > a, h2 > a, .entry-title > a")?.attr("href").toString())
-        
-        // Updated selectors for poster - website uses div.poster > img structure
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img, div.image > a > img, .poster img, .thumbnail img, .image img, img")?.let {
-            it.attr("data-src").ifBlank {
-                it.attr("src").ifBlank {
-                    it.attr("data-lazy-src").ifBlank {
-                        it.attr("data-original")
-                    }
-                }
-            }
-        })
-        
-        // Updated selectors for quality - website uses div.mepo structure
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, div.mepo span.quality, .quality, .ribbon, .hd").text())
-        
-        return if (href.contains("movies") || href.contains("Movie")) {
+        val title = this.selectFirst("h3 a, .title a")?.text()?.trim() ?: return null
+        val href = fixUrl(this.selectFirst("h3 a, .title a")?.attr("href").toString())
+        val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
+        val quality = getQualityFromString(this.select(".quality").text())
+
+        return if (href.contains("movies") || href.contains("movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -133,8 +109,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "referer" to mainUrl
         )
         val document = app.get("$mainUrl/?s=$query", headers = headers).document
-        // Use a consistent element mapping function for search results.
-        return document.select("div.result-item article.item, .search-page article.item").mapNotNull {
+        return document.select("div.search-page article.item").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -170,37 +145,18 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "referer" to mainUrl
         )
         val doc = app.get(url, headers = headers).document
-        val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
-        val titleRegex = Regex("(^.*\\)\\d*)")
-        val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
-        val title = if (titleClean == "null") titleL else titleClean
-        val poster = fixUrlNull(doc.selectFirst("div.poster > img, .poster img, .movie-poster img, .thumbnail img, .featured-image img, img.wp-post-image")?.let {
-            it.attr("data-src").ifBlank {
-                it.attr("src").ifBlank {
-                    it.attr("data-lazy-src").ifBlank {
-                        it.attr("data-original")
-                    }
-                }
-            }
-        })
-        val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
-        val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
-        val type = if (url.contains("tvshows")) TvType.TvSeries else TvType.Movie
-        val trailerRegex = Regex("\"http.*\"")
+        val title = doc.selectFirst("div.data > h1")?.text()?.trim() ?: return null
+        val poster = fixUrlNull(doc.selectFirst("div.poster img")?.attr("src"))
+        val tags = doc.select("div.sgeneros a").map { it.text() }
+        val year = doc.selectFirst("span.date")?.text()?.toIntOrNull()
+        val description = doc.selectFirst("div.wp-content p")?.text()?.trim()
+        val type = if (doc.selectFirst("#seasons") != null) TvType.TvSeries else TvType.Movie
+        var trailer: String? = doc.selectFirst("iframe[src*=youtube]")?.attr("src")
 
-        var trailer: String? = if (type == TvType.Movie) {
-            val postId = doc.select("#player-option-trailer").attr("data-post")
-            getEmbed(postId, "trailer", url)?.parsed<TrailerUrl>()?.embedUrl?.let { fixUrlNull(it) }
-        } else {
-            val iframeSrc = doc.select("iframe.rptss").attr("src")
-            fixUrlNull(iframeSrc)
-        }
-        trailer = trailer?.let { trailerRegex.find(it)?.value?.trim('"') }
         val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
         val duration =
             doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
-                ?.toInt()
+                ?.toIntOrNull()
         val actors =
             doc.select("div.person").map {
                 ActorData(
@@ -211,22 +167,26 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     roleString = it.select("div.data > div.caracter").text(),
                 )
             }
-        val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
+        val recommendations = doc.select("div.recommended-articles article").mapNotNull {
             it.toSearchResult()
         }
 
         val episodes = ArrayList<Episode>()
-        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
-            me.select("li").mapIndexed { epNum, it ->
+        doc.select("ul.episodios li").forEach {
+            val epUrl = it.select("a").attr("href")
+            val epTitle = it.select("a").text()
+            val seasonMatch = Regex("""Season (\d+)""").find(doc.select(".se-c .title").text())
+            val seasonNum = seasonMatch?.groupValues?.get(1)?.toIntOrNull()
+            val epNumMatch = Regex("""Episode (\d+)""").find(epTitle)
+            val epNum = epNumMatch?.groupValues?.get(1)?.toIntOrNull()
+            
+            if (epUrl.isNotEmpty()) {
                 episodes.add(
-                    newEpisode(it.select("div.episodiotitle > a").attr("href"))
-                    {
-                        this.name = it.select("div.episodiotitle > a").text()
-                        this.season = seasonNum + 1
-                        this.episode = epNum + 1
-                        this.posterUrl = it.select("div.imagen > img, .episode-poster img, .thumb img, img").attr("data-src").ifBlank {
-                            it.select("div.imagen > img, .episode-poster img, .thumb img, img").attr("src")
-                        }
+                    newEpisode(epUrl) {
+                        this.name = epTitle
+                        this.season = seasonNum
+                        this.episode = epNum
+                        this.posterUrl = it.select("img").attr("src")
                     }
                 )
             }
