@@ -53,11 +53,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             app.get("$mainUrl/${request.data}" + "page/$page/").document
         }
         val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content > article").mapNotNull {
+            document.select("#single > div.content.right > div.sheader > div.poster > img").mapNotNull {
                 it.toSearchResult()
             }
         } else {
-            document.select("div.items > article").mapNotNull {
+            document.select("#single > div.content.right > div.sheader > div.poster > img").mapNotNull {
                 it.toSearchResult()
             }
         }
