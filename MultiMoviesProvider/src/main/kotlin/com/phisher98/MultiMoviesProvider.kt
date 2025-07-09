@@ -9,6 +9,8 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import org.jsoup.nodes.Element
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
+import com.lagradost.cloudstream3.network.CloudflareKiller
+
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
     override var mainUrl = "https://multimovies.agency/"
@@ -22,10 +24,22 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
-
+    override val mainPage = mainPageOf(
+        "movies/" to "Latest Release",
+        "genre/bollywood-movies/" to "Bollywood Movies",
+        "genre/hollywood/" to "Hollywood Movies",
+        "genre/south-indian/" to "South Indian Movies",
+        "genre/punjabi/" to "Punjabi Movies",
+        "genre/amazon-prime/" to "Amazon Prime",
+        "genre/disney-hotstar/" to "Disney Hotstar",
+        "genre/jio-ott/" to "Jio OTT",
+        "genre/netflix/" to "Netfilx",
+        "genre/sony-liv/" to "Sony Live",
+        "genre/zee-5/" to "Zee5",
+    )
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
     private val headers = mapOf("User-Agent" to userAgent)
-
+    private val interceptor = CloudflareKiller()
 
     override val mainPage = mainPageOf(
         "movies/" to "Latest Release",
@@ -50,7 +64,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url, headers = headers).document
+        val document = app.get(url, interceptor = interceptor, headers = headers).document
 
         val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
@@ -116,7 +130,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url, headers = headers).document
+        val doc = app.get(url, interceptor = interceptor, headers = headers).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
@@ -216,7 +230,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data, headers = headers).document
+        val req = app.get(data, interceptor = interceptor, headers = headers).document
         req.select("ul#playeroptionsul li").map {
                 Triple(
                     it.attr("data-post"),
@@ -238,13 +252,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         "type" to type
                     ),
                     referer = mainUrl,
+                    interceptor = interceptor,
                     headers = postHeaders
                 ).parsed<ResponseHash>().embed_url
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
                 when {
                     !link.contains("youtube") -> {
                         if (link.contains("deaddrive.xyz")) {
-                            app.get(link, headers = headers).document.select("ul.list-server-items > li").map {
+                            app.get(link, interceptor = interceptor, headers = headers).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
                                 loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
