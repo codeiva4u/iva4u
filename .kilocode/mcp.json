@@ -1,34 +1,48 @@
 {
   "mcpServers": {
-    "firecrawl-mcp": {
+    "puppeteer-real-browser": {
       "command": "npx",
       "args": [
-        "-y",
-        "firecrawl-mcp"
+        "puppeteer-real-browser-mcp-server@latest"
       ],
       "env": {
-        "FIRECRAWL_API_KEY": "fc-38a74600e4794626a1dab91a6988a9b9"
+        "CHROME_PATH": "C:\\Users\\Ivan-Sunil\\AppData\\Local\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
       },
       "autoApprove": [
-        "firecrawl_scrape",
-        "firecrawl_map",
-        "firecrawl_crawl",
-        "firecrawl_check_crawl_status",
-        "firecrawl_search",
-        "firecrawl_extract",
-        "firecrawl_deep_research",
-        "firecrawl_generate_llmstxt"
+        "browser_init",
+        "navigate",
+        "get_content",
+        "browser_close",
+        "click",
+        "type",
+        "wait",
+        "find_selector",
+        "random_scroll",
+        "solve_captcha"
       ],
       "alwaysAllow": [
-        "firecrawl_scrape",
-        "firecrawl_map",
-        "firecrawl_crawl",
-        "firecrawl_check_crawl_status",
-        "firecrawl_search",
-        "firecrawl_extract",
-        "firecrawl_deep_research",
-        "firecrawl_generate_llmstxt"
-      ]
+        "browser_init",
+        "navigate",
+        "get_content",
+        "browser_close",
+        "click",
+        "type",
+        "wait",
+        "find_selector",
+        "random_scroll",
+        "solve_captcha"
+      ],
+      "toolConfig": {
+        "solve_captcha": {
+          "supportedTypes": [
+            "recaptcha",
+            "hCaptcha", 
+            "turnstile"
+          ],
+          "defaultType": "recaptcha",
+          "autoDetect": true
+        }
+      }
     },
     "crawl4ai": {
       "transport": "sse",
@@ -49,109 +63,6 @@
       ],
       "disabledTools": [
         "pdf"
-      ]
-    },
-    "puppeteer": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-puppeteer"
-      ],
-      "autoApprove": [
-        "md",
-        "html",
-        "screenshot",
-        "pdf",
-        "execute_js",
-        "crawl",
-        "ask"
-      ],
-      "timeout": 60,
-      "alwaysAllow": [
-        "puppeteer_navigate",
-        "puppeteer_screenshot",
-        "puppeteer_click",
-        "puppeteer_fill",
-        "puppeteer_select",
-        "puppeteer_hover",
-        "puppeteer_evaluate",
-        "close",
-        "puppeteer_close"
-      ]
-    },
-    "github.com/executeautomation/mcp-playwright": {
-      "command": "npx",
-      "args": [
-        "@executeautomation/playwright-mcp-server"
-      ],
-      "disabled": false,
-      "autoApprove": [
-        "playwright_close",
-        "start_codegen_session",
-        "end_codegen_session",
-        "get_codegen_session",
-        "clear_codegen_session",
-        "playwright_navigate",
-        "playwright_screenshot",
-        "playwright_click",
-        "playwright_iframe_click",
-        "playwright_iframe_fill",
-        "playwright_fill",
-        "playwright_select",
-        "playwright_hover",
-        "playwright_upload_file",
-        "playwright_evaluate",
-        "playwright_console_logs",
-        "playwright_get",
-        "playwright_post",
-        "playwright_put",
-        "playwright_patch",
-        "playwright_delete",
-        "playwright_expect_response",
-        "playwright_assert_response",
-        "playwright_custom_user_agent",
-        "playwright_get_visible_text",
-        "playwright_get_visible_html",
-        "playwright_go_back",
-        "playwright_go_forward",
-        "playwright_drag",
-        "playwright_press_key",
-        "playwright_click_and_switch_tab",
-        "playwright_save_as_pdf"
-      ],
-      "alwaysAllow": [
-        "start_codegen_session",
-        "end_codegen_session",
-        "get_codegen_session",
-        "clear_codegen_session",
-        "playwright_navigate",
-        "playwright_screenshot",
-        "playwright_click",
-        "playwright_iframe_click",
-        "playwright_iframe_fill",
-        "playwright_fill",
-        "playwright_select",
-        "playwright_hover",
-        "playwright_upload_file",
-        "playwright_evaluate",
-        "playwright_console_logs",
-        "playwright_close",
-        "playwright_get",
-        "playwright_post",
-        "playwright_put",
-        "playwright_patch",
-        "playwright_delete",
-        "playwright_expect_response",
-        "playwright_assert_response",
-        "playwright_custom_user_agent",
-        "playwright_get_visible_text",
-        "playwright_get_visible_html",
-        "playwright_go_back",
-        "playwright_go_forward",
-        "playwright_drag",
-        "playwright_press_key",
-        "playwright_save_as_pdf",
-        "playwright_click_and_switch_tab"
       ]
     },
     "context7": {
