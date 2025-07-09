@@ -65,7 +65,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override val mainPage = mainPageOf(
-        "trending/" to "Trending",
+        "movies/" to "Latest Release",
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
@@ -75,13 +75,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/jio-ott/" to "Jio OTT",
         "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
-        "genre/k-drama/" to "KDrama",
         "genre/zee-5/" to "Zee5",
-        "genre/anime-hindi/" to "Anime Series",
-        "genre/anime-movies/" to "Anime Movies",
-        "genre/cartoon-network/" to "Cartoon Network",
-        "genre/disney-channel/" to "Disney Channel",
-        "genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -95,7 +89,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "$multiMoviesAPI/${request.data}page/$page/"
         }
         val document = app.get(url, headers = headers).document
-        val home = document.select("div.items > article, #archive-content > article").mapNotNull {
+        val home = document.select("article.item-movies").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(HomePageList(request.name, home))
@@ -104,7 +98,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("data-src"))
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         return if (href.contains("Movie", ignoreCase = true)) {
             newMovieSearchResponse(title, href, TvType.Movie) {
