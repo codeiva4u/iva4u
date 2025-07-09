@@ -1,7 +1,5 @@
 package com.phisher98
 
-import com.lagradost.cloudstream3.ErrorLoadingException
-import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
@@ -30,51 +28,48 @@ class MultiMoviesProvider : MainAPI() {
         TvType.Movie,
         TvType.TvSeries
     )
+
+    // mainPageOf का उपयोग होमपेज पर श्रेणियां (categories) बनाने का सबसे आसान तरीका है।
+    // बाईं ओर URL का हिस्सा है और दाईं ओर ऐप में दिखने वाला नाम है।
     override val mainPage = mainPageOf(
-        "movies/" to "Latest Release",
-        "genre/bollywood-movies/" to "Bollywood Movies",
-        "genre/hollywood/" to "Hollywood Movies",
-        "genre/south-indian/" to "South Indian Movies",
-        "genre/punjabi/" to "Punjabi Movies",
-        "genre/amazon-prime/" to "Amazon Prime",
-        "genre/disney-hotstar/" to "Disney Hotstar",
-        "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
-        "genre/sony-liv/" to "Sony Live",
-        "genre/zee-5/" to "Zee5",
+        "movies" to "Latest Movies",
+        "tvshows" to "Latest Web Series",
+        "genre/bollywood-movies" to "Bollywood Movies",
+        "genre/hollywood" to "Hollywood Movies",
+        "genre/south-indian" to "South Indian Movies",
+        "genre/punjabi" to "Punjabi Movies",
+        "genre/amazon-prime" to "Amazon Prime",
+        "genre/netflix" to "Netflix",
+        "genre/sony-liv" to "Sony Liv",
+        "genre/zee-5" to "Zee5",
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get(mainUrl).document
-        val allLists = ArrayList<HomePageList>()
+    // यह फ़ंक्शन ऊपर mainPage में दी गई प्रत्येक श्रेणी के लिए आइटम लोड करता है।
+    suspend fun loadPage(
+        page: Int,
+        request: MainPageRequest
+    ): HomePageResponse {
+        val url = "$mainUrl/${request.data}/page/$page/"
+        val document = app.get(url).document
 
-        val movies = document.select("div#dt-movies article.item").mapNotNull {
-            it.toSearchResponse()
-        }
-        if (movies.isNotEmpty()) {
-            allLists.add(HomePageList("Movies", movies))
-        }
-
-        val series = document.select("div#dt-tvshows article.item").mapNotNull {
-            it.toSearchResponse()
-        }
-        if (series.isNotEmpty()) {
-            allLists.add(HomePageList("Web Series", series))
+        // यह सेलेक्टर श्रेणी और होमपेज दोनों पर काम करता है
+        val items = document.select("article.item").mapNotNull {
+            it.toSearchResponse() // यहाँ हम सहायक फ़ंक्शन का उपयोग कर रहे हैं
         }
 
-        if (allLists.isEmpty()) throw ErrorLoadingException("No data found on homepage")
-        return newHomePageResponse(allLists)
+        return newHomePageResponse(request.name, items)
     }
 
+    // यह हमारा सहायक फ़ंक्शन है। यह एक ही स्थान पर सभी पार्सिंग लॉजिक रखता है।
     private fun Element.toSearchResponse(): SearchResponse? {
         val linkTag = this.selectFirst("a") ?: return null
         val href = linkTag.attr("href")
-        val title = linkTag.attr("title").ifBlank { this.selectFirst("h3 a")?.text() } ?: return null
+        val title = this.selectFirst(".title a")?.text() ?: linkTag.attr("title").ifBlank { this.selectFirst("h3 a")?.text() } ?: return null
         val poster = this.selectFirst("img")?.attr("src")
-        val yearText = this.selectFirst("div.data > span")?.text()
+        val yearText = this.selectFirst("div.data > span")?.text() ?: this.selectFirst("div.meta > span.year")?.text()
         val year = yearText?.split(". ")?.last()?.trim()?.toIntOrNull()
 
-        val isMovie = this.className().contains("movies") || this.selectFirst("span.movies") != null
+        val isMovie = this.selectFirst(".movies, span.movies") != null
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -89,14 +84,17 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
+    // यह फ़ंक्शन केवल खोज (search) के लिए है।
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
         val document = app.get(url).document
+        // खोज परिणामों के लिए एक अलग सेलेक्टर का उपयोग किया जाता है
         return document.select("div.result-item article").mapNotNull {
-            it.toSearchResponse()
+            it.toSearchResponse() // यहाँ भी हम उसी सहायक फ़ंक्शन का उपयोग कर रहे हैं
         }
     }
 
+    // यह फ़ंक्शन किसी मूवी या टीवी शो के विवरण पेज को लोड करता है।
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
         val title = document.selectFirst("div.data h1")?.text() ?: return null
@@ -157,6 +155,7 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
+    // यह फ़ंक्शन वीडियो चलाने के लिए अंतिम लिंक लोड करता है।
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
