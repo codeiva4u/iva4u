@@ -15,7 +15,6 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.TvSeriesSearchResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
@@ -28,20 +27,6 @@ class MultiMoviesProvider : MainAPI() {
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries
-    )
-
-    override val mainPage = mainPageOf(
-        "movies/" to "Latest Release",
-        "genre/bollywood-movies/" to "Bollywood Movies",
-        "genre/hollywood/" to "Hollywood Movies",
-        "genre/south-indian/" to "South Indian Movies",
-        "genre/punjabi/" to "Punjabi Movies",
-        "genre/amazon-prime/" to "Amazon Prime",
-        "genre/disney-hotstar/" to "Disney Hotstar",
-        "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
-        "genre/sony-liv/" to "Sony Live",
-        "genre/zee-5/" to "Zee5",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
