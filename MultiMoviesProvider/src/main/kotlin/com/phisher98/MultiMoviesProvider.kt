@@ -6,9 +6,10 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class MultiMoviesProvider : MainAPI() {
-    override var mainUrl = "https://multimovies.agency"
+    override var mainUrl = "https://multimovies.bond"
     override var name = "MultiMovies"
     override var lang = "hi"
+    private val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val hasQuickSearch = false
@@ -33,17 +34,17 @@ class MultiMoviesProvider : MainAPI() {
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url).document
-        val home = document.select("article.post").mapNotNull {
+        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        val home = document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
         return newHomePageResponse(request.name, home)
     }
 
     private fun toSearchResult(element: Element): SearchResponse? {
-        val title = element.selectFirst("h2.entry-title a")?.text() ?: return null
-        val href = element.selectFirst("h2.entry-title a")?.attr("href") ?: return null
-        val posterUrl = element.selectFirst("div.post-thumbnail img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
+        val title = element.selectFirst("div.data h3 a")?.text() ?: return null
+        val href = element.selectFirst("div.poster a")?.attr("href") ?: return null
+        val posterUrl = element.selectFirst("div.poster img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
 
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
@@ -52,14 +53,14 @@ class MultiMoviesProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
-        val document = app.get(url).document
-        return document.select("article.post").mapNotNull {
+        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        return document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val document = app.get(url).document
+        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
 
         val title = document.selectFirst("h1.entry-title")?.text() ?: return null
         val posterUrl = document.selectFirst("div.post-thumbnail img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
