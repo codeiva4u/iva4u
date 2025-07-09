@@ -1,6 +1,6 @@
 package com.phisher98
 
-import android.util.Log
+// import android.util.Log // REMOVED ANDROID IMPORT
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
@@ -46,7 +46,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val home = document.select("div.items > article, #archive-content > article").mapNotNull {
             it.toSearchResult()
         }
-        // FIX: Replaced deprecated HomePageResponse constructor with newHomePageResponse builder
         return newHomePageResponse(HomePageList(request.name, home), hasNext = true)
     }
 
@@ -140,7 +139,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.actors = actors
                 this.recommendations = recommendations
                 addTrailer(trailerUrl)
-                // FIX: Replaced deprecated Episode constructor with newEpisode builder
                 episodes = doc.select("ul.episodios > li").mapNotNull {
                     val href = it.selectFirst("div.episodiotitle > a")?.attr("href") ?: return@mapNotNull null
                     newEpisode(href) {
@@ -168,7 +166,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val doc = app.get(data).document
         val playerItems = doc.select("ul#playeroptionsul li")
 
-        // FIX: Replaced deprecated `apmap` with `amap` for non-blocking concurrency
         playerItems.amap { item ->
             val postId = item.attr("data-post")
             val nume = item.attr("data-nume")
@@ -195,7 +192,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         loadExtractor(link, data, subtitleCallback, callback)
                     }
                 } catch (e: Exception) {
-                    Log.e("MultiMoviesProvider", "Error loading links", e)
+                    // FIX: Replaced Android-specific logger with a platform-agnostic alternative.
+                    e.printStackTrace()
                 }
             }
         }
