@@ -43,7 +43,7 @@ class MultiMoviesProvider : MainAPI() {
     private fun toSearchResult(element: Element): SearchResponse? {
         val title = element.selectFirst("h2.entry-title a")?.text() ?: return null
         val href = element.selectFirst("h2.entry-title a")?.attr("href") ?: return null
-        val posterUrl = element.selectFirst("div.post-thumbnail img")?.attr("src")
+        val posterUrl = element.selectFirst("div.post-thumbnail img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
 
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
@@ -62,7 +62,7 @@ class MultiMoviesProvider : MainAPI() {
         val document = app.get(url).document
 
         val title = document.selectFirst("h1.entry-title")?.text() ?: return null
-        val posterUrl = document.selectFirst("div.post-thumbnail img")?.attr("src")
+        val posterUrl = document.selectFirst("div.post-thumbnail img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
         val plot = document.select("div.entry-content > p").joinToString("\n") { it.text() }
         val year = Regex("(\\d{4})").find(title)?.groupValues?.get(1)?.toIntOrNull()
         val tags = document.select("span.cat-links a").map { it.text() }
