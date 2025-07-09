@@ -86,7 +86,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             interceptor = interceptor,
             headers = headers
         ).parsed<List<SearchAPIResponse>>()
-        return response.map {
+        return response.amap {
             newMovieSearchResponse(it.title, it.url, TvType.Movie) {
                 posterUrl = it.img
             }
