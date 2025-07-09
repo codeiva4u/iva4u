@@ -1,20 +1,21 @@
 package com.phisher98
 
+import com.lagradost.cloudstream3.Episode
+import com.lagradost.cloudstream3.ErrorLoadingException
+import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.MovieLoadResponse
+import com.lagradost.cloudstream3.MovieSearchResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvSeriesLoadResponse
+import com.lagradost.cloudstream3.TvSeriesSearchResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.newEpisode
-import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
@@ -29,38 +30,42 @@ class MultiMoviesProvider : MainAPI() {
         TvType.TvSeries
     )
 
-    // mainPageOf का उपयोग होमपेज पर श्रेणियां (categories) बनाने का सबसे आसान तरीका है।
-    // बाईं ओर URL का हिस्सा है और दाईं ओर ऐप में दिखने वाला नाम है।
     override val mainPage = mainPageOf(
-        "movies" to "Latest Movies",
-        "tvshows" to "Latest Web Series",
-        "genre/bollywood-movies" to "Bollywood Movies",
-        "genre/hollywood" to "Hollywood Movies",
-        "genre/south-indian" to "South Indian Movies",
-        "genre/punjabi" to "Punjabi Movies",
-        "genre/amazon-prime" to "Amazon Prime",
-        "genre/netflix" to "Netflix",
-        "genre/sony-liv" to "Sony Liv",
-        "genre/zee-5" to "Zee5",
+        "movies/" to "Latest Release",
+        "genre/bollywood-movies/" to "Bollywood Movies",
+        "genre/hollywood/" to "Hollywood Movies",
+        "genre/south-indian/" to "South Indian Movies",
+        "genre/punjabi/" to "Punjabi Movies",
+        "genre/amazon-prime/" to "Amazon Prime",
+        "genre/disney-hotstar/" to "Disney Hotstar",
+        "genre/jio-ott/" to "Jio OTT",
+        "genre/netflix/" to "Netfilx",
+        "genre/sony-liv/" to "Sony Live",
+        "genre/zee-5/" to "Zee5",
     )
 
-    // यह फ़ंक्शन ऊपर mainPage में दी गई प्रत्येक श्रेणी के लिए आइटम लोड करता है।
-    suspend fun loadPage(
-        page: Int,
-        request: MainPageRequest
-    ): HomePageResponse {
-        val url = "$mainUrl/${request.data}/page/$page/"
-        val document = app.get(url).document
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val document = app.get(mainUrl).document
+        val allLists = ArrayList<HomePageList>()
 
-        // यह सेलेक्टर श्रेणी और होमपेज दोनों पर काम करता है
-        val items = document.select("article.item").mapNotNull {
-            it.toSearchResponse() // यहाँ हम सहायक फ़ंक्शन का उपयोग कर रहे हैं
+        val movies = document.select("div#dt-movies article.item").mapNotNull {
+            it.toSearchResponse()
+        }
+        if (movies.isNotEmpty()) {
+            allLists.add(HomePageList("Movies", movies))
         }
 
-        return newHomePageResponse(request.name, items)
+        val series = document.select("div#dt-tvshows article.item").mapNotNull {
+            it.toSearchResponse()
+        }
+        if (series.isNotEmpty()) {
+            allLists.add(HomePageList("Web Series", series))
+        }
+
+        if (allLists.isEmpty()) throw ErrorLoadingException("No data found on homepage")
+        return HomePageResponse(allLists)
     }
 
-    // यह हमारा सहायक फ़ंक्शन है। यह एक ही स्थान पर सभी पार्सिंग लॉजिक रखता है।
     private fun Element.toSearchResponse(): SearchResponse? {
         val linkTag = this.selectFirst("a") ?: return null
         val href = linkTag.attr("href")
@@ -72,29 +77,34 @@ class MultiMoviesProvider : MainAPI() {
         val isMovie = this.selectFirst(".movies, span.movies") != null
 
         return if (isMovie) {
-            newMovieSearchResponse(title, href, TvType.Movie) {
-                this.posterUrl = poster
-                this.year = year
-            }
+            MovieSearchResponse(
+                title,
+                href,
+                this@MultiMoviesProvider.name,
+                TvType.Movie,
+                poster,
+                year
+            )
         } else {
-            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                this.posterUrl = poster
-                this.year = year
-            }
+            TvSeriesSearchResponse(
+                title,
+                href,
+                this@MultiMoviesProvider.name,
+                TvType.TvSeries,
+                poster,
+                year
+            )
         }
     }
 
-    // यह फ़ंक्शन केवल खोज (search) के लिए है।
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
         val document = app.get(url).document
-        // खोज परिणामों के लिए एक अलग सेलेक्टर का उपयोग किया जाता है
         return document.select("div.result-item article").mapNotNull {
-            it.toSearchResponse() // यहाँ भी हम उसी सहायक फ़ंक्शन का उपयोग कर रहे हैं
+            it.toSearchResponse()
         }
     }
 
-    // यह फ़ंक्शन किसी मूवी या टीवी शो के विवरण पेज को लोड करता है।
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url).document
         val title = document.selectFirst("div.data h1")?.text() ?: return null
@@ -109,19 +119,19 @@ class MultiMoviesProvider : MainAPI() {
         val isMovie = document.selectFirst("div.pag_episodes") == null
 
         return if (isMovie) {
-            newMovieLoadResponse(
+            MovieLoadResponse(
                 name = title,
                 url = url,
+                apiName = this.name,
                 type = TvType.Movie,
-                dataUrl = url
-            ) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = plot
-                this.tags = tags
-                this.rating = rating
-                this.recommendations = recommendations
-            }
+                dataUrl = url,
+                posterUrl = poster,
+                year = year,
+                plot = plot,
+                tags = tags,
+                rating = rating,
+                recommendations = recommendations
+            )
         } else {
             val episodes = document.select("ul.episodios li").mapNotNull { episodeElement ->
                 val href = episodeElement.selectFirst("a")?.attr("href") ?: return@mapNotNull null
@@ -131,31 +141,31 @@ class MultiMoviesProvider : MainAPI() {
                 val season = seasonEpisode?.getOrNull(0)?.trim()?.toIntOrNull()
                 val episode = seasonEpisode?.getOrNull(1)?.trim()?.toIntOrNull()
 
-                newEpisode(href) {
-                    this.name = epName
-                    this.season = season
-                    this.episode = episode
-                    this.posterUrl = epPoster
-                }
+                Episode(
+                    data = href,
+                    name = epName,
+                    season = season,
+                    episode = episode,
+                    posterUrl = epPoster
+                )
             }.reversed()
 
-            newTvSeriesLoadResponse(
+            TvSeriesLoadResponse(
                 name = title,
                 url = url,
+                apiName = this.name,
                 type = TvType.TvSeries,
-                episodes = episodes
-            ) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = plot
-                this.tags = tags
-                this.rating = rating
-                this.recommendations = recommendations
-            }
+                episodes = episodes,
+                posterUrl = poster,
+                year = year,
+                plot = plot,
+                tags = tags,
+                rating = rating,
+                recommendations = recommendations
+            )
         }
     }
 
-    // यह फ़ंक्शन वीडियो चलाने के लिए अंतिम लिंक लोड करता है।
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
