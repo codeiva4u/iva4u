@@ -4,12 +4,12 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
+import com.lagradost.cloudstream3.network.CloudflareKiller
 
 class MultiMoviesProvider : MainAPI() {
     override var mainUrl = "https://multimovies.bond"
     override var name = "MultiMovies"
     override var lang = "hi"
-    private val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val hasQuickSearch = false
@@ -34,7 +34,7 @@ class MultiMoviesProvider : MainAPI() {
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        val document = app.get(url, interceptor = CloudflareKiller()).document
         val home = document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
@@ -53,17 +53,17 @@ class MultiMoviesProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
-        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        val document = app.get(url, interceptor = CloudflareKiller()).document
         return document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val document = app.get(url, headers = mapOf("User-Agent" to USER_AGENT)).document
+        val document = app.get(url, interceptor = CloudflareKiller()).document
 
         val title = document.selectFirst("h1.entry-title")?.text() ?: return null
-        val posterUrl = document.selectFirst("div.post-thumbnail img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
+        val posterUrl = document.selectFirst("div.sheader div.poster img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
         val plot = document.select("div.entry-content > p").joinToString("\n") { it.text() }
         val year = Regex("(\\d{4})").find(title)?.groupValues?.get(1)?.toIntOrNull()
         val tags = document.select("span.cat-links a").map { it.text() }
@@ -109,16 +109,16 @@ class MultiMoviesProvider : MainAPI() {
     ): Boolean {
         if (data.contains(",")) {
             // It's a list of episode links
-            data.split(",").forEach { link ->
+            for (link in data.split(",")) {
                 loadExtractor(link, mainUrl, subtitleCallback, callback)
             }
         } else {
             // It's a single movie link
-            val document = app.get(data).document
+            val document = app.get(data, interceptor = CloudflareKiller()).document
             val links = document.select("div.entry-content a[href*='.mkv'], div.entry-content a[href*='.mp4']")
                 .mapNotNull { it.attr("href") }
 
-            links.forEach { link ->
+            for (link in links) {
                 loadExtractor(link, data, subtitleCallback, callback)
             }
             return links.isNotEmpty()
