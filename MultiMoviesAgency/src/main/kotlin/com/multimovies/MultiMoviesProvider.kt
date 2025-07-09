@@ -1,6 +1,8 @@
 package com.multimovies
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
+import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
@@ -66,6 +68,10 @@ class MultiMoviesProvider : MainAPI() {
         val plot = document.select("div.entry-content > p").joinToString("\n") { it.text() }
         val year = Regex("(\\d{4})").find(title)?.groupValues?.get(1)?.toIntOrNull()
         val tags = document.select("span.cat-links a").map { it.text() }
+        val trailerUrl = document.select("iframe[src*='youtube.com'], iframe[src*='dailymotion.com']").attr("src")
+        val castText = document.select("div.entry-content p:contains(Stars:)").text()
+        val actors = castText.substringAfter("Stars:").split(",").map { it.trim() }
+
 
         val isTvSeries = tags.any { it.contains("Series", ignoreCase = true) } ||
                 url.contains("series", ignoreCase = true) ||
@@ -89,6 +95,8 @@ class MultiMoviesProvider : MainAPI() {
                 this.year = year
                 this.plot = plot
                 this.tags = tags
+                addActors(actors)
+                addTrailer(trailerUrl)
             }
         } else {
             return newMovieLoadResponse(title, url, TvType.Movie, url) {
@@ -96,6 +104,8 @@ class MultiMoviesProvider : MainAPI() {
                 this.year = year
                 this.plot = plot
                 this.tags = tags
+                addActors(actors)
+                addTrailer(trailerUrl)
             }
         }
     }
