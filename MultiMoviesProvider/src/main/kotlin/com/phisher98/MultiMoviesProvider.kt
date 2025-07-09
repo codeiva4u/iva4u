@@ -48,7 +48,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
             "X-Requested-With" to "XMLHttpRequest"
         )
-        private const val DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
+        private const val DOMAINS_URL = "https://raw.githubusercontent.com/codeiva4u/TVVVV/refs/heads/main/domains.json"
         private var cachedDomains: DomainsParser? = null
 
         suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
@@ -119,7 +119,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         return document.select("div.result-item").mapNotNull {
             val title = it.selectFirst("article > div.details > div.title > a")?.text()?.trim() ?: return@mapNotNull null
             val href = fixUrl(it.selectFirst("article > div.details > div.title > a")?.attr("href").toString())
-            val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src"))
+            val posterUrl = fixUrlNull(it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("data-src"))
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail > a > span").text()
             if (type.contains("Movie", ignoreCase = true)) {
