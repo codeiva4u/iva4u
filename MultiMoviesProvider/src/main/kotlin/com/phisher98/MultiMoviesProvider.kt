@@ -11,7 +11,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://multimovies.agency/"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -52,24 +52,28 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             app.get("$mainUrl/${request.data}" + "page/$page/").document
         }
-        val home = if (request.data.contains("/movies")) {
-            document.select("#single > div.content.right > div.sheader > div.poster > img").mapNotNull {
-                it.toSearchResult()
-            }
-        } else {
-            document.select("#single > div.content.right > div.sheader > div.poster > img").mapNotNull {
-                it.toSearchResult()
-            }
+
+        val home = document.select("article.item").mapNotNull {
+            it.toSearchResult()
         }
+
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+        val titleElement = this.selectFirst("div.data > h3 > a") ?: return null
+        val title = titleElement.text().trim()
+        val href = fixUrl(titleElement.attr("href"))
+
+        // अपडेटेड पोस्टर लॉजिक जो दोनों तरह की संरचनाओं को हैंडल करता है
+        val posterUrl = fixUrlNull(
+            this.selectFirst("div.poster > img")?.attr("src")
+                ?: this.selectFirst("div.image > a > img")?.attr("src")
+        )
+
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
-        return if (href.contains("Movie")) {
+
+        return if (href.contains("movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -136,12 +140,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.select("div.g-item a").attr("href")
+            doc.select("div.poster > img").attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
+        val year = doc.selectFirst("span.date")?.text()?.substringAfterLast(" ")?.trim()?.toIntOrNull()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
-        val type = if (url.contains("tvshows")) TvType.TvSeries else TvType.Movie
+        val type = if (doc.selectFirst("div.dtsingle")?.hasClass("tvshows") == true) TvType.TvSeries else TvType.Movie
         val trailerRegex = Regex("\"http.*\"")
 
         var trailer: String? = if (type == TvType.Movie) {
@@ -161,7 +165,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
         val duration =
             doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
-                ?.toInt()
+                ?.toIntOrNull()
         val actors =
             doc.select("div.person").map {
                 ActorData(
@@ -172,19 +176,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     roleString = it.select("div.data > div.caracter").text(),
                 )
             }
-        val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
+        val recommendations = doc.select("div.owl-item article.item").mapNotNull {
             it.toSearchResult()
         }
 
         val episodes = ArrayList<Episode>()
-        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
-            me.select("li").mapIndexed { epNum, it ->
+        doc.select("#seasons > div").mapIndexed { seasonNum, me ->
+            me.select("ul.episodios > li").mapIndexed { epNum, it ->
                 episodes.add(
                     newEpisode(it.select("div.episodiotitle > a").attr("href"))
                     {
                         this.name = it.select("div.episodiotitle > a").text()
-                        this.season = seasonNum + 1
-                        this.episode = epNum + 1
+                        this.season = me.select("span.title").text().filter { it.isDigit() }.toIntOrNull() ?: (seasonNum + 1)
+                        this.episode = it.select("div.numerando").text().filter { it.isDigit() }.toIntOrNull() ?: (epNum + 1)
                         this.posterUrl = it.select("div.imagen > img").attr("src")
                     }
                 )
@@ -230,7 +234,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
+        req.select("ul#playeroptionsul > li").map {
             Triple(
                 it.attr("data-post"),
                 it.attr("data-nume"),
@@ -246,23 +250,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         "nume" to nume,
                         "type" to type
                     ),
-                    referer = mainUrl,
+                    referer = data,
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
-                            }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
-                    }
-
-                    else -> return@amap
-                }
+                loadExtractor(link, data, subtitleCallback, callback)
             }
         }
         return true
@@ -270,7 +262,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     data class ResponseHash(
         @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("key") val key: String? = null,
         @JsonProperty("type") val type: String? = null,
     )
 }
