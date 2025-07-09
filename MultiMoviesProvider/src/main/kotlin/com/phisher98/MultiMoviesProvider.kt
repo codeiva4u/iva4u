@@ -7,7 +7,7 @@ import org.jsoup.nodes.Element
 import com.lagradost.cloudstream3.network.CloudflareKiller
 
 class MultiMoviesProvider : MainAPI() {
-    override var mainUrl = "https://multimovies.bond"
+    override var mainUrl = "https://multimovies.agency"
     override var name = "MultiMovies"
     override var lang = "hi"
     override val hasMainPage = true
@@ -16,6 +16,8 @@ class MultiMoviesProvider : MainAPI() {
     override val supportedTypes = setOf(
         TvType.Movie, TvType.TvSeries
     )
+
+    private val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
 
     override val mainPage = mainPageOf(
         "/" to "Latest Movies",
@@ -34,7 +36,7 @@ class MultiMoviesProvider : MainAPI() {
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url, interceptor = CloudflareKiller()).document
+        val document = app.get(url, interceptor = CloudflareKiller(), headers = mapOf("User-Agent" to USER_AGENT)).document
         val home = document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
@@ -53,14 +55,14 @@ class MultiMoviesProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
-        val document = app.get(url, interceptor = CloudflareKiller()).document
+        val document = app.get(url, interceptor = CloudflareKiller(), headers = mapOf("User-Agent" to USER_AGENT)).document
         return document.select("div.items article.item").mapNotNull {
             toSearchResult(it)
         }
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val document = app.get(url, interceptor = CloudflareKiller()).document
+        val document = app.get(url, interceptor = CloudflareKiller(), headers = mapOf("User-Agent" to USER_AGENT)).document
 
         val title = document.selectFirst("h1.entry-title")?.text() ?: return null
         val posterUrl = document.selectFirst("div.sheader div.poster img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }
@@ -114,7 +116,7 @@ class MultiMoviesProvider : MainAPI() {
             }
         } else {
             // It's a single movie link
-            val document = app.get(data, interceptor = CloudflareKiller()).document
+            val document = app.get(data, interceptor = CloudflareKiller(), headers = mapOf("User-Agent" to USER_AGENT)).document
             val links = document.select("div.entry-content a[href*='.mkv'], div.entry-content a[href*='.mp4']")
                 .mapNotNull { it.attr("href") }
 
