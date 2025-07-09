@@ -24,19 +24,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
-    override val mainPage = mainPageOf(
-        "movies/" to "Latest Release",
-        "genre/bollywood-movies/" to "Bollywood Movies",
-        "genre/hollywood/" to "Hollywood Movies",
-        "genre/south-indian/" to "South Indian Movies",
-        "genre/punjabi/" to "Punjabi Movies",
-        "genre/amazon-prime/" to "Amazon Prime",
-        "genre/disney-hotstar/" to "Disney Hotstar",
-        "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
-        "genre/sony-liv/" to "Sony Live",
-        "genre/zee-5/" to "Zee5",
-    )
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
     private val headers = mapOf("User-Agent" to userAgent)
     private val interceptor = CloudflareKiller()
