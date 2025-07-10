@@ -56,23 +56,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // New structure: title is in .data h3.title and link is in parent <a>
-        val titleElement = this.selectFirst(".data h3.title") ?: return null
-        val title = titleElement.text().trim()
-        
-        // Get href from the <a> tag that wraps the data div
-        val linkElement = this.selectFirst(".data")?.parent() ?: return null
+        val linkElement = this.selectFirst("a") ?: return null
         val href = fixUrl(linkElement.attr("href"))
-        
-        // Updated selector for poster image
-        val posterUrl = fixUrlNull(this.selectFirst(".image img")?.attr("src"))
-        
-        // Quality might not be present in new structure
+        val title = this.selectFirst(".data h3 a")?.text()?.trim() ?: return null
+
+        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+
         val quality = getQualityFromString(this.selectFirst(".quality")?.text())
-        
-        // Check if it's a movie based on the item_type span
-        val itemType = this.selectFirst(".item_type")?.text()
-        val isMovie = itemType?.contains("Movie", ignoreCase = true) ?: href.contains("movie", ignoreCase = true)
+
+        val isMovie = href.contains("/movies/", ignoreCase = true) || href.contains("/movie/", ignoreCase = true)
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -140,7 +132,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val poster = fixUrlNull(
             doc.selectFirst("#dt_galery .g-item img")?.attr("src") ?:
             doc.selectFirst("div.sheader div.poster img")?.attr("src") ?:
-            doc.selectFirst(".image img")?.attr("src")
+            doc.selectFirst("div.poster img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
