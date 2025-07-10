@@ -9,7 +9,6 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import org.jsoup.nodes.Element
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
-import com.lagradost.cloudstream3.network.CloudflareKiller
 
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
@@ -24,9 +23,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime,
         TvType.AnimeMovie,
     )
-    private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    private val userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
     private val headers = mapOf("User-Agent" to userAgent)
-    private val interceptor = CloudflareKiller()
 
     override val mainPage = mainPageOf(
         "movies/" to "Latest Release",
@@ -51,7 +50,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url, interceptor = interceptor, headers = headers).document
+        val document = app.get(url, headers = headers).document
 
         val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
@@ -63,7 +62,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleElement = this.selectFirst(".data h3 a") ?: return null
         val title = titleElement.text().trim()
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+        
+        // Fix: Check multiple possible image attributes for lazy loading
+        val imgElement = this.selectFirst(".poster img")
+        val posterUrl = fixUrlNull(
+            imgElement?.attr("data-src") 
+                ?: imgElement?.attr("data-lazy-src")
+                ?: imgElement?.attr("src")
+                ?: imgElement?.attr("data-original")
+        )
+        
         val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
         val isMovie = href.contains("movie", ignoreCase = true)
 
@@ -83,12 +91,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun search(query: String): List<SearchResponse> {
         val response = app.get(
             "$mainUrl/wp-json/dooplay/search/?s=$query",
-            interceptor = interceptor,
             headers = headers
         ).parsed<List<SearchAPIResponse>>()
-        return response.amap {
+        return response.map {
             newMovieSearchResponse(it.title, it.url, TvType.Movie) {
-                posterUrl = it.img
+                posterUrl = fixUrlNull(it.img)
             }
         }
     }
@@ -121,14 +128,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url, interceptor = interceptor, headers = headers).document
+        val doc = app.get(url, headers = headers).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.selectFirst("#dt_galery .g-item img")?.attr("src") ?:
-            doc.selectFirst("div.sheader div.poster img")?.attr("src")
+            doc.selectFirst("#dt_galery .g-item img")?.attr("src")
+                ?: doc.selectFirst("div.sheader div.poster img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -221,44 +228,50 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data, interceptor = interceptor, headers = headers).document
-        req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
+        val req = app.get(data, headers = headers).document
+        req.select("ul#playeroptionsul li").forEach { element ->
+            val id = element.attr("data-post")
+            val nume = element.attr("data-nume")
+            val type = element.attr("data-type")
+            
             if (!nume.contains("trailer")) {
                 val postHeaders = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "User-Agent" to userAgent
                 )
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    interceptor = interceptor,
-                    headers = postHeaders
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link, interceptor = interceptor, headers = headers).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                try {
+                    val response = app.post(
+                        url = "$mainUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to id,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = mainUrl,
+                        headers = postHeaders
+                    )
+                    val responseData = response.parsed<ResponseHash>()
+                    val source = responseData.embed_url
+                    val link = source.substringAfter("\"").substringBefore("\"").trim()
+                    
+                    when {
+                        !link.contains("youtube") -> {
+                            if (link.contains("deaddrive.xyz")) {
+                                app.get(
+                                    link,
+                                    headers = headers
+                                ).document.select("ul.list-server-items > li").forEach {
+                                    val server = it.attr("data-video")
+                                    loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                                }
+                            } else {
+                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                             }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                        }
                     }
-
-                    else -> return@amap
+                } catch (e: Exception) {
+                    // Handle parsing errors gracefully
                 }
             }
         }
@@ -270,6 +283,4 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("key") val key: String? = null,
         @JsonProperty("type") val type: String? = null,
     )
-
-
 }
