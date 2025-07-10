@@ -33,7 +33,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
         "genre/jio-ott/" to "Jio OTT",
-        "genre/netflix/" to "Netfilx",
+        "genre/netflix/" to "Netflix",  // Fixed typo
         "genre/sony-liv/" to "Sony Live",
         "genre/zee-5/" to "Zee5",
     )
@@ -47,20 +47,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl${request.data}page/$page/"
         }
-        
-        // Cloudflare और anti-bot संरक्षण के लिए उचित headers जोड़ें
-        val document = app.get(
-            url,
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Accept-Encoding" to "gzip, deflate",
-                "DNT" to "1",
-                "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1"
-            )
-        ).document
+        val document = app.get(url).document
 
         val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
@@ -69,36 +56,23 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // पहले link ढूंढें - यह अधिक reliable है
-        val linkElement = this.selectFirst("a[href*='/movies/'], a[href*='/tvshows/']") ?: return null
+        // New structure: title is in .data h3.title and link is in parent <a>
+        val titleElement = this.selectFirst(".data h3.title") ?: return null
+        val title = titleElement.text().trim()
+        
+        // Get href from the <a> tag that wraps the data div
+        val linkElement = this.selectFirst(".data")?.parent() ?: return null
         val href = fixUrl(linkElement.attr("href"))
         
-        // Title निकालें - multiple sources से
-        val title = this.selectFirst(".data h3")?.text()?.trim()
-            ?: this.selectFirst(".title")?.text()?.trim()
-            ?: this.selectFirst("h3")?.text()?.trim()
-            ?: linkElement.text().trim()
-            
-        if (title.isNullOrEmpty()) return null
+        // Updated selector for poster image
+        val posterUrl = fixUrlNull(this.selectFirst(".image img")?.attr("src"))
         
-        // Image URL ढूंढें - सभी possible sources
-        val imageElement = this.selectFirst("img")
-        val posterUrl = imageElement?.let { img ->
-            // पहले src check करें, फिर data attributes
-            img.attr("src").takeIf { it.isNotEmpty() && it.startsWith("http") }
-                ?: img.attr("data-src").takeIf { it.isNotEmpty() && it.startsWith("http") }
-                ?: img.attr("data-lazy").takeIf { it.isNotEmpty() && it.startsWith("http") }
-                ?: img.attr("data-original").takeIf { it.isNotEmpty() && it.startsWith("http") }
-        }?.let { fixUrlNull(it) }
+        // Quality might not be present in new structure
+        val quality = getQualityFromString(this.selectFirst(".quality")?.text())
         
-        // Quality/Rating ढूंढें
-        val quality = getQualityFromString(
-            this.selectFirst(".mepo .quality")?.text()
-                ?: this.selectFirst(".quality")?.text()
-                ?: this.selectFirst(".rating")?.text()
-        )
-        
-        val isMovie = href.contains("/movies/", ignoreCase = true)
+        // Check if it's a movie based on the item_type span
+        val itemType = this.selectFirst(".item_type")?.text()
+        val isMovie = itemType?.contains("Movie", ignoreCase = true) ?: href.contains("movie", ignoreCase = true)
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -114,18 +88,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val response = app.get(
-            "$mainUrl/wp-json/dooplay/search/?s=$query",
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "application/json, text/plain, */*",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to mainUrl
-            )
-        ).parsed<List<SearchAPIResponse>>()
+        val response = app.get("$mainUrl/wp-json/dooplay/search/?s=$query").parsed<List<SearchAPIResponse>>()
         return response.mapNotNull {
-            newMovieSearchResponse(it.title, it.url, TvType.Movie) {
-                posterUrl = it.img
+            // Determine type from URL
+            val type = if (it.url.contains("tvshows", ignoreCase = true)) TvType.TvSeries else TvType.Movie
+            
+            if (type == TvType.TvSeries) {
+                newTvSeriesSearchResponse(it.title, it.url, TvType.TvSeries) {
+                    posterUrl = it.img
+                }
+            } else {
+                newMovieSearchResponse(it.title, it.url, TvType.Movie) {
+                    posterUrl = it.img
+                }
             }
         }
     }
@@ -157,22 +132,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(
-            url,
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to mainUrl
-            )
-        ).document
+        val doc = app.get(url).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
             doc.selectFirst("#dt_galery .g-item img")?.attr("src") ?:
-            doc.selectFirst("div.sheader div.poster img")?.attr("src")
+            doc.selectFirst("div.sheader div.poster img")?.attr("src") ?:
+            doc.selectFirst(".image img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -265,15 +233,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(
-            data,
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to mainUrl
-            )
-        ).document
+        val req = app.get(data).document
         req.select("ul#playeroptionsul li").map {
                 Triple(
                     it.attr("data-post"),
