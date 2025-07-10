@@ -23,27 +23,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         TvType.AnimeMovie,
     )
 
-    private val headers =
-        mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0","Cookie" to "xla=s4t")
-
-    companion object {
-        private const val DOMAINS_URL =
-            "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
-        private var cachedDomains: Domains? = null
-
-        suspend fun getDomains(forceRefresh: Boolean = false): Domains? {
-            if (cachedDomains == null || forceRefresh) {
-                try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<Domains>()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    return null
-                }
-            }
-            return cachedDomains
-        }
-    }
-
 
     override val mainPage = mainPageOf(
         "movies/" to "Latest Release",
@@ -63,13 +42,25 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val newMainUrl = getDomains()?.MultiMovies
         val url = if (page == 1) {
-            "$newMainUrl${request.data}"
+            "$mainUrl${request.data}"
         } else {
-            "$newMainUrl${request.data}page/$page/"
+            "$mainUrl${request.data}page/$page/"
         }
-        val document = app.get(url, headers = headers).document
+        
+        // Cloudflare और anti-bot संरक्षण के लिए उचित headers जोड़ें
+        val document = app.get(
+            url,
+            headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Accept-Encoding" to "gzip, deflate",
+                "DNT" to "1",
+                "Connection" to "keep-alive",
+                "Upgrade-Insecure-Requests" to "1"
+            )
+        ).document
 
         val home = document.select("article.item").mapNotNull {
             it.toSearchResult()
@@ -78,12 +69,38 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val titleElement = this.selectFirst(".data h3 a") ?: return null
+        // विभिन्न प्रकार के selectors की कोशिश करें
+        val titleElement = this.selectFirst(".data h3 a") 
+            ?: this.selectFirst("h3 a") 
+            ?: this.selectFirst(".title a")
+            ?: this.selectFirst("a[href*='/movies/']") 
+            ?: this.selectFirst("a[href*='/tvshows/']")
+            ?: return null
+            
         val title = titleElement.text().trim()
+        if (title.isEmpty()) return null
+        
         val href = fixUrl(titleElement.attr("href"))
-        val posterUrl = fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
-        val quality = getQualityFromString(this.selectFirst(".mepo span.quality")?.text())
-        val isMovie = href.contains("movie", ignoreCase = true)
+        
+        // पोस्टर इमेज के लिए विभिन्न selectors की कोशिश करें
+        val posterUrl = fixUrlNull(
+            this.selectFirst(".poster img")?.attr("src")
+                ?: this.selectFirst(".image img")?.attr("src")
+                ?: this.selectFirst("img")?.attr("src")
+                ?: this.selectFirst(".poster img")?.attr("data-src")
+                ?: this.selectFirst(".image img")?.attr("data-src")
+                ?: this.selectFirst("img")?.attr("data-src")
+                ?: this.selectFirst(".poster img")?.attr("data-lazy")
+                ?: this.selectFirst(".image img")?.attr("data-lazy")
+        )
+        
+        val quality = getQualityFromString(
+            this.selectFirst(".mepo span.quality")?.text()
+                ?: this.selectFirst(".quality")?.text()
+                ?: this.selectFirst(".rating")?.text()
+        )
+        
+        val isMovie = href.contains("movie", ignoreCase = true) || href.contains("/movies/")
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -99,9 +116,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val newMainUrl = getDomains()?.MultiMovies
-        val response = app.get("$newMainUrl/wp-json/dooplay/search/?s=$query", headers = headers).parsed<List<SearchAPIResponse>>()
-        return response.map {
+        val response = app.get(
+            "$mainUrl/wp-json/dooplay/search/?s=$query",
+            headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "application/json, text/plain, */*",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Referer" to mainUrl
+            )
+        ).parsed<List<SearchAPIResponse>>()
+        return response.mapNotNull {
             newMovieSearchResponse(it.title, it.url, TvType.Movie) {
                 posterUrl = it.img
             }
@@ -135,8 +159,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val newMainUrl = getDomains()?.MultiMovies
-        val doc = app.get(url, headers = headers).document
+        val doc = app.get(
+            url,
+            headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Referer" to mainUrl
+            )
+        ).document
         val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
@@ -236,8 +267,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val newMainUrl = getDomains()?.MultiMovies
-        val req = app.get(data, headers = headers).document
+        val req = app.get(
+            data,
+            headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Referer" to mainUrl
+            )
+        ).document
         req.select("ul#playeroptionsul li").map {
                 Triple(
                     it.attr("data-post"),
@@ -282,8 +320,5 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("type") val type: String? = null,
     )
 
-    data class Domains(
-        @JsonProperty("MultiMovies") val MultiMovies: String
-    )
 
 }
