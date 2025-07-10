@@ -101,7 +101,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun search(query: String): List<SearchResponse> {
         val newMainUrl = getDomains()?.MultiMovies
         val response = app.get("$newMainUrl/wp-json/dooplay/search/?s=$query", headers = headers).parsed<List<SearchAPIResponse>>()
-        return response.mapNotNull {
+        return response.map {
             newMovieSearchResponse(it.title, it.url, TvType.Movie) {
                 posterUrl = it.img
             }
