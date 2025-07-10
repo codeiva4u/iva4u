@@ -69,38 +69,36 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // विभिन्न प्रकार के selectors की कोशिश करें
-        val titleElement = this.selectFirst(".data h3 a") 
-            ?: this.selectFirst("h3 a") 
-            ?: this.selectFirst(".title a")
-            ?: this.selectFirst("a[href*='/movies/']") 
-            ?: this.selectFirst("a[href*='/tvshows/']")
-            ?: return null
+        // पहले link ढूंढें - यह अधिक reliable है
+        val linkElement = this.selectFirst("a[href*='/movies/'], a[href*='/tvshows/']") ?: return null
+        val href = fixUrl(linkElement.attr("href"))
+        
+        // Title निकालें - multiple sources से
+        val title = this.selectFirst(".data h3")?.text()?.trim()
+            ?: this.selectFirst(".title")?.text()?.trim()
+            ?: this.selectFirst("h3")?.text()?.trim()
+            ?: linkElement.text().trim()
             
-        val title = titleElement.text().trim()
-        if (title.isEmpty()) return null
+        if (title.isNullOrEmpty()) return null
         
-        val href = fixUrl(titleElement.attr("href"))
+        // Image URL ढूंढें - सभी possible sources
+        val imageElement = this.selectFirst("img")
+        val posterUrl = imageElement?.let { img ->
+            // पहले src check करें, फिर data attributes
+            img.attr("src").takeIf { it.isNotEmpty() && it.startsWith("http") }
+                ?: img.attr("data-src").takeIf { it.isNotEmpty() && it.startsWith("http") }
+                ?: img.attr("data-lazy").takeIf { it.isNotEmpty() && it.startsWith("http") }
+                ?: img.attr("data-original").takeIf { it.isNotEmpty() && it.startsWith("http") }
+        }?.let { fixUrlNull(it) }
         
-        // पोस्टर इमेज के लिए विभिन्न selectors की कोशिश करें
-        val posterUrl = fixUrlNull(
-            this.selectFirst(".poster img")?.attr("src")
-                ?: this.selectFirst(".image img")?.attr("src")
-                ?: this.selectFirst("img")?.attr("src")
-                ?: this.selectFirst(".poster img")?.attr("data-src")
-                ?: this.selectFirst(".image img")?.attr("data-src")
-                ?: this.selectFirst("img")?.attr("data-src")
-                ?: this.selectFirst(".poster img")?.attr("data-lazy")
-                ?: this.selectFirst(".image img")?.attr("data-lazy")
-        )
-        
+        // Quality/Rating ढूंढें
         val quality = getQualityFromString(
-            this.selectFirst(".mepo span.quality")?.text()
+            this.selectFirst(".mepo .quality")?.text()
                 ?: this.selectFirst(".quality")?.text()
                 ?: this.selectFirst(".rating")?.text()
         )
         
-        val isMovie = href.contains("movie", ignoreCase = true) || href.contains("/movies/")
+        val isMovie = href.contains("/movies/", ignoreCase = true)
 
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
