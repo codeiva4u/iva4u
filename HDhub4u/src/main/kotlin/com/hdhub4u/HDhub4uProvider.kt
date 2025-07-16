@@ -202,8 +202,7 @@ class HDhub4uProvider : MainAPI() {
                 if (isDirectLinkBlock) {
                     baseLinks.forEach { url ->
                         try {
-                            val resolvedUrl = getRedirectLinks(url.trim())
-                            val episodeDoc = app.get(resolvedUrl).document
+                            val episodeDoc = app.get(url.trim()).document
 
                             // Look for structure like: <h5><a>Episode 1 – 4GB</a></h5>
                             episodeDoc.select("h5 a").forEach { linkElement ->
@@ -284,8 +283,7 @@ class HDhub4uProvider : MainAPI() {
             .mapNotNull { it.trim().removeSurrounding("\"").takeIf { it.isNotEmpty() } }
             .map { link ->
                 async {
-                    val finalLink = if ("?id=" in link) getRedirectLinks(link) else link
-                    loadExtractor(finalLink, subtitleCallback, callback)
+                    loadExtractor(link, subtitleCallback, callback)
                 }
             }
             .toList()
