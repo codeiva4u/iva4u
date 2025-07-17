@@ -79,34 +79,59 @@ open class GDFlix : ExtractorApi() {
         // Step 2: Extract links from the final gdflix page
         try {
             val document = app.get(currentUrl, referer = url).document
-            document.select(".card-body .text-center a.btn").amap { btn ->
+
+            // Handle direct download buttons first
+            document.select(".card-body .text-center a.btn").forEach { btn ->
                 val link = btn.attr("href")
-                if (link.isBlank() || link.contains("/login?ref=")) return@amap
+                if (link.isBlank() || link.contains("/login?ref=")) return@forEach
 
                 val text = btn.text().trim()
                 val name = text.replace(Regex("\\s*\\[.*?]"), "").trim()
 
-                val source = when {
-                    name.contains("PixelDrain", ignoreCase = true) -> "PixelDrain"
-                    name.contains("GoFile", ignoreCase = true) -> "GoFile"
-                    name.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
-                    name.contains("Instant DL", ignoreCase = true) -> "InstantDL"
-                    name.contains("Telegram", ignoreCase = true) -> "Telegram"
-                    name.contains("Cloud Download", ignoreCase = true) -> "Cloudflare"
-                    else -> this.name
-                }
-
-                callback.invoke(
-                    newExtractorLink(source, name, link) {
-                        this.referer = currentUrl
-                        this.quality = Qualities.Unknown.value
+                if (name.contains("Instant DL", ignoreCase = true)) {
+                    // This requires the POST request logic
+                } else {
+                    val source = when {
+                        name.contains("PixelDrain", ignoreCase = true) -> "PixelDrain"
+                        name.contains("GoFile", ignoreCase = true) -> "GoFile"
+                        name.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
+                        name.contains("Telegram", ignoreCase = true) -> "Telegram"
+                        name.contains("Cloud Download", ignoreCase = true) -> "Cloudflare"
+                        else -> this.name
                     }
-                )
+                    callback.invoke(
+                        newExtractorLink(source, name, link) {
+                            this.referer = currentUrl
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
+            }
+
+            // Handle the dynamic "Instant DL" link
+            val script = document.select("script:containsData(generate)").html()
+            val key = Regex("""formData.append\\("key", "([^"]+)""").find(script)?.groupValues?.get(1)
+            if (key != null) {
+                val response = app.post(
+                    url = currentUrl,
+                    data = mapOf("action" to "instant", "key" to key, "action_token" to ""),
+                    headers = mapOf("x-token" to "new10.gdflix.dad")
+                ).parsedSafe<GDFlixLink>()
+
+                if (response?.url != null) {
+                    callback.invoke(
+                        newExtractorLink("InstantDL", "Instant DL", response.url) {
+                            this.referer = currentUrl
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
             }
         } catch (e: Exception) {
             // Do nothing
         }
     }
+    private data class GDFlixLink(val url: String?, val visit_url: String?, val error: Boolean, val message: String)
 }
 
 class HubCloudInk : HubCloud() {
