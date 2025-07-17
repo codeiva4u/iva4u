@@ -9,37 +9,89 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 
-class PixelDra : ExtractorApi() {
-    override val name            = "PixelDra"
-    override val mainUrl         = "https://pixeldrain.dev"
+class PixelDrain : ExtractorApi() {
+    override val name = "PixelDrain"
+    override val mainUrl = "https://pixeldrain.dev"
     override val requiresReferer = true
 
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+    override suspend fun getUrl(
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
+    ) {
         val mId = Regex("/u/(.*)").find(url)?.groupValues?.get(1)
-        if (mId.isNullOrEmpty())
-        {
+        if (mId.isNullOrEmpty()) {
             callback.invoke(
-                newExtractorLink(
-                    this.name,
-                    this.name,
-                    url = url
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
-                }
+                    newExtractorLink(this.name, this.name, url = url) {
+                        this.referer = url
+                        this.quality = Qualities.Unknown.value
+                    }
+            )
+        } else {
+            callback.invoke(
+                    newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = "$mainUrl/api/file/${mId}?download"
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.Unknown.value
+                    }
             )
         }
-        else {
-            callback.invoke(
-                newExtractorLink(
-                    this.name,
-                    this.name,
-                    url = "$mainUrl/api/file/${mId}?download"
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+    }
+}
+
+open class GDFlix : ExtractorApi() {
+    override val name = "GDFlix"
+    override val mainUrl = "https://new10.gdflix.dad"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // Step 1: Traverse the link chain to get to the final gdflix page
+        var currentUrl = url
+        if (currentUrl.contains("moviesdrive.click")) {
+            try {
+                val doc = app.get(currentUrl, referer = referer).document
+                currentUrl = doc.select("a[href*='mdrive.today/archives/']").firstOrNull()?.attr("href") ?: return
+            } catch (e: Exception) {
+                return
+            }
+        }
+
+        if (currentUrl.contains("mdrive.today")) {
+            try {
+                val doc = app.get(currentUrl, referer = referer).document
+                currentUrl = doc.select("a[href*='gdflix.dad/file/']").firstOrNull()?.attr("href") ?: return
+            } catch (e: Exception) {
+                return
+            }
+        }
+
+        if (!currentUrl.contains("gdflix.dad/file/")) return
+
+        // Step 2: Extract links from the final gdflix page
+        try {
+            val document = app.get(currentUrl, referer = url).document
+            document.select(".card-body .text-center a.btn").amap { btn ->
+                val link = btn.attr("href")
+                if (link.isBlank()) return@amap
+
+                val text = btn.text().trim()
+                // Example: "CLOUD DOWNLOAD [R2]" -> "CLOUD DOWNLOAD"
+                val name = text.replace(Regex("\\s*\\[.*?]"), "").trim()
+
+                // Use loadExtractor to handle known hosts like PixelDrain, or return a direct link
+                loadExtractor(link, currentUrl, subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            // Do nothing
         }
     }
 }
@@ -62,20 +114,20 @@ open class HubCloud : ExtractorApi() {
     override val requiresReferer = false
 
     override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
     ) {
         val newUrl = url.replace("ink", "dad").replace("art", "dad")
         val doc = app.get(newUrl).document
-        val link = if(url.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
-        }
-        else {
-            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
-        }
+        val link =
+                if (url.contains("drive")) {
+                    val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+                    Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
+                } else {
+                    doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+                }
 
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
@@ -86,56 +138,42 @@ open class HubCloud : ExtractorApi() {
 
             if (text.contains("Download [FSL Server]")) {
                 callback.invoke(
-                    newExtractorLink(
-                        "$name[FSL Server]",
-                        "$name[FSL Server] - $header",
-                        url = link
-                    ) {
-                        this.quality = getIndexQuality(header)
-                    }
+                        newExtractorLink(
+                                "$name[FSL Server]",
+                                "$name[FSL Server] - $header",
+                                url = link
+                        ) { this.quality = getIndexQuality(header) }
                 )
             } else if (text.contains("Download File")) {
                 callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name - $header",
-                        url = link
-                    ) {
-                        this.quality = getIndexQuality(header)
-                    }
+                        newExtractorLink(name, "$name - $header", url = link) {
+                            this.quality = getIndexQuality(header)
+                        }
                 )
             } else if (text.contains("BuzzServer")) {
                 val dlink =
-                    app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
+                        app.get("$link/download", allowRedirects = false).headers["location"] ?: ""
                 callback.invoke(
-                    newExtractorLink(
-                        "$name[BuzzServer]",
-                        "$name[BuzzServer] - $header",
-                        url = link.substringBeforeLast("/") + dlink
-                    ) {
-                        this.quality = getIndexQuality(header)
-                    }
+                        newExtractorLink(
+                                "$name[BuzzServer]",
+                                "$name[BuzzServer] - $header",
+                                url = link.substringBeforeLast("/") + dlink
+                        ) { this.quality = getIndexQuality(header) }
                 )
-            } else if (link.contains("pixeldra")) {
+            } else if (link.contains("pixeldrain")) {
                 callback.invoke(
-                    newExtractorLink(
-                        "Pixeldra",
-                        "Pixeldra - $header",
-                        url = link
-                    ) {
+                    newExtractorLink("PixelDrain", "PixelDrain - $header", url = link) {
                         this.quality = getIndexQuality(header)
                     }
                 )
             } else if (text.contains("Download [Server : 10Gbps]")) {
                 val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
                 callback.invoke(
-                    newExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] - $header",
-                        url = dlink.substringAfter("link=")
-                    ) {
-                        this.quality = getIndexQuality(header)
-                    }
+                        newExtractorLink(
+                                "$name[Download]",
+                                "$name[Download] - $header",
+                                url = dlink.substringAfter("link=")
+                        ) { this.quality = getIndexQuality(header) }
                 )
             } else {
                 loadExtractor(link, "", subtitleCallback, callback)
@@ -144,7 +182,7 @@ open class HubCloud : ExtractorApi() {
     }
 
     private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "") ?. groupValues ?. getOrNull(1) ?. toIntOrNull()
-            ?: Qualities.Unknown.value
+        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: Qualities.Unknown.value
     }
 }

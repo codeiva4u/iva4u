@@ -1,83 +1,83 @@
 {
-  "mcpServers": {
-    "puppeteer-real-browser": {
-      "command": "npx",
-      "args": [
-        "puppeteer-real-browser-mcp-server@latest"
-      ],
-      "env": {
-        "CHROME_PATH": "C:\\Users\\Ivan-Sunil\\AppData\\Local\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
-      },
-      "autoApprove": [
-        "browser_init",
-        "navigate",
-        "get_content",
-        "browser_close",
-        "click",
-        "type",
-        "wait",
-        "find_selector",
-        "random_scroll",
-        "solve_captcha"
-      ],
-      "alwaysAllow": [
-        "browser_init",
-        "navigate",
-        "get_content",
-        "browser_close",
-        "click",
-        "type",
-        "wait",
-        "find_selector",
-        "random_scroll",
-        "solve_captcha"
-      ],
-      "toolConfig": {
-        "solve_captcha": {
-          "supportedTypes": [
-            "recaptcha",
-            "hCaptcha", 
-            "turnstile"
-          ],
-          "defaultType": "recaptcha",
-          "autoDetect": true
+    "mcpServers": {
+        "puppeteer-real-browser": {
+            "command": "npx",
+            "args": [
+                "puppeteer-real-browser-mcp-server@latest"
+            ],
+            "env": {
+                "CHROME_PATH": "C:/Program Files/Google/Chrome/Application/chrome.exe"
+            },
+            "autoApprove": [
+                "browser_init",
+                "navigate",
+                "get_content",
+                "browser_close",
+                "click",
+                "type",
+                "wait",
+                "find_selector",
+                "random_scroll",
+                "solve_captcha"
+            ],
+            "alwaysAllow": [
+                "browser_init",
+                "navigate",
+                "get_content",
+                "browser_close",
+                "click",
+                "type",
+                "wait",
+                "find_selector",
+                "random_scroll",
+                "solve_captcha"
+            ],
+            "toolConfig": {
+                "solve_captcha": {
+                    "supportedTypes": [
+                        "recaptcha",
+                        "hCaptcha",
+                        "turnstile"
+                    ],
+                    "defaultType": "recaptcha",
+                    "autoDetect": true
+                }
+            }
+        },
+        "crawl4ai": {
+            "transport": "sse",
+            "url": "https://mcpserver.duckdns.org/mcp/sse",
+            "disabled": false,
+            "alwaysAllow": [
+                "md",
+                "html",
+                "screenshot",
+                "pdf",
+                "execute_js",
+                "crawl",
+                "ask",
+                "code",
+                "video",
+                "markdown",
+                "browser"
+            ],
+            "disabledTools": [
+                "pdf"
+            ]
+        },
+        "context7": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp"
+            ],
+            "env": {
+                "DEFAULT_MINIMUM_TOKENS": ""
+            },
+            "alwaysAllow": [
+                "resolve-library-id",
+                "get-library-docs"
+            ]
         }
-      }
-    },
-    "crawl4ai": {
-      "transport": "sse",
-      "url": "https://mcpserver.duckdns.org/mcp/sse",
-      "disabled": false,
-      "alwaysAllow": [
-        "md",
-        "html",
-        "screenshot",
-        "pdf",
-        "execute_js",
-        "crawl",
-        "ask",
-        "code",
-        "video",
-        "markdown",
-        "browser"
-      ],
-      "disabledTools": [
-        "pdf"
-      ]
-    },
-    "context7": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp"
-      ],
-      "env": {
-        "DEFAULT_MINIMUM_TOKENS": ""
-      },
-      "alwaysAllow": [
-        "resolve-library-id",
-        "get-library-docs"
-      ]
     }
-  }
 }
