@@ -81,14 +81,27 @@ open class GDFlix : ExtractorApi() {
             val document = app.get(currentUrl, referer = url).document
             document.select(".card-body .text-center a.btn").amap { btn ->
                 val link = btn.attr("href")
-                if (link.isBlank()) return@amap
+                if (link.isBlank() || link.contains("/login?ref=")) return@amap
 
                 val text = btn.text().trim()
-                // Example: "CLOUD DOWNLOAD [R2]" -> "CLOUD DOWNLOAD"
                 val name = text.replace(Regex("\\s*\\[.*?]"), "").trim()
 
-                // Use loadExtractor to handle known hosts like PixelDrain, or return a direct link
-                loadExtractor(link, currentUrl, subtitleCallback, callback)
+                val source = when {
+                    name.contains("PixelDrain", ignoreCase = true) -> "PixelDrain"
+                    name.contains("GoFile", ignoreCase = true) -> "GoFile"
+                    name.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
+                    name.contains("Instant DL", ignoreCase = true) -> "InstantDL"
+                    name.contains("Telegram", ignoreCase = true) -> "Telegram"
+                    name.contains("Cloud Download", ignoreCase = true) -> "Cloudflare"
+                    else -> this.name
+                }
+
+                callback.invoke(
+                    newExtractorLink(source, name, link) {
+                        this.referer = currentUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
             }
         } catch (e: Exception) {
             // Do nothing
