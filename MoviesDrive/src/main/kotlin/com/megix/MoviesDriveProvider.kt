@@ -1,30 +1,14 @@
 package com.megix
 
-import com.lagradost.cloudstream3.Episode
-import com.lagradost.cloudstream3.HomePageResponse
-import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchQuality
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.newEpisode
-import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieLoadResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
-import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
+import org.jsoup.nodes.Document
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
     override var mainUrl = "https://moviesdrive.zip"
@@ -35,6 +19,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     val cinemeta_url = "https://v3-cinemeta.strem.io/meta"
     override val supportedTypes =
         setOf(TvType.Movie, TvType.TvSeries, TvType.AsianDrama, TvType.Anime)
+
     override val mainPage =
         mainPageOf(
             "$mainUrl/page/" to "Latest Release",
@@ -149,7 +134,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
             val tvSeriesEpisodes = mutableListOf<Episode>()
-            val episodesMap: MutableMap<Pair<Int, Int>, List<String>> = mutableMapOf()
+            val episodesMap: MutableMap<Pair<Int, Int>, MutableList<String>> = mutableMapOf()
             var buttons =
                 document.select("h5 > a").filter { element ->
                     !element.text().contains("Zip", true)
@@ -163,20 +148,19 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         ?: 0
                 val episodeLink = button.attr("href") ?: ""
                 val doc = app.get(episodeLink).document
-                // Only select HubCloud links, explicitly excluding GDFlix related ones
-                var elements = doc.select("span:matches((?i)(Ep))").filter { element ->
-                    val parentText = element.parent()?.text() ?: ""
-                    !parentText.contains("gdflix", ignoreCase = true) &&
-                            !parentText.contains("gdlink", ignoreCase = true) &&
-                            !parentText.contains("gdflix.ink", ignoreCase = true)
+                var elements = doc.select("a").filter { element ->
+                    val href = element.attr("href").lowercase()
+                    element.text().contains("hubcloud", ignoreCase = true) &&
+                            !href.contains("gdflix", ignoreCase = true) &&
+                            !href.contains("zip", ignoreCase = true)
                 }
+
                 if (elements.isEmpty()) {
-                    // Only select HubCloud links, explicitly excluding GDFlix related ones
+                    // Only select HubCloud links,
                     elements = doc.select("a:matches((?i)(HubCloud))").filter { element ->
                         val href = element.attr("href").lowercase()
-                        !href.contains("gdflix") &&
-                                !href.contains("gdlink") &&
-                                !href.contains("gdflix.ink")
+                        !href.contains("gdflix", ignoreCase = true) &&
+                                !href.contains("zip", ignoreCase = true)
                     }
                 }
                 var e = 1
@@ -192,45 +176,18 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                 ?.value
                                 ?.toIntOrNull()
                                 ?: e
-                        // Process only HubCloud links, skip GDFlix related ones
                         while (hTag != null &&
                             (hTag.text().contains("HubCloud", ignoreCase = true))) {
-                            // Explicit check to ensure it's not a GDFlix link
-                            if (!hTag.text().contains("gdflix", ignoreCase = true) &&
-                                !hTag.text().contains("gdlink", ignoreCase = true) &&
-                                !hTag.text().contains("gdflix.ink", ignoreCase = true)
-                            ) {
-                                val aTag = hTag.selectFirst("a")
-                                val epUrl = aTag?.attr("href").toString()
-                                val key = Pair(realSeason, e)
-                                if (episodesMap.containsKey(key)) {
-                                    val currentList = episodesMap[key] ?: emptyList()
-                                    val newList = currentList.toMutableList()
-                                    newList.add(epUrl)
-                                    episodesMap[key] = newList
-                                } else {
-                                    episodesMap[key] = mutableListOf(epUrl)
-                                }
-                            }
                             hTag = hTag.nextElementSibling()
                         }
                         e++
                     } else {
-                        // For direct <a> tags (like HubCloud), ensure it's not GDFlix
                         val epUrl = element.attr("href")
-                        if (!epUrl.contains("gdflix", ignoreCase = true) &&
-                            !epUrl.contains("gdlink", ignoreCase = true) &&
-                            !epUrl.contains("gdflix.ink", ignoreCase = true)
-                        ) {
-                            val key = Pair(realSeason, e)
-                            if (episodesMap.containsKey(key)) {
-                                val currentList = episodesMap[key] ?: emptyList()
-                                val newList = currentList.toMutableList()
-                                newList.add(epUrl)
-                                episodesMap[key] = newList
-                            } else {
-                                episodesMap[key] = mutableListOf(epUrl)
-                            }
+                        val key = Pair(realSeason, e)
+                        if (episodesMap.containsKey(key)) {
+                            episodesMap[key]?.add(epUrl)
+                        } else {
+                            episodesMap[key] = mutableListOf(epUrl)
                         }
                         e++
                     }
@@ -268,15 +225,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val data =
                 buttons.flatMap { button ->
                     val link = button.attr("href")
-                    val doc = app.get(link).document
+                    val doc: Document = app.get(link).document
                     // Only collect HubCloud links, explicitly excluding GDFlix related ones
                     val innerButtons =
                         doc.select("a").filter { element ->
                             val href = element.attr("href").lowercase()
                             element.text().contains("hubcloud", ignoreCase = true) &&
-                                    !href.contains("gdflix") &&
-                                    !href.contains("gdlink") &&
-                                    !href.contains("gdflix.ink")
+                                    !href.contains("gdflix", ignoreCase = true) &&
+                                    !href.contains("zip", ignoreCase = true)
                         }
                     innerButtons.mapNotNull { innerButton ->
                         val source = innerButton.attr("href")
