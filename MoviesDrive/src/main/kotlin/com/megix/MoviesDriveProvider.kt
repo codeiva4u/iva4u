@@ -75,7 +75,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         return searchResponse
     }
 
-    override suspend fun load(url: String): LoadResponse? {
+    override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
         var title =
             document.select("meta[property=og:title]").attr("content").replace("Download ", "")
@@ -135,7 +135,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             }
             val tvSeriesEpisodes = mutableListOf<Episode>()
             val episodesMap: MutableMap<Pair<Int, Int>, MutableList<String>> = mutableMapOf()
-            var buttons =
+            val buttons =
                 document.select("h5 > a").filter { element ->
                     !element.text().contains("Zip", true)
                 }
@@ -146,7 +146,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 val realSeason =
                     realSeasonRegex.find(mainTitle)?.groupValues?.get(1)?.toInt()
                         ?: 0
-                val episodeLink = button.attr("href") ?: ""
+                val episodeLink = button.attr("href")
                 val doc = app.get(episodeLink).document
                 var elements = doc.select("a").filter { element ->
                     val href = element.attr("href").lowercase()
@@ -234,7 +234,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                     !href.contains("gdflix", ignoreCase = true) &&
                                     !href.contains("zip", ignoreCase = true)
                         }
-                    innerButtons.mapNotNull { innerButton ->
+                    innerButtons.map { innerButton ->
                         val source = innerButton.attr("href")
                         EpisodeLink(source)
                     }
