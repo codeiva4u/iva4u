@@ -27,7 +27,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.zip"
+    override var mainUrl = "https://moviesdrive.channel/?utm=mn"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
