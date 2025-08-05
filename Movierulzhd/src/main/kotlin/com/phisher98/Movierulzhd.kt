@@ -195,14 +195,21 @@ open class Movierulzhd : MainAPI() {
                 }
                 
                 // Extract episode and season numbers from the name
-                val episodeRegex = Regex("(?:Episode|EP|E)\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                // Handle formats like "S02 (E01-E04) Combined" or "Episode 1" or "EP01"
                 val seasonRegex = Regex("(?:Season|S)\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                val episodeRegex = Regex("(?:Episode|EP|E)\\s*(\\d+)(?:-E?(\\d+))?", RegexOption.IGNORE_CASE)
+                val batchRegex = Regex("\\(E(\\d+)-E?(\\d+)\\)", RegexOption.IGNORE_CASE)
                 
-                val episodeMatch = episodeRegex.find(name)
                 val seasonMatch = seasonRegex.find(name)
+                val episodeMatch = episodeRegex.find(name)
+                val batchMatch = batchRegex.find(name)
                 
-                val episode = episodeMatch?.groupValues?.get(1)?.toIntOrNull()
                 val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                val episode = when {
+                    batchMatch != null -> batchMatch.groupValues[1].toIntOrNull() // First episode in batch
+                    episodeMatch != null -> episodeMatch.groupValues[1].toIntOrNull()
+                    else -> null
+                }
                 
                 newEpisode(LinkData(name, type, post, nume).toJson()) {
                     this.name = name
@@ -217,7 +224,7 @@ open class Movierulzhd : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = rating
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
@@ -229,7 +236,7 @@ open class Movierulzhd : MainAPI() {
                 this.backgroundPosterUrl= background
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = rating
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
