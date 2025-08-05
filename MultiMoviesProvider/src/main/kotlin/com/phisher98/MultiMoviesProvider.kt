@@ -11,7 +11,7 @@ import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = ""
+    override var mainUrl = "https://multimovies.coupons/"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -25,7 +25,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     companion object {
         //val headers= mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0", "X-Requested-With" to "XMLHttpRequest")
-        private const val DOMAINS_URL = "https://raw.githubusercontent.com/codeiva4u/TVVVV/refs/heads/main/domains.json"
+        private const val DOMAINS_URL = "https://raw.githubusercontent.com/likdev256/MultiMovieAPI/main/domains.json"
         private var cachedDomains: DomainsParser? = null
 
         suspend fun getDomains(forceRefresh: Boolean = false): DomainsParser? {
@@ -156,7 +156,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.select("div.g-item a").attr("href")
+            doc.selectFirst("div.poster img")?.attr("src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()

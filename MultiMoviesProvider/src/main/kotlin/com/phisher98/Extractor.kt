@@ -289,7 +289,7 @@ object AesHelper {
 @OptIn(ExperimentalEncodingApi::class)
 open class VidSrcTo : ExtractorApi() {
     override val name = "VidSrcTo"
-    override val mainUrl = "https://vidsrc2.to"
+    override val mainUrl = "https://vidsrc.to"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -298,29 +298,69 @@ open class VidSrcTo : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val mediaId = app.get(url).document.selectFirst("ul.episodes li a")?.attr("data-id") ?: return
-        val subtitlesLink = "$mainUrl/ajax/embed/episode/$mediaId/subtitles"
-        val subRes = app.get(subtitlesLink).parsedSafe<Array<VidsrctoSubtitles>>()
-        subRes?.forEach {
-            if (it.kind.equals("captions")) subtitleCallback.invoke(SubtitleFile(it.label, it.file))
-        }
-        val sourcesLink = "$mainUrl/ajax/embed/episode/$mediaId/sources?token=${vrfEncrypt(
-            RowdyAvocadoKeys.getKeys(), mediaId)}"
-        val res = app.get(sourcesLink).parsedSafe<VidsrctoEpisodeSources>() ?: return
-        if (res.status != 200) return
-        res.result?.amap { source ->
+        try {
+            val response = app.get(url)
+            val doc = response.document
+            
+            // Try different selectors for media ID
+            val mediaId = doc.selectFirst("ul.episodes li a")?.attr("data-id")
+                ?: doc.selectFirst("[data-id]")?.attr("data-id")
+                ?: doc.selectFirst("#playeroptionsul li")?.attr("data-post")
+                ?: return
+                
+            // Get subtitles
             try {
-                val embedResUrl = "$mainUrl/ajax/embed/source/${source.id}?token=${vrfEncrypt(RowdyAvocadoKeys.getKeys(), source.id)}"
-                val embedRes = app.get(embedResUrl).parsedSafe<VidsrctoEmbedSource>() ?: return@amap
-                val finalUrl = vrfDecrypt(RowdyAvocadoKeys.getKeys(), embedRes.result.encUrl)
-                if(finalUrl.equals(embedRes.result.encUrl)) return@amap
-                when (source.title) {
-                    "Server 1" -> AnyVidplay(finalUrl.substringBefore("/e/")).getUrl(finalUrl, referer, subtitleCallback, callback)
-                    "Server 2" -> FileMoon().getUrl(finalUrl, referer, subtitleCallback, callback)
+                val subtitlesLink = "$mainUrl/ajax/embed/episode/$mediaId/subtitles"
+                val subRes = app.get(subtitlesLink).parsedSafe<Array<VidsrctoSubtitles>>()
+                subRes?.forEach {
+                    if (it.kind.equals("captions")) subtitleCallback.invoke(SubtitleFile(it.label, it.file))
                 }
             } catch (e: Exception) {
                 logError(e)
             }
+            
+            // Get video sources
+            try {
+                val sourcesLink = "$mainUrl/ajax/embed/episode/$mediaId/sources?token=${vrfEncrypt(
+                    RowdyAvocadoKeys.getKeys(), mediaId)}"
+                val res = app.get(sourcesLink).parsedSafe<VidsrctoEpisodeSources>() ?: return
+                if (res.status != 200) return
+                
+                res.result?.amap { source ->
+                    try {
+                        val embedResUrl = "$mainUrl/ajax/embed/source/${source.id}?token=${vrfEncrypt(RowdyAvocadoKeys.getKeys(), source.id)}"
+                        val embedRes = app.get(embedResUrl).parsedSafe<VidsrctoEmbedSource>() ?: return@amap
+                        val finalUrl = vrfDecrypt(RowdyAvocadoKeys.getKeys(), embedRes.result.encUrl)
+                        if(finalUrl.equals(embedRes.result.encUrl)) return@amap
+                        
+                        when (source.title) {
+                            "Server 1" -> {
+                                try {
+                                    AnyVidplay(finalUrl.substringBefore("/e/")).getUrl(finalUrl, referer, subtitleCallback, callback)
+                                } catch (e: Exception) {
+                                    logError(e)
+                                    loadExtractor(finalUrl, referer, subtitleCallback, callback)
+                                }
+                            }
+                            "Server 2" -> {
+                                try {
+                                    FileMoon().getUrl(finalUrl, referer, subtitleCallback, callback)
+                                } catch (e: Exception) {
+                                    logError(e)
+                                    loadExtractor(finalUrl, referer, subtitleCallback, callback)
+                                }
+                            }
+                            else -> loadExtractor(finalUrl, referer, subtitleCallback, callback)
+                        }
+                    } catch (e: Exception) {
+                        logError(e)
+                    }
+                }
+            } catch (e: Exception) {
+                logError(e)
+            }
+        } catch (e: Exception) {
+            logError(e)
         }
     }
 
