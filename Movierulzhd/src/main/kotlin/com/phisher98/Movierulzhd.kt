@@ -83,11 +83,27 @@ open class Movierulzhd : MainAPI() {
             }
         }
         val quality = getQualityFromString(this.select("span.quality").text())
-        return newMovieSearchResponse(title, href, TvType.Movie) {
-            this.posterUrl = posterUrl
-            this.quality = quality
+        
+        // Detect if this is a TV series based on URL or title
+        val tvType = if (href.contains("/tvshows/") || href.contains("/episodes/") || href.contains("/seasons/") ||
+            title.contains("season", ignoreCase = true) || title.contains("episode", ignoreCase = true) ||
+            title.contains("series", ignoreCase = true) || title.contains("web series", ignoreCase = true)) {
+            TvType.TvSeries
+        } else {
+            TvType.Movie
         }
-
+        
+        return if (tvType == TvType.TvSeries) {
+            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                this.posterUrl = posterUrl
+                this.quality = quality
+            }
+        } else {
+            newMovieSearchResponse(title, href, TvType.Movie) {
+                this.posterUrl = posterUrl
+                this.quality = quality
+            }
+        }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -167,30 +183,33 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-				if (check) {
-				    document.select("ul#playeroptionsul > li").drop(1).map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume).toJson())
-                        {
-                            this.name=name
-                        }
-				    }
-				} else {
-				    document.select("ul#playeroptionsul > li").map {
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume).toJson())
-                        {
-                            this.name=name
-                        }
-				    }
-				}
+            document.select("ul#playeroptionsul > li").mapNotNull {
+                val name = it.selectFirst("span.title")?.text()
+                val type = it.attr("data-type")
+                val post = it.attr("data-post")
+                val nume = it.attr("data-nume")
+                
+                // Skip if name is null or empty or contains "trailer" or "Super"
+                if (name.isNullOrBlank() || name.contains("Trailer", ignoreCase = true) || name.contains("Super", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
+                
+                // Extract episode and season numbers from the name
+                val episodeRegex = Regex("(?:Episode|EP|E)\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                val seasonRegex = Regex("(?:Season|S)\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                
+                val episodeMatch = episodeRegex.find(name)
+                val seasonMatch = seasonRegex.find(name)
+                
+                val episode = episodeMatch?.groupValues?.get(1)?.toIntOrNull()
+                val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                
+                newEpisode(LinkData(name, type, post, nume).toJson()) {
+                    this.name = name
+                    this.episode = episode
+                    this.season = season
+                }
+            }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -253,29 +272,35 @@ open class Movierulzhd : MainAPI() {
             )
         } else {
             val document = app.get(data).document
-            document.select("ul#playeroptionsul > li").map {
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }.amap { (id, nume, type) ->
-                val source = app.post(
-                    url = "$directUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                when {
-                    !source.contains("youtube") -> {
-                        loadExtractor(source, subtitleCallback, callback)
+            document.select("ul#playeroptionsul > li").mapNotNull {
+                val title = it.selectFirst("span.title")?.text()
+                // Skip trailers and other unwanted content
+                if (title != null && (title.contains("Trailer", ignoreCase = true) || title.contains("Super", ignoreCase = true))) {
+                    return@mapNotNull null
+                }
+                Triple(
+                    it.attr("data-post"),
+                    it.attr("data-nume"),
+                    it.attr("data-type")
+                )
+            }.amap { (id, nume, type) ->
+                if (id.isNotBlank() && nume.isNotBlank() && type.isNotBlank()) {
+                    val source = app.post(
+                        url = "$directUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to id,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = data, headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                    ).parsed<ResponseHash>().embed_url
+                    when {
+                        !source.contains("youtube") -> {
+                            loadExtractor(source, subtitleCallback, callback)
+                        }
+                        else -> return@amap
                     }
-
-                    else -> return@amap
                 }
             }
         }
@@ -299,78 +324,12 @@ open class Movierulzhd : MainAPI() {
     ) {
         loadExtractor(url, referer, subtitleCallback) { link ->
             CoroutineScope(Dispatchers.IO).launch {
-                if (link.quality == Qualities.Unknown.value) {
-                    callback.invoke(
-                        newExtractorLink(
-                            link.source,
-                            link.name,
-                            url = link.url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = link.referer
-                            this.quality = when (link.type) {
-                                ExtractorLinkType.M3U8 -> link.quality
-                                else -> quality ?: link.quality
-                            }
-                            this.headers = link.headers
-                            this.extractorData = link.extractorData
-                        }
-                    )
-                }
+                callback.invoke(link)
             }
         }
     }
 
 
-    override fun getVideoInterceptor(extractorLink: ExtractorLink): Interceptor {
-        return Interceptor { chain ->
-            val request = chain.request()
-            val originalUrl = request.url.toString()
-            val modifiedRequest = if (originalUrl.startsWith("https://exxample.com/")) {
-                val encodedPart = originalUrl.removePrefix("https://exxample.com/")
-                val decodedUrl = try {
-                    base64Decode(encodedPart)
-                } catch (e: IllegalArgumentException) {
-                    println("Failed to decode Base64: ${e.message}")
-                    null
-                }
-                if (decodedUrl != null) {
-                    request.newBuilder()
-                        .url(decodedUrl)
-                        .build()
-                } else {
-                    request
-                }
-            } else {
-                request
-            }
-
-            val finalRequest = if (modifiedRequest.url.host.contains("sukumsanghas.com")) {
-                modifiedRequest.newBuilder()
-                    .header("Accept", "*/*")
-                    .header("Accept-Encoding", "gzip, deflate, br")
-                    .header("Accept-Language", "en-US,en;q=0.5")
-                    .header("Cache-Control", "no-cache")
-                    .header("Connection", "keep-alive")
-                    .header("DNT", "1")
-                    .header("Origin", "https://molop.art")
-                    .header("Pragma", "no-cache")
-                    .header("Referer", "https://molop.art/")
-                    .header("Sec-Fetch-Dest", "empty")
-                    .header("Sec-Fetch-Mode", "cors")
-                    .header("Sec-Fetch-Site", "cross-site")
-                    .header("Sec-GPC", "1")
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0"
-                    )
-                    .build()
-            } else {
-                modifiedRequest
-            }
-            chain.proceed(finalRequest)
-        }
-    }
 
 
 
