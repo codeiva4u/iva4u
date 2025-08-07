@@ -222,6 +222,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
+                @Suppress("DEPRECATION")
                 this.rating = rating
                 this.duration = duration
                 this.actors = actors
@@ -234,6 +235,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
+                @Suppress("DEPRECATION")
                 this.rating = rating
                 this.duration = duration
                 this.actors = actors

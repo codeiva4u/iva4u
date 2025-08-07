@@ -140,7 +140,6 @@ class HDhub4uProvider : MainAPI() {
         val tags = doc.select(".page-meta em").eachText()
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
                 ?.replace("/embed/", "/watch?v=")
-        extractLinksATags(doc.select(".page-body > div a"))
         val typeraw=doc.select("h1.page-title span").text()
         val tvtype=if (typeraw.contains("movie",ignoreCase = true)) TvType.Movie else TvType.TvSeries
         val tvtypeapi = if (typeraw.contains("movie", ignoreCase = true)) "movie" else "series"

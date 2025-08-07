@@ -230,6 +230,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
+                @Suppress("DEPRECATION")
                 this.rating = imdbRating.toRatingInt()
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background
@@ -256,6 +257,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
+                @Suppress("DEPRECATION")
                 this.rating = imdbRating.toRatingInt()
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background

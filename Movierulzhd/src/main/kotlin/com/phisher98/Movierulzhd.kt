@@ -224,7 +224,8 @@ open class Movierulzhd : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.score = rating
+                @Suppress("DEPRECATION")
+                this.rating = rating
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
@@ -236,7 +237,8 @@ open class Movierulzhd : MainAPI() {
                 this.backgroundPosterUrl= background
                 this.plot = description
                 this.tags = tags
-                this.score = rating
+                @Suppress("DEPRECATION")
+                this.rating = rating
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
