@@ -106,7 +106,7 @@ object AesHelper {
 @OptIn(ExperimentalEncodingApi::class)
 open class VidSrcTo : ExtractorApi() {
     override val name = "VidSrcTo"
-    override val mainUrl = "https://vidsrc2.to"
+    override val mainUrl = "https://vidcloud.icu"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -227,7 +227,7 @@ open class VidSrcTo : ExtractorApi() {
 
 class FMHD : Filesim() {
     override val name = "FMHD"
-    override var mainUrl = "https://fmhd.bar/"
+    override var mainUrl = "https://filemoon.to/"
     override val requiresReferer = true
 }
 
@@ -241,7 +241,7 @@ class Luluvdo : StreamWishExtractor() {
 }
 
 class Lulust : StreamWishExtractor() {
-    override val mainUrl = "https://lulu.st"
+    override val mainUrl = "https://luluvdo.com"
 }
 
 class Movierulz : VidStack() {
@@ -278,7 +278,7 @@ open class FMX : ExtractorApi() {
 
 open class Akamaicdn : ExtractorApi() {
     override val name = "Akamaicdn"
-    override val mainUrl = "https://molop.art"
+    override val mainUrl = "https://cdnmovies.net"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -294,7 +294,7 @@ open class Akamaicdn : ExtractorApi() {
             ?.substringAfter("sniff(")
             ?.substringBefore(");") ?: return
         val ids = sniffScript.split(",").map { it.replace("\"", "").trim() }
-        val m3u8 = "https://molop.art/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1&plt=${ids[16].substringBefore(" //")}"
+        val m3u8 = "https://cdnmovies.net/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1&plt=${ids[16].substringBefore(" //")}"
 
         callback.invoke(
             newExtractorLink(
@@ -316,7 +316,7 @@ open class Akamaicdn : ExtractorApi() {
 @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
 class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
-    override val mainUrl = "https://new10.gdflix.dad"
+    override val mainUrl = "https://new6.gdflix.dad"
     override val requiresReferer = false
 
     override suspend fun getUrl(

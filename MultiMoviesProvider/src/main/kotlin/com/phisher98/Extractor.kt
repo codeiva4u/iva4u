@@ -24,7 +24,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class Guccihide : Filesim() {
     override val name = "Guccihide"
-    override var mainUrl = "https://guccihide.com"
+    override var mainUrl = "https://files.im"
 }
 
 class Ahvsh : Filesim() {
@@ -43,7 +43,7 @@ class FileMoonIn : Filesim() {
 }
 
 class StreamhideTo : Filesim() {
-    override val mainUrl = "https://streamhide.to"
+    override val mainUrl = "https://streamhide.com"
     override val name = "Streamhide"
 }
 
@@ -67,7 +67,7 @@ class FileMoon : Filesim() {
 }
 
 class FileMoonSx : Filesim() {
-    override val mainUrl = "https://filemoon.sx"
+    override val mainUrl = "https://filemoon.in"
     override val name = "FileMoonSx"
 }
 
@@ -101,11 +101,14 @@ open class Filesim : ExtractorApi() {
 
         val m3u8 =
             Regex("file:\\s*\"(.*?m3u8.*?)\"").find(script)?.groupValues?.getOrNull(1)
-        generateM3u8(
+        val links = generateM3u8(
             name,
             m3u8 ?: return,
             mainUrl
-        ).forEach(callback)
+        )
+        for (link in links) {
+            callback(link)
+        }
     }
 }
 
@@ -115,15 +118,15 @@ class VidHidePro1 : VidHidePro() {
 
 class Dhcplay: VidHidePro() {
     override var name = "DHC Play"
-    override var mainUrl = "https://dhcplay.com"
+    override var mainUrl = "https://smoothpre.com"
 }
 
 class VidHidePro2 : VidHidePro() {
-    override var mainUrl = "https://filelions.online"
+    override var mainUrl = "https://filelions.live"
 }
 
 class VidHidePro3 : VidHidePro() {
-    override var mainUrl = "https://filelions.to"
+    override var mainUrl = "https://filelions.live"
 }
 
 class VidHidePro4 : VidHidePro() {
@@ -131,11 +134,11 @@ class VidHidePro4 : VidHidePro() {
 }
 
 class VidHidePro5: VidHidePro() {
-    override val mainUrl = "https://vidhidevip.com"
+    override val mainUrl = "https://kinoger.be"
 }
 
 class VidHidePro6 : VidHidePro() {
-    override val mainUrl = "https://vidhidepre.com"
+    override val mainUrl = "https://smoothpre.com"
 }
 
 class Smoothpre: VidHidePro() {
@@ -145,17 +148,17 @@ class Smoothpre: VidHidePro() {
 
 class Dhtpre: VidHidePro() {
     override var name = "EarnVids"
-    override var mainUrl = "https://dhtpre.com"
+    override var mainUrl = "https://smoothpre.com"
 }
 
 class Peytonepre : VidHidePro() {
     override var name = "EarnVids"
-    override var mainUrl = "https://peytonepre.com"
+    override var mainUrl = "https://smoothpre.com"
 }
 
 open class VidHidePro : ExtractorApi() {
     override val name = "VidHidePro"
-    override val mainUrl = "https://vidhidepro.com"
+    override val mainUrl = "https://filelions.live"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -184,13 +187,17 @@ open class VidHidePro : ExtractorApi() {
         } ?: return
 
         // m3u8 urls could be prefixed by 'file:', 'hls2:' or 'hls4:', so we just match ':'
-        Regex(":\\s*\"(.*?m3u8.*?)\"").findAll(script).forEach { m3u8Match ->
-            generateM3u8(
+        val m3u8Matches = Regex(":\\s*\"(.*?m3u8.*?)\"").findAll(script)
+        for (m3u8Match in m3u8Matches) {
+            val links = generateM3u8(
                 name,
                 fixUrl(m3u8Match.groupValues[1]),
                 referer = "$mainUrl/",
                 headers = headers
-            ).forEach(callback)
+            )
+            for (link in links) {
+                callback(link)
+            }
         }
     }
 
@@ -289,7 +296,7 @@ object AesHelper {
 @OptIn(ExperimentalEncodingApi::class)
 open class VidSrcTo : ExtractorApi() {
     override val name = "VidSrcTo"
-    override val mainUrl = "https://vidsrc.to"
+    override val mainUrl = "https://vidcloud.icu"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -453,7 +460,7 @@ class Luluvdo : StreamWishExtractor() {
 }
 
 class Lulust : StreamWishExtractor() {
-    override val mainUrl = "https://lulu.st"
+    override val mainUrl = "https://luluvdo.com"
 }
 
 class Movierulz : VidStack() {
@@ -490,7 +497,7 @@ open class FMX : ExtractorApi() {
 
 open class Akamaicdn : ExtractorApi() {
     override val name = "Akamaicdn"
-    override val mainUrl = "https://molop.art"
+    override val mainUrl = "https://cdnmovies.net"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -506,7 +513,7 @@ open class Akamaicdn : ExtractorApi() {
             ?.substringAfter("sniff(")
             ?.substringBefore(");") ?: return
         val ids = sniffScript.split(",").map { it.replace("\"", "").trim() }
-        val m3u8 = "https://molop.art/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1&plt=${ids[16].substringBefore(" //")}"
+        val m3u8 = "https://cdnmovies.net/m3u8/${ids[1]}/${ids[2]}/master.txt?s=1&cache=1&plt=${ids[16].substringBefore(" //")}"
 
         callback.invoke(
             newExtractorLink(
@@ -528,7 +535,7 @@ open class Akamaicdn : ExtractorApi() {
 @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
 class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
-    override val mainUrl = "https://new10.gdflix.dad"
+    override val mainUrl = "https://new6.gdflix.dad"
     override val requiresReferer = false
 
     override suspend fun getUrl(

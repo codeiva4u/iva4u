@@ -1,0 +1,601 @@
+{
+  "timestamp": 1754590023.179503,
+  "providers": [
+    {
+      "provider": "HDhub4u",
+      "main_domain": {
+        "status": "working",
+        "paths": {
+          "/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 2.62
+          },
+          "/category/bollywood-movies/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.7
+          },
+          "/category/hollywood-movies/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.42
+          },
+          "/category/hindi-dubbed/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.37
+          }
+        },
+        "status_code": 200,
+        "error": "",
+        "response_time": 1.57
+      },
+      "dynamic_domains": {},
+      "overall_status": "working"
+    },
+    {
+      "provider": "Movierulzhd",
+      "main_domain": {
+        "status": "working",
+        "paths": {
+          "/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 3.26
+          },
+          "/movies/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.68
+          },
+          "/genre/hindi-dubbed/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.71
+          },
+          "/genre/hindi/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 4.6
+          },
+          "/search/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 2.68
+          },
+          "/wp-admin/admin-ajax.php": {
+            "status": "failed",
+            "status_code": 400,
+            "error": "",
+            "response_time": 0.65
+          }
+        },
+        "status_code": 200,
+        "error": "",
+        "response_time": 2.06
+      },
+      "dynamic_domains": {},
+      "overall_status": "working"
+    },
+    {
+      "provider": "MoviesDrive",
+      "main_domain": {
+        "status": "working",
+        "paths": {
+          "/": {
+            "status": "working",
+            "status_code": 200,
+            "error": "",
+            "response_time": 0.28
+          },
+          "/page/": {
+            "status": "failed",
+            "status_code": 404,
+            "error": "",
+            "response_time": 0.27
+          },
+          "/category/hollywood/page/": {
+            "status": "failed",
+            "status_code": 404,
+            "error": "",
+            "response_time": 0.48
+          },
+          "/hindi-dubbed/page/": {
+            "status": "failed",
+            "status_code": 404,
+            "error": "",
+            "response_time": 0.28
+          },
+          "/category/south/page/": {
+            "status": "failed",
+            "status_code": 404,
+            "error": "",
+            "response_time": 0.27
+          }
+        },
+        "status_code": 200,
+        "error": "",
+        "response_time": 0.97
+      },
+      "dynamic_domains": {},
+      "overall_status": "working"
+    },
+    {
+      "provider": "MultiMovies",
+      "main_domain": {
+        "status": "failed",
+        "paths": {
+          "/": {
+            "status": "failed",
+            "status_code": 0,
+            "error": "Connection Error",
+            "response_time": 0.0
+          },
+          "/trending/": {
+            "status": "failed",
+            "status_code": 0,
+            "error": "Connection Error",
+            "response_time": 0.0
+          },
+          "/genre/bollywood-movies/": {
+            "status": "failed",
+            "status_code": 0,
+            "error": "Connection Error",
+            "response_time": 0.0
+          },
+          "/genre/hollywood/": {
+            "status": "failed",
+            "status_code": 0,
+            "error": "Connection Error",
+            "response_time": 0.0
+          },
+          "/wp-admin/admin-ajax.php": {
+            "status": "failed",
+            "status_code": 0,
+            "error": "Connection Error",
+            "response_time": 0.0
+          }
+        },
+        "status_code": 0,
+        "error": "Connection Error",
+        "response_time": 0.22
+      },
+      "dynamic_domains": {},
+      "overall_status": "failed"
+    }
+  ],
+  "extractors": [
+    {
+      "extractor": "Akamaicdn",
+      "domains": {
+        "https://molop.art": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.81
+        }
+      },
+      "working_count": 0,
+      "total_count": 1,
+      "overall_status": "all_failed"
+    },
+    {
+      "extractor": "DriveBot",
+      "domains": {
+        "https://drivebot.sbs": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.06
+        },
+        "https://drivebot.cfd": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 0.39
+        }
+      },
+      "working_count": 0,
+      "total_count": 2,
+      "overall_status": "all_failed"
+    },
+    {
+      "extractor": "FMX",
+      "domains": {
+        "https://fmx.lol": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.52
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "FileMoon",
+      "domains": {
+        "https://filemoon.to": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.09
+        },
+        "https://filemoon.sx": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.14
+        },
+        "https://filemoon.in": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.96
+        },
+        "https://fmhd.bar": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 0.15
+        }
+      },
+      "working_count": 1,
+      "total_count": 4,
+      "overall_status": "partial"
+    },
+    {
+      "extractor": "Filesim",
+      "domains": {
+        "https://files.im": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.76
+        },
+        "https://guccihide.com": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 0.57
+        },
+        "https://ahvsh.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.44
+        },
+        "https://moviesm4u.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.85
+        },
+        "https://streamhide.to": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 1.33
+        },
+        "https://streamhide.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.57
+        },
+        "https://movhide.pro": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 3.34
+        },
+        "https://ztreamhub.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.35
+        }
+      },
+      "working_count": 6,
+      "total_count": 8,
+      "overall_status": "partial"
+    },
+    {
+      "extractor": "GDFlix",
+      "domains": {
+        "https://new10.gdflix.dad": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.13
+        },
+        "https://new6.gdflix.dad": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 7.04
+        }
+      },
+      "working_count": 1,
+      "total_count": 2,
+      "overall_status": "partial"
+    },
+    {
+      "extractor": "Gofile",
+      "domains": {
+        "https://gofile.io": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.49
+        },
+        "https://api.gofile.io": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.47
+        }
+      },
+      "working_count": 2,
+      "total_count": 2,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "Hblinks",
+      "domains": {
+        "https://hblinks.pro": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.13
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "HdStream4u",
+      "domains": {
+        "https://hdstream4u.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 2.88
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "HubCloud",
+      "domains": {
+        "https://hubcloud.ink": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.66
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "Hubcdn",
+      "domains": {
+        "https://hubcdn.cloud": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 0.6
+        }
+      },
+      "working_count": 0,
+      "total_count": 1,
+      "overall_status": "all_failed"
+    },
+    {
+      "extractor": "Hubdrive",
+      "domains": {
+        "https://hubdrive.fit": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 2.94
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "Hubstream",
+      "domains": {
+        "https://hubstream.art": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.19
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "Movierulz",
+      "domains": {
+        "https://movierulz2025.bar": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.8
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "Playonion",
+      "domains": {
+        "https://playonion.sbs": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.82
+        }
+      },
+      "working_count": 1,
+      "total_count": 1,
+      "overall_status": "all_working"
+    },
+    {
+      "extractor": "StreamWish",
+      "domains": {
+        "https://luluvdo.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 2.06
+        },
+        "https://lulu.st": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.08
+        }
+      },
+      "working_count": 1,
+      "total_count": 2,
+      "overall_status": "partial"
+    },
+    {
+      "extractor": "VidHidePro",
+      "domains": {
+        "https://vidhidepro.com": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 21.27
+        },
+        "https://filelions.live": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 1.45
+        },
+        "https://filelions.online": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 22.68
+        },
+        "https://filelions.to": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 22.0
+        },
+        "https://kinoger.be": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 4.34
+        },
+        "https://vidhidevip.com": {
+          "status": "failed",
+          "status_code": 522,
+          "error": "",
+          "response_time": 1.0
+        },
+        "https://vidhidepre.com": {
+          "status": "failed",
+          "status_code": 522,
+          "error": "",
+          "response_time": 2.43
+        },
+        "https://dhcplay.com": {
+          "status": "failed",
+          "status_code": 522,
+          "error": "",
+          "response_time": 0.84
+        },
+        "https://smoothpre.com": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 3.77
+        },
+        "https://dhtpre.com": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.11
+        },
+        "https://peytonepre.com": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.07
+        }
+      },
+      "working_count": 3,
+      "total_count": 11,
+      "overall_status": "partial"
+    },
+    {
+      "extractor": "VidSrcTo",
+      "domains": {
+        "https://vidsrc2.to": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Connection Error",
+          "response_time": 0.11
+        },
+        "https://vidsrc.to": {
+          "status": "failed",
+          "status_code": 0,
+          "error": "Timeout",
+          "response_time": 20.08
+        }
+      },
+      "working_count": 0,
+      "total_count": 2,
+      "overall_status": "all_failed"
+    },
+    {
+      "extractor": "Vidstack",
+      "domains": {
+        "https://vidstack.io": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 3.1
+        },
+        "https://server1.uns.bio": {
+          "status": "working",
+          "status_code": 200,
+          "error": "",
+          "response_time": 0.65
+        }
+      },
+      "working_count": 2,
+      "total_count": 2,
+      "overall_status": "all_working"
+    }
+  ]
+}

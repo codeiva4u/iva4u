@@ -1,0 +1,94 @@
+================================================================================
+🎬 IVA4U PROJECT - PROVIDERS & EXTRACTORS STATUS REPORT
+================================================================================
+⏰ Generated: 2025-08-07 23:37:03 UTC
+
+📊 PROVIDER SUMMARY
+----------------------------------------
+✅ Fully Working: 3
+⚠️  Partially Working: 0
+❌ Failed: 1
+📈 Total Providers: 4
+
+🏢 PROVIDER DETAILED STATUS
+----------------------------------------
+✅ HDhub4u
+  ✅ Main: 200 (1.57s)
+
+✅ Movierulzhd
+  ✅ Main: 200 (2.06s)
+    ⚠️  Failed paths: /wp-admin/admin-ajax.php
+
+✅ MoviesDrive
+  ✅ Main: 200 (0.97s)
+    ⚠️  Failed paths: /page/, /category/hollywood/page/, /hindi-dubbed/page/, /category/south/page/
+
+❌ MultiMovies
+  ❌ Main: 0 (0.22s)
+    ⚠️  Failed paths: /, /trending/, /genre/bollywood-movies/, /genre/hollywood/, /wp-admin/admin-ajax.php
+
+🔧 EXTRACTOR SUMMARY
+----------------------------------------
+✅ Fully Working Extractors: 10
+⚠️  Partially Working Extractors: 5
+❌ Failed Extractors: 4
+📊 Working Domains: 24/45 (53.3%)
+
+🔧 EXTRACTOR DETAILED STATUS
+----------------------------------------
+❌ Akamaicdn (0/1 working)
+
+❌ DriveBot (0/2 working)
+
+✅ FMX (1/1 working)
+
+⚠️ FileMoon (1/4 working)
+    ❌ Failed: https://filemoon.to, https://filemoon.sx, https://fmhd.bar
+
+⚠️ Filesim (6/8 working)
+    ❌ Failed: https://guccihide.com, https://streamhide.to
+
+⚠️ GDFlix (1/2 working)
+    ❌ Failed: https://new10.gdflix.dad
+
+✅ Gofile (2/2 working)
+
+✅ Hblinks (1/1 working)
+
+✅ HdStream4u (1/1 working)
+
+✅ HubCloud (1/1 working)
+
+❌ Hubcdn (0/1 working)
+
+✅ Hubdrive (1/1 working)
+
+✅ Hubstream (1/1 working)
+
+✅ Movierulz (1/1 working)
+
+✅ Playonion (1/1 working)
+
+⚠️ StreamWish (1/2 working)
+    ❌ Failed: https://lulu.st
+
+⚠️ VidHidePro (3/11 working)
+    ❌ Failed: https://vidhidepro.com, https://filelions.online, https://filelions.to
+    ... and 5 more
+
+❌ VidSrcTo (0/2 working)
+
+✅ Vidstack (2/2 working)
+
+💡 RECOMMENDATIONS
+----------------------------------------
+🚨 CRITICAL ISSUES:
+  ❗ 1 providers completely failed
+  ❗ Less than 70% of extractor domains working
+
+🔍 ACTIONS NEEDED:
+  • Update failed extractor domains
+  • Monitor domain status regularly
+  • Consider implementing domain rotation for failed extractors
+
+================================================================================

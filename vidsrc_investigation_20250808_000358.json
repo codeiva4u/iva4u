@@ -1,0 +1,364 @@
+{
+  "timestamp": "2025-08-08T00:03:58.973277",
+  "total_tested": 28,
+  "working_count": 12,
+  "failed_count": 16,
+  "success_rate": 42.857142857142854,
+  "working_domains": [
+    {
+      "domain": "https://vidcloud.icu",
+      "working": true,
+      "response_time": 1.1714293956756592,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.pm",
+      "working": true,
+      "response_time": 1.2140135765075684,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.in",
+      "working": true,
+      "response_time": 1.3790733814239502,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.cc",
+      "working": true,
+      "response_time": 1.4862596988677979,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidembed.cc",
+      "working": true,
+      "response_time": 1.569120168685913,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": false,
+      "has_api": true,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.nl",
+      "working": true,
+      "response_time": 1.5802507400512695,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidembed.io",
+      "working": true,
+      "response_time": 1.586906909942627,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": false,
+      "has_api": true,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.tv",
+      "working": true,
+      "response_time": 1.6701107025146484,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.net",
+      "working": true,
+      "response_time": 1.736314296722412,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.xyz",
+      "working": true,
+      "response_time": 1.7820653915405273,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.icu",
+      "working": true,
+      "response_time": 2.959713935852051,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed",
+        "stream",
+        "player",
+        "video",
+        "movie",
+        "vidsrc"
+      ]
+    },
+    {
+      "domain": "https://vidsrc.pro",
+      "working": true,
+      "response_time": 10.757501125335693,
+      "status_code": 200,
+      "error": null,
+      "has_embed_support": true,
+      "has_api": true,
+      "content_indicators": [
+        "embed"
+      ]
+    }
+  ],
+  "failed_domains": [
+    {
+      "domain": "https://vidsrc4.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc4.to', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9CE9F40>: Failed to resolve 'vidsrc4.to' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc3.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc3.to', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9CEB290>: Failed to resolve 'vidsrc3.to' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc1.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc1.to', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9CE98E0>: Failed to resolve 'vidsrc1.to' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc2.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc2.to', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9CEB6E0>: Failed to resolve 'vidsrc2.to' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc5.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc5.to', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9CEBE60>: Failed to resolve 'vidsrc5.to' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.org",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc.org', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9D14D10>: Failed to resolve 'vidsrc.org' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.run",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='vidsrc.run', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9C0EF30>: Failed to resolve 'vidsrc.run' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://embedplex.com",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='embedplex.com', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BD9D150A0>: Failed to resolve 'embedplex.com' ([Errno 11001] getaddrinfo failed)\"))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://2embed.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='2embed.to', port=443): Max retries exceeded with url: / (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1010)')))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://www.2embed.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection error: HTTPSConnectionPool(host='www.2embed.to', port=443): Max retries exceeded with url: / (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1010)')))",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.me",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://www.vidsrc.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://embed.vidsrc.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://api.vidsrc.to",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    },
+    {
+      "domain": "https://vidsrc.stream",
+      "working": false,
+      "response_time": 0,
+      "status_code": null,
+      "error": "Connection timeout",
+      "has_embed_support": false,
+      "has_api": false,
+      "content_indicators": []
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "primary_replacement",
+      "domain": "https://vidcloud.icu",
+      "reason": "Fastest response time: 1.17s"
+    },
+    {
+      "type": "backup_domains",
+      "domains": [
+        "https://vidsrc.pm",
+        "https://vidsrc.in",
+        "https://vidsrc.cc"
+      ],
+      "reason": "For redundancy and failover"
+    },
+    {
+      "type": "embed_capable",
+      "domains": [
+        "https://vidsrc.pm",
+        "https://vidsrc.in",
+        "https://vidsrc.cc"
+      ],
+      "reason": "Support video embedding"
+    }
+  ]
+}

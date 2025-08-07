@@ -1,0 +1,35 @@
+{
+  "timestamp": "2025-08-08T00:06:59.021438",
+  "optimizations_applied": [
+    "FileMoon alternatives found",
+    "Backup domains tested and added",
+    "Advanced monitor updated successfully"
+  ],
+  "backup_domains_added": {
+    "FileMoon": [
+      "https://filemoon.in",
+      "https://kerapoxy.cc",
+      "https://streamzz.to"
+    ],
+    "VidStack": [
+      "https://vidstack.io",
+      "https://server1.uns.bio"
+    ],
+    "VidSrcTo": [
+      "https://vidcloud.icu",
+      "https://vidsrc.pm",
+      "https://vidsrc.in",
+      "https://vidsrc.cc",
+      "https://vidsrc.tv",
+      "https://vidsrc.net",
+      "https://vidembed.cc",
+      "https://2embed.org"
+    ],
+    "GDFlix": [
+      "https://new6.gdflix.dad"
+    ]
+  },
+  "selectors_fixed": {},
+  "additional_extractors": {},
+  "final_health_target": "100%"
+}

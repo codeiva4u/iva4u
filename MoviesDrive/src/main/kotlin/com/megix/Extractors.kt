@@ -196,7 +196,7 @@ class GDFlix7 : GDFlix() {
 
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
-    override val mainUrl = "https://new10.gdflix.dad"
+    override val mainUrl = "https://new6.gdflix.dad"
     override val requiresReferer = false
 
     private suspend fun getLatestUrl(): String {

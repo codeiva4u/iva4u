@@ -1,0 +1,229 @@
+{
+  "timestamp": "2025-08-07T23:52:29.667610",
+  "providers": {
+    "HDhub4u": {
+      "url_accessible": true,
+      "selectors_working": {
+        "movies": {
+          "working": true,
+          "count": 60,
+          "sample_text": "Salakaar (Season 1) WEB-DL [Hindi DD5.1] 4K 1080p "
+        },
+        "title": {
+          "working": true,
+          "count": 60,
+          "sample_text": "Salakaar (Season 1) WEB-DL [Hindi DD5.1] 4K 1080p "
+        },
+        "poster": {
+          "working": true,
+          "count": 60,
+          "sample_text": ""
+        },
+        "link": {
+          "working": true,
+          "count": 60,
+          "sample_text": ""
+        }
+      },
+      "content_found": true,
+      "structure_valid": true,
+      "response_time": 30.567501068115234,
+      "issues": [],
+      "path_success_rate": 1.0
+    },
+    "MoviesDrive": {
+      "url_accessible": true,
+      "selectors_working": {
+        "movies": {
+          "working": true,
+          "count": 21,
+          "sample_text": "Jurassic World Rebirth (2025) DS4K WEB-DL [Hindi ("
+        },
+        "title": {
+          "working": true,
+          "count": 21,
+          "sample_text": "Jurassic World Rebirth (2025) DS4K WEB-DL [Hindi ("
+        },
+        "poster": {
+          "working": true,
+          "count": 21,
+          "sample_text": ""
+        },
+        "link": {
+          "working": true,
+          "count": 21,
+          "sample_text": "Jurassic World Rebirth (2025) DS4K WEB-DL [Hindi ("
+        }
+      },
+      "content_found": true,
+      "structure_valid": true,
+      "response_time": 0.9173734188079834,
+      "issues": [],
+      "path_success_rate": 1.0
+    },
+    "Movierulzhd": {
+      "url_accessible": true,
+      "selectors_working": {
+        "movies": {
+          "working": false,
+          "count": 0,
+          "sample_text": null
+        },
+        "title": {
+          "working": false,
+          "count": 0,
+          "sample_text": null
+        },
+        "poster": {
+          "working": false,
+          "count": 0,
+          "sample_text": null
+        },
+        "quality": {
+          "working": false,
+          "count": 0,
+          "sample_text": null
+        }
+      },
+      "content_found": false,
+      "structure_valid": true,
+      "response_time": 2.140557050704956,
+      "issues": [],
+      "path_success_rate": 1.0
+    }
+  },
+  "extractors": {
+    "VidStack": {
+      "working_domains": [
+        {
+          "domain": "https://vidstack.io",
+          "response_time": 1.3052375316619873,
+          "status_code": 200
+        },
+        {
+          "domain": "https://server1.uns.bio",
+          "response_time": 0.9660506248474121,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [],
+      "best_domain": "https://server1.uns.bio",
+      "avg_response_time": 1.1356440782546997,
+      "video_patterns_found": true,
+      "api_endpoints_working": true
+    },
+    "VidSrcTo": {
+      "working_domains": [],
+      "failed_domains": [
+        {
+          "domain": "https://vidsrc.to",
+          "error": "HTTPSConnectionPool(host='vidsrc.to', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001B662451BE0>, 'Connection to vidsrc.to timed out. (connect timeout=10)'))"
+        }
+      ],
+      "best_domain": null,
+      "avg_response_time": 0,
+      "video_patterns_found": false,
+      "api_endpoints_working": false
+    },
+    "FileMoon": {
+      "working_domains": [
+        {
+          "domain": "https://filemoon.in",
+          "response_time": 1.206510305404663,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [
+        {
+          "domain": "https://filemoon.to",
+          "error": "HTTPSConnectionPool(host='filemoon.to', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001B662452DB0>, 'Connection to filemoon.to timed out. (connect timeout=10)'))"
+        }
+      ],
+      "best_domain": "https://filemoon.in",
+      "avg_response_time": 1.206510305404663,
+      "video_patterns_found": true,
+      "api_endpoints_working": false
+    },
+    "GDFlix": {
+      "working_domains": [
+        {
+          "domain": "https://new6.gdflix.dad",
+          "response_time": 4.706992149353027,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [],
+      "best_domain": "https://new6.gdflix.dad",
+      "avg_response_time": 4.706992149353027,
+      "video_patterns_found": true,
+      "api_endpoints_working": false
+    },
+    "Gofile": {
+      "working_domains": [
+        {
+          "domain": "https://gofile.io",
+          "response_time": 0.44264793395996094,
+          "status_code": 200
+        },
+        {
+          "domain": "https://api.gofile.io",
+          "response_time": 0.5783524513244629,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [],
+      "best_domain": "https://gofile.io",
+      "avg_response_time": 0.5105001926422119,
+      "video_patterns_found": false,
+      "api_endpoints_working": true
+    },
+    "HubCloud": {
+      "working_domains": [
+        {
+          "domain": "https://hubcloud.ink",
+          "response_time": 1.3561577796936035,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [],
+      "best_domain": "https://hubcloud.ink",
+      "avg_response_time": 1.3561577796936035,
+      "video_patterns_found": false,
+      "api_endpoints_working": false
+    },
+    "Hubstream": {
+      "working_domains": [
+        {
+          "domain": "https://hubstream.art",
+          "response_time": 0.7397961616516113,
+          "status_code": 200
+        }
+      ],
+      "failed_domains": [],
+      "best_domain": "https://hubstream.art",
+      "avg_response_time": 0.7397961616516113,
+      "video_patterns_found": true,
+      "api_endpoints_working": false
+    }
+  },
+  "issues": [],
+  "fixes_applied": [],
+  "health_report": {
+    "overall_health": 80.0,
+    "provider_success_rate": 100.0,
+    "extractor_success_rate": 85.71428571428571,
+    "working_providers": 3,
+    "total_providers": 3,
+    "working_extractors": 6,
+    "total_extractors": 7,
+    "working_domains": 8,
+    "total_domains": 10,
+    "critical_issues": 0,
+    "recommendations": []
+  },
+  "fixes": {
+    "domain_updates": [],
+    "selector_fixes": [],
+    "code_improvements": []
+  }
+}
