@@ -289,31 +289,50 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         }
         
-        // 2. Handle Download Links with igx.gtxgamer.site redirects
+        // 2. Handle Download Links with igx.gtxgamer.site intermediate pages
         try {
             req.select("table tbody tr").amap { row ->
                 val hostName = row.select("img").attr("alt")
                 val redirectLink = row.selectFirst("td a.btn")?.attr("href")
                 
                 if (redirectLink != null && redirectLink.isNotEmpty()) {
-                    Log.d("MultiMovies", "Processing $hostName link: $redirectLink")
+                    Log.d("MultiMovies", "Processing $hostName: $redirectLink")
                     
                     try {
-                        // Follow igx.gtxgamer.site redirect to get actual host URL
-                        val actualHostUrl = if (redirectLink.contains("igx.gtxgamer.site")) {
-                            val redirectResponse = app.get(
+                        // igx.gtxgamer.site returns an HTML page with iframe
+                        val actualHostUrl = if (redirectLink.contains("igx.gtxgamer.site") || redirectLink.contains("pro.gtxgamer.site")) {
+                            val intermediatePage = app.get(
                                 redirectLink,
                                 allowRedirects = true,
                                 timeout = 15L
-                            )
-                            redirectResponse.url
+                            ).document
+                            
+                            // Extract iframe src (this is the actual video host URL)
+                            val iframeSrc = intermediatePage.selectFirst("iframe")?.attr("src")
+                            
+                            if (iframeSrc != null && iframeSrc.isNotEmpty()) {
+                                Log.d("MultiMovies", "Extracted iframe for $hostName: $iframeSrc")
+                                iframeSrc
+                            } else {
+                                // Fallback: try to find any video host link in the page
+                                val fallbackLink = intermediatePage.select("a[href]").firstOrNull {
+                                    val href = it.attr("href")
+                                    href.contains("vidhide") || href.contains("streamwish") || 
+                                    href.contains("gdtot") || href.contains("filepress") ||
+                                    href.contains("hubcloud") || href.contains("gofile")
+                                }?.attr("href")
+                                
+                                fallbackLink ?: ""
+                            }
                         } else {
                             redirectLink
                         }
                         
                         if (actualHostUrl.isNotEmpty() && actualHostUrl.startsWith("http")) {
-                            Log.d("MultiMovies", "Actual host URL for $hostName: $actualHostUrl")
+                            Log.d("MultiMovies", "Loading extractor for $hostName: $actualHostUrl")
                             loadExtractor(actualHostUrl, referer = data, subtitleCallback, callback)
+                        } else {
+                            Log.w("MultiMovies", "No valid URL found for $hostName")
                         }
                     } catch (e: Exception) {
                         Log.e("MultiMovies", "Failed to process $hostName: ${e.message}")
