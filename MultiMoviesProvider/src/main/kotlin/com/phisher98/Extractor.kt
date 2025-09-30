@@ -2,20 +2,37 @@ package com.phisher98
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import java.net.UnknownHostException
-import java.net.SocketTimeoutException
+import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
+import java.net.URI
 
+// ============== UTILITY FUNCTIONS ==============
 
-// GDTOT Extractor - Enhanced error handling for DOWN domains
-class GDTOTExtractor : ExtractorApi() {
-    override var name = "GDTOT"
-    override var mainUrl = "https://gdtot.dad"
-    override val requiresReferer = true
+fun getIndexQuality(str: String?): Int {
+    return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+        ?: Qualities.Unknown.value
+}
+
+fun getBaseUrl(url: String): String {
+    return try {
+        URI(url).let { "${it.scheme}://${it.host}" }
+    } catch (e: Exception) {
+        url.substringBefore("/", url)
+    }
+}
+
+// ============== 1. VidHide Extractor ==============
+// Domains: gdmirrorbot.nl, vidhide.com, filelions.com
+class VidHidePro : ExtractorApi() {
+    override var name = "VidHide"
+    override var mainUrl = "https://gdmirrorbot.nl"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -24,35 +41,83 @@ class GDTOTExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("GDTOT", "Attempting extraction from: $url")
+            Log.d("VidHide", "Extracting from: $url")
             
-            // Try to access with short timeout
-            val response = app.get(url, referer = referer, timeout = 10L)
+            val response = app.get(url, timeout = 15L)
+            val doc = response.document
+            var linksFound = 0
             
-            if (response.code >= 400) {
-                Log.w("GDTOT", "Server returned ${response.code} for $url")
-                return
+            // Extract iframe sources
+            doc.select("iframe#vidFrame, iframe.video-frame").forEach { iframe ->
+                val src = iframe.attr("src")
+                if (src.isNotEmpty() && src.startsWith("http")) {
+                    Log.d("VidHide", "Found iframe: $src")
+                    callback.invoke(
+                        newExtractorLink(
+                            "VidHide",
+                            "VidHide Player",
+                            src
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                    linksFound++
+                }
             }
             
-            // Add extraction logic here if domains come back online
-            Log.i("GDTOT", "Successfully connected but no extraction logic implemented yet")
+            // Extract server links
+            doc.select("li.server-item, a.server-link").forEach { serverItem ->
+                val dataLink = serverItem.attr("data-link").ifEmpty { serverItem.attr("href") }
+                val serverName = serverItem.selectFirst(".server-name, span")?.text() ?: "Server"
+                
+                if (dataLink.isNotEmpty() && dataLink.startsWith("http")) {
+                    callback.invoke(
+                        newExtractorLink(
+                            "VidHide-$serverName",
+                            "VidHide $serverName",
+                            dataLink
+                        ) {
+                            this.referer = url
+                            this.quality = getIndexQuality(serverName)
+                            this.type = if (dataLink.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        }
+                    )
+                    linksFound++
+                }
+            }
             
-        } catch (e: UnknownHostException) {
-            Log.e("GDTOT", "Domain is DOWN or unreachable: ${e.message}")
-        } catch (e: SocketTimeoutException) {
-            Log.e("GDTOT", "Connection timeout for $url: ${e.message}")
+            // Extract download links
+            doc.select("a.dlvideoLinks, a[href*='download']").forEach { downloadLink ->
+                val href = downloadLink.attr("href")
+                if (href.isNotEmpty() && href.startsWith("http")) {
+                    callback.invoke(
+                        newExtractorLink(
+                            "VidHide-Download",
+                            "VidHide Direct Download",
+                            href
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                    linksFound++
+                }
+            }
+            
+            Log.i("VidHide", "Successfully extracted $linksFound sources")
         } catch (e: Exception) {
-            Log.e("GDTOT", "Extraction failed for $url: ${e.message}")
+            Log.e("VidHide", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// StreamHG Extractor - NEW! Replaces FilePress
-// Direct download links from multimoviesshg.com in multiple qualities
-class StreamHG : ExtractorApi() {
-    override var name = "StreamHG"
-    override var mainUrl = "https://multimoviesshg.com"
-    override val requiresReferer = true
+// ============== 2. StreamWish Extractor ==============
+// Domains: streamwish.com, streamwish.to, luluvdo.com, lulu.st
+open class StreamWishExtractor : ExtractorApi() {
+    override var name = "StreamWish"
+    override var mainUrl = "https://streamwish.com"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -61,81 +126,105 @@ class StreamHG : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("StreamHG", "Starting extraction from: $url")
+            Log.d(name, "Extracting from: $url")
             
-            // Extract file ID from URL: /f/jw2nbe1cpvk7 or /f/jw2nbe1cpvk7_h
-            val fileIdRegex = Regex("/f/([a-zA-Z0-9]+)")
-            val fileIdMatch = fileIdRegex.find(url)
+            val baseUrl = getBaseUrl(url)
+            val embedUrl = if (url.contains("/e/")) url else {
+                val videoId = url.substringAfterLast("/").substringBefore("?")
+                "$baseUrl/e/$videoId"
+            }
             
-            if (fileIdMatch == null) {
-                Log.e("StreamHG", "Could not extract file ID from URL: $url")
+            Log.d(name, "Embed URL: $embedUrl")
+            
+            val response = app.get(embedUrl, referer = url)
+            val doc = response.document
+            
+            // Method 1: Try to extract from sources
+            val sourceRegex = Regex("""sources:\s*\[\{[^\]]+file:\s*["']([^"']+)["']""")
+            val sourceMatch = sourceRegex.find(doc.html())
+            if (sourceMatch != null) {
+                val videoUrl = sourceMatch.groupValues[1]
+                Log.d(name, "Found source: $videoUrl")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        videoUrl
+                    ) {
+                        this.referer = embedUrl
+                        this.quality = Qualities.Unknown.value
+                        this.type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                    }
+                )
                 return
             }
             
-            val fileId = fileIdMatch.groupValues[1]
-            Log.d("StreamHG", "Extracted file ID: $fileId")
-            
-            // Define quality variants
-            val qualityVariants = listOf(
-                Triple("Full HD", "${mainUrl}/f/${fileId}_h", 1080),
-                Triple("HD", "${mainUrl}/f/${fileId}_n", 720),
-                Triple("Normal", "${mainUrl}/f/${fileId}_l", 480)
-            )
-            
-            var linksFound = 0
-            
-            qualityVariants.forEach { (qualityLabel, downloadUrl, qualityValue) ->
+            // Method 2: Try API endpoint
+            val videoId = embedUrl.substringAfterLast("/e/").substringBefore("?")
+            if (videoId.isNotEmpty()) {
                 try {
-                    Log.d("StreamHG", "Checking $qualityLabel quality: $downloadUrl")
-                    
-                    // Validate link with HEAD request
-                    val headResponse = app.head(
-                        downloadUrl,
-                        referer = "${mainUrl}/f/${fileId}",
+                    val apiUrl = "$baseUrl/api/player/setup"
+                    val apiResponse = app.post(
+                        apiUrl,
+                        data = mapOf("id" to videoId),
+                        referer = embedUrl,
                         headers = mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                        ),
-                        timeout = 10L
-                    )
-                    
-                    if (headResponse.code == 200 || headResponse.code == 302) {
-                        val contentLength = headResponse.headers["Content-Length"]
-                        Log.d("StreamHG", "$qualityLabel available (Status: ${headResponse.code}, Size: ${contentLength ?: "unknown"})")
-                        
-                        callback.invoke(
-                            ExtractorLink(
-                                "$name - $qualityLabel",
-                                "$name - $qualityLabel",
-                                downloadUrl,
-                                referer = "${mainUrl}/f/${fileId}",
-                                quality = qualityValue,
-                                type = ExtractorLinkType.VIDEO
-                            )
+                            "X-Requested-With" to "XMLHttpRequest",
+                            "Content-Type" to "application/x-www-form-urlencoded"
                         )
-                        linksFound++
-                    } else {
-                        Log.w("StreamHG", "$qualityLabel unavailable (Status: ${headResponse.code})")
+                    ).text
+                    
+                    val json = JSONObject(apiResponse)
+                    val sources = json.optJSONArray("sources")
+                    if (sources != null) {
+                        for (i in 0 until sources.length()) {
+                            val source = sources.getJSONObject(i)
+                            val file = source.optString("file")
+                            if (file.isNotEmpty()) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        name,
+                                        "$name ${source.optString("label", "")}" .trim(),
+                                        file
+                                    ) {
+                                        this.referer = embedUrl
+                                        this.quality = getIndexQuality(source.optString("label"))
+                                        this.type = if (file.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                                    }
+                                )
+                            }
+                        }
                     }
                 } catch (e: Exception) {
-                    Log.w("StreamHG", "Failed to validate $qualityLabel: ${e.message}")
+                    Log.e(name, "API extraction failed: ${e.message}")
                 }
             }
-            
-            Log.i("StreamHG", "Successfully extracted $linksFound download links from StreamHG")
-            
         } catch (e: Exception) {
-            Log.e("StreamHG", "Extraction failed: ${e.message}")
-            e.printStackTrace()
+            Log.e(name, "Extraction failed: ${e.message}")
         }
     }
 }
 
-// Hubcloud Extractor - Enhanced with robust error handling
-// Extracts multiple download servers: PixelDrain, 10Gbps, ZipDisk, Telegram
-class Hubcloud : ExtractorApi() {
-    override var name = "Hubcloud"
-    override var mainUrl = "https://hubcloud.one"
-    override val requiresReferer = true
+class StreamWishCom : StreamWishExtractor() {
+    override var mainUrl = "https://streamwish.com"
+}
+
+class Luluvdo : StreamWishExtractor() {
+    override var name = "Luluvdo"
+    override var mainUrl = "https://luluvdo.com"
+}
+
+class LuluSt : StreamWishExtractor() {
+    override var name = "LuluSt"
+    override var mainUrl = "https://lulu.st"
+}
+
+// ============== 3. GDToT Extractor ==============
+// Domains: gdtot.pro, gdtot.top, gdtot.cfd
+open class GDToTExtractor : ExtractorApi() {
+    override var name = "GDToT"
+    override var mainUrl = "https://gdtot.pro"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -144,158 +233,410 @@ class Hubcloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("Hubcloud", "Step 1: Loading initial page: $url")
+            Log.d("GDToT", "Extracting from: $url")
             
-            val initialResponse = app.get(url, referer = referer, timeout = 25L)
+            val baseUrl = getBaseUrl(url)
+            val response = app.get(url)
+            val doc = response.document
+            val cookies = response.cookies
             
-            if (initialResponse.code != 200) {
-                Log.w("Hubcloud", "Initial page returned status ${initialResponse.code}")
-                return
+            // Get file info
+            val fileName = doc.selectFirst("h5.page-title, h5")?.text() ?: ""
+            val fileSize = doc.selectFirst("div.file-size")?.text() ?: ""
+            
+            Log.d("GDToT", "File: $fileName ($fileSize)")
+            
+            // Try to find download button/link
+            val downloadBtn = doc.selectFirst("a.btn-success, button.btn-success, #download_btn")
+            val downloadLink = downloadBtn?.attr("href") ?: downloadBtn?.attr("onclick")?.let {
+                Regex("""['"](https?://[^'"]+)['"]""").find(it)?.groupValues?.get(1)
             }
             
-            val initialDoc = initialResponse.document
-            
-            // Step 2: Get the gamerxyt.com button link
-            val gamerxytButton = initialDoc.selectFirst("a#download[href*='gamerxyt.com']")
-            if (gamerxytButton == null) {
-                Log.e("Hubcloud", "Generate Download Link button not found in page")
-                return
-            }
-            
-            val gamerxytUrl = gamerxytButton.attr("href")
-            if (gamerxytUrl.isEmpty()) {
-                Log.e("Hubcloud", "gamerxyt URL is empty")
-                return
-            }
-            
-            Log.d("Hubcloud", "Step 2: Found gamerxyt URL: $gamerxytUrl")
-            
-            // Step 3: Navigate to gamerxyt page to get all download servers
-            val downloadResponse = app.get(gamerxytUrl, referer = url, timeout = 25L)
-            
-            if (downloadResponse.code != 200) {
-                Log.w("Hubcloud", "Download page returned status ${downloadResponse.code}")
-                return
-            }
-            
-            val downloadPage = downloadResponse.document
-            Log.d("Hubcloud", "Step 3: Loaded download page with servers")
-            
-            // Extract all download links
-            var linksFound = 0
-            
-            // Server 1: PixelDrain (PixelServer : 2)
-            downloadPage.select("a[href*='pixeldrain.dev/api/file']").forEach { element ->
-                val pixelUrl = element.attr("href")
-                if (pixelUrl.isNotEmpty()) {
-                    Log.d("Hubcloud", "Found PixelDrain: $pixelUrl")
+            if (downloadLink != null && downloadLink.startsWith("http")) {
+                Log.d("GDToT", "Found download link: $downloadLink")
+                
+                // Follow the link to get actual file
+                val finalResponse = app.get(
+                    downloadLink,
+                    referer = url,
+                    cookies = cookies,
+                    allowRedirects = true
+                )
+                
+                callback.invoke(
+                    newExtractorLink(
+                        "GDToT",
+                        "GDToT [$fileSize]".trim(),
+                        finalResponse.url
+                    ) {
+                        this.referer = url
+                        this.quality = getIndexQuality(fileName)
+                        this.headers = mapOf("Cookie" to cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+                    }
+                )
+            } else {
+                // Try to extract direct Google Drive link
+                val driveLink = doc.select("a[href*='drive.google.com']").attr("href")
+                if (driveLink.isNotEmpty()) {
+                    Log.d("GDToT", "Found Google Drive link")
                     callback.invoke(
-                        ExtractorLink(
-                            "$name - PixelDrain",
-                            "$name - PixelDrain",
-                            pixelUrl,
-                            gamerxytUrl,
-                            Qualities.Unknown.value,
-                            type = ExtractorLinkType.VIDEO
-                        )
+                        newExtractorLink(
+                            "GDToT-Drive",
+                            "GDToT Drive [$fileSize]".trim(),
+                            driveLink
+                        ) {
+                            this.referer = url
+                            this.quality = getIndexQuality(fileName)
+                        }
                     )
-                    linksFound++
                 }
             }
+        } catch (e: Exception) {
+            Log.e("GDToT", "Extraction failed: ${e.message}")
+        }
+    }
+}
+
+class GDToTPro : GDToTExtractor() {
+    override var mainUrl = "https://gdtot.pro"
+}
+
+class GDToTTop : GDToTExtractor() {
+    override var mainUrl = "https://gdtot.top"
+}
+
+// ============== 4. FilePress Extractor ==============
+// Domains: filepress.store, filepress.click
+open class FilePressExtractor : ExtractorApi() {
+    override var name = "FilePress"
+    override var mainUrl = "https://filepress.store"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("FilePress", "Extracting from: $url")
             
-            // Server 2: 10Gbps Server (pixel.hubcdn.fans)
-            downloadPage.select("a[href*='pixel.hubcdn.fans']").forEach { element ->
-                val gbpsUrl = element.attr("href")
-                if (gbpsUrl.isNotEmpty()) {
-                    Log.d("Hubcloud", "Found 10Gbps: $gbpsUrl")
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name - 10Gbps",
-                            "$name - 10Gbps",
-                            gbpsUrl,
-                            gamerxytUrl,
-                            Qualities.Unknown.value,
-                            type = ExtractorLinkType.VIDEO
+            val baseUrl = getBaseUrl(url)
+            val response = app.get(url)
+            val doc = response.document
+            
+            // Extract file info
+            val fileName = doc.selectFirst("h1, .file-name")?.text() ?: ""
+            val fileSize = doc.selectFirst(".file-size")?.text() ?: ""
+            
+            Log.d("FilePress", "File: $fileName ($fileSize)")
+            
+            // Try to find file ID and token from script
+            val scriptContent = doc.select("script").joinToString("\n") { it.html() }
+            val fileIdMatch = Regex("""file[_-]?id["']?\s*[:=]\s*["']([^"']+)["']""").find(scriptContent)
+            val tokenMatch = Regex("""token["']?\s*[:=]\s*["']([^"']+)["']""").find(scriptContent)
+            
+            if (fileIdMatch != null) {
+                val fileId = fileIdMatch.groupValues[1]
+                val token = tokenMatch?.groupValues?.get(1) ?: ""
+                
+                Log.d("FilePress", "Found file ID: $fileId")
+                
+                // Call API to get download link
+                try {
+                    val apiUrl = "$baseUrl/api/file/direct_download"
+                    val apiResponse = app.post(
+                        apiUrl,
+                        data = mapOf("id" to fileId, "token" to token),
+                        referer = url,
+                        headers = mapOf(
+                            "X-Requested-With" to "XMLHttpRequest",
+                            "Content-Type" to "application/x-www-form-urlencoded"
                         )
-                    )
-                    linksFound++
-                }
-            }
-            
-            // Server 3: ZipDisk Server (cloudserver workers.dev)
-            downloadPage.select("a[href*='cloudserver'][href*='workers.dev']").forEach { element ->
-                val zipUrl = element.attr("href")
-                if (zipUrl.isNotEmpty()) {
-                    Log.d("Hubcloud", "Found ZipDisk: $zipUrl")
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name - ZipDisk",
-                            "$name - ZipDisk (Extract ZIP)",
-                            zipUrl,
-                            gamerxytUrl,
-                            Qualities.Unknown.value,
-                            type = ExtractorLinkType.VIDEO
-                        )
-                    )
-                    linksFound++
-                }
-            }
-            
-            // Server 4: Telegram Download
-            downloadPage.select("a[href*='telegram'], a[href*='bloggingvector']").forEach { element ->
-                val tgUrl = element.attr("href")
-                if (tgUrl.isNotEmpty() && tgUrl.startsWith("http")) {
-                    Log.d("Hubcloud", "Found Telegram: $tgUrl")
-                    callback.invoke(
-                        ExtractorLink(
-                            "$name - Telegram",
-                            "$name - Telegram",
-                            tgUrl,
-                            gamerxytUrl,
-                            Qualities.Unknown.value,
-                            type = ExtractorLinkType.VIDEO
-                        )
-                    )
-                    linksFound++
-                }
-            }
-            
-            // Bonus: Direct share link (hubcloud.one/drive/ID)
-            try {
-                val shareLink = downloadPage.selectFirst("input[value*='hubcloud.one/drive/']")
-                if (shareLink != null) {
-                    val directUrl = shareLink.attr("value")
-                    if (directUrl.isNotEmpty()) {
-                        Log.d("Hubcloud", "Found direct share: $directUrl")
+                    ).text
+                    
+                    val json = JSONObject(apiResponse)
+                    val downloadUrl = json.optString("url")
+                    
+                    if (downloadUrl.isNotEmpty() && downloadUrl.startsWith("http")) {
                         callback.invoke(
-                            ExtractorLink(
-                                "$name - Direct",
-                                "$name - Direct Link",
-                                directUrl,
-                                gamerxytUrl,
-                                Qualities.Unknown.value,
-                                type = ExtractorLinkType.VIDEO
-                            )
+                            newExtractorLink(
+                                "FilePress",
+                                "FilePress [$fileSize]".trim(),
+                                downloadUrl
+                            ) {
+                                this.referer = url
+                                this.quality = getIndexQuality(fileName)
+                            }
                         )
-                        linksFound++
+                    }
+                } catch (e: Exception) {
+                    Log.e("FilePress", "API call failed: ${e.message}")
+                }
+            }
+            
+            // Fallback: Try to find direct download link
+            val directLink = doc.selectFirst("a.btn-download, a[href*='download']")?.attr("href")
+            if (directLink != null && directLink.startsWith("http")) {
+                callback.invoke(
+                    newExtractorLink(
+                        "FilePress",
+                        "FilePress [$fileSize]".trim(),
+                        directLink
+                    ) {
+                        this.referer = url
+                        this.quality = getIndexQuality(fileName)
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("FilePress", "Extraction failed: ${e.message}")
+        }
+    }
+}
+
+class FilePressStore : FilePressExtractor() {
+    override var mainUrl = "https://filepress.store"
+}
+
+class FilePressClick : FilePressExtractor() {
+    override var mainUrl = "https://filepress.click"
+}
+
+// ============== 5. HubCloud Extractor ==============
+// Domains: hubcloud.ink, hubcloud.art, hubcloud.dad, hubcloud.bz, hubcloud.one
+open class HubCloudExtractor : ExtractorApi() {
+    override val name = "HubCloud"
+    override val mainUrl = "https://hubcloud.one"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("HubCloud", "Extracting from: $url")
+            
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                Log.e("HubCloud", "Invalid URL")
+                return
+            }
+            
+            val baseUrl = getBaseUrl(url)
+            val response = app.get(url)
+            val doc = response.document
+            
+            // Get download link
+            val downloadLink = doc.selectFirst("div.vd > center > a, #download, a.btn-download")?.attr("href") ?: ""
+            val fullDownloadLink = if (downloadLink.startsWith("/")) {
+                "$baseUrl$downloadLink"
+            } else {
+                downloadLink
+            }
+            
+            if (fullDownloadLink.isEmpty()) {
+                Log.w("HubCloud", "No download link found")
+                return
+            }
+            
+            Log.d("HubCloud", "Download page: $fullDownloadLink")
+            
+            val downloadPage = app.get(fullDownloadLink)
+            val downloadDoc = downloadPage.document
+            
+            val header = downloadDoc.select("div.card-header").text()
+            val size = downloadDoc.select("i#size").text()
+            
+            Log.d("HubCloud", "File: $header [$size]")
+            
+            // Extract all server links
+            downloadDoc.select("div.card-body h2 a.btn").amap { element ->
+                val link = element.attr("href")
+                val text = element.text()
+                
+                when {
+                    text.contains("FSL Server", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "HubCloud-FSL",
+                                "HubCloud FSL Server [$size]",
+                                link
+                            ) {
+                                this.referer = url
+                                this.quality = getIndexQuality(header)
+                            }
+                        )
+                    }
+                    
+                    text.contains("Download File", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "HubCloud",
+                                "HubCloud [$size]",
+                                link
+                            ) {
+                                this.referer = url
+                                this.quality = getIndexQuality(header)
+                            }
+                        )
+                    }
+                    
+                    text.contains("BuzzServer", ignoreCase = true) -> {
+                        try {
+                            val buzzLink = app.get(
+                                "$link/download",
+                                referer = link,
+                                allowRedirects = false
+                            ).headers["hx-redirect"] ?: ""
+                            
+                            if (buzzLink.isNotEmpty()) {
+                                val fullBuzzLink = if (buzzLink.startsWith("/")) {
+                                    getBaseUrl(link) + buzzLink
+                                } else {
+                                    buzzLink
+                                }
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "HubCloud-Buzz",
+                                        "HubCloud BuzzServer [$size]",
+                                        fullBuzzLink
+                                    ) {
+                                        this.referer = url
+                                        this.quality = getIndexQuality(header)
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "BuzzServer extraction failed: ${e.message}")
+                        }
+                    }
+                    
+                    link.contains("pixeldra", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "Pixeldrain",
+                                "Pixeldrain [$size]",
+                                link
+                            ) {
+                                this.referer = url
+                                this.quality = getIndexQuality(header)
+                            }
+                        )
                     }
                 }
-            } catch (e: Exception) {
-                Log.w("Hubcloud", "Failed to extract direct share link: ${e.message}")
             }
-            
-            if (linksFound > 0) {
-                Log.i("Hubcloud", "Step 4: Successfully extracted $linksFound download links")
-            } else {
-                Log.w("Hubcloud", "No download links were extracted")
-            }
-            
-        } catch (e: UnknownHostException) {
-            Log.e("Hubcloud", "Domain unreachable: ${e.message}")
-        } catch (e: SocketTimeoutException) {
-            Log.e("Hubcloud", "Connection timeout: ${e.message}")
         } catch (e: Exception) {
-            Log.e("Hubcloud", "Extraction failed: ${e.message}")
+            Log.e("HubCloud", "Extraction failed: ${e.message}")
+        }
+    }
+}
+
+class HubCloudInk : HubCloudExtractor() {
+    override val mainUrl = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloudExtractor() {
+    override val mainUrl = "https://hubcloud.art"
+}
+
+class HubCloudDad : HubCloudExtractor() {
+    override val mainUrl = "https://hubcloud.dad"
+}
+
+class HubCloudBz : HubCloudExtractor() {
+    override val mainUrl = "https://hubcloud.bz"
+}
+
+// ============== 6. GoFile Extractor ==============
+// Domain: gofile.io
+class GoFileExtractor : ExtractorApi() {
+    override val name = "GoFile"
+    override val mainUrl = "https://gofile.io"
+    override val requiresReferer = false
+    private val mainApi = "https://api.gofile.io"
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("GoFile", "Extracting from: $url")
+            
+            // Extract content ID from URL
+            val contentId = Regex("/(?:\\?c=|d/)([\\da-zA-Z-]+)").find(url)?.groupValues?.get(1)
+            if (contentId == null) {
+                Log.e("GoFile", "Could not extract content ID")
+                return
+            }
+            
+            Log.d("GoFile", "Content ID: $contentId")
+            
+            // Create account to get token
+            val accountResponse = app.post("$mainApi/accounts").text
+            val accountJson = JSONObject(accountResponse)
+            val token = accountJson.getJSONObject("data").getString("token")
+            
+            Log.d("GoFile", "Got token")
+            
+            // Get website token (wt)
+            val globalJs = app.get("$mainUrl/dist/js/global.js").text
+            val wt = Regex("""appdata\\.wt\\s*=\\s*["']([^"']+)["']""").find(globalJs)?.groupValues?.get(1)
+            
+            if (wt == null) {
+                Log.e("GoFile", "Could not get wt token")
+                return
+            }
+            
+            // Get content
+            val contentUrl = "$mainApi/contents/$contentId?wt=$wt"
+            val contentResponse = app.get(
+                contentUrl,
+                headers = mapOf("Authorization" to "Bearer $token")
+            ).text
+            
+            val contentJson = JSONObject(contentResponse)
+            val data = contentJson.getJSONObject("data")
+            val children = data.getJSONObject("children")
+            
+            // Process all video files
+            val keys = children.keys()
+            while (keys.hasNext()) {
+                val fileId = keys.next()
+                val fileObj = children.getJSONObject(fileId)
+                val fileType = fileObj.optString("type", "")
+                
+                if (fileType == "file") {
+                    val fileName = fileObj.getString("name")
+                    val link = fileObj.getString("link")
+                    val fileSize = fileObj.optLong("size", 0)
+                    
+                    val sizeFormatted = if (fileSize < 1024L * 1024 * 1024) {
+                        "%.2f MB".format(fileSize / 1024.0 / 1024)
+                    } else {
+                        "%.2f GB".format(fileSize / 1024.0 / 1024 / 1024)
+                    }
+                    
+                    Log.d("GoFile", "Found file: $fileName ($sizeFormatted)")
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            "GoFile",
+                            "GoFile [$sizeFormatted]",
+                            link
+                        ) {
+                            this.referer = url
+                            this.quality = getIndexQuality(fileName)
+                            this.headers = mapOf("Cookie" to "accountToken=$token")
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("GoFile", "Extraction failed: ${e.message}")
             e.printStackTrace()
         }
     }

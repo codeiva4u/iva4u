@@ -245,26 +245,23 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val req = app.get(data).document
-        
-        // 1. Handle Player Sources (existing logic)
         req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
+            )
+        }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
-                val multiMoviesAPI = getDomains()?.multiMovies
                 val source = app.post(
-                    url = "$multiMoviesAPI/wp-admin/admin-ajax.php",
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
                     data = mapOf(
                         "action" to "doo_player_ajax",
                         "post" to id,
                         "nume" to nume,
                         "type" to type
                     ),
-                    referer = multiMoviesAPI,
+                    referer = mainUrl,
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
@@ -273,71 +270,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         if (link.contains("deaddrive.xyz")) {
                             app.get(link).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
-                                loadExtractor(server, referer = multiMoviesAPI, subtitleCallback, callback)
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
                             }
                         } else
-                            loadExtractor(link, referer = multiMoviesAPI, subtitleCallback, callback)
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
 
                     else -> return@amap
                 }
             }
         }
-        
-        // 2. Handle Download Links (new logic)
-        try {
-            val downloadLinks = req.select("table tbody tr")
-            if (downloadLinks.isNotEmpty()) {
-                Log.d("MultiMovies", "Found ${downloadLinks.size} download links")
-            }
-            
-            downloadLinks.amap { row ->
-                val downloadLink = row.selectFirst("td a[href*='/links/']")?.attr("href")
-                val quality = row.selectFirst("strong.quality")?.text() ?: "Unknown"
-                val hostName = row.select("td").getOrNull(2)?.text() ?: "Unknown"
-                
-                if (downloadLink != null) {
-                    Log.d("MultiMovies", "Processing download link: $downloadLink (Host: $hostName, Quality: $quality)")
-                    
-                    try {
-                        // Follow the redirect link to get actual host URL
-                        val redirectPage = app.get(downloadLink, timeout = 15L).document
-                        val actualHostUrl = redirectPage.selectFirst("a.btn, a.download-link, a.btn-primary")?.attr("href")
-                        
-                        if (actualHostUrl != null && actualHostUrl.startsWith("http")) {
-                            Log.d("MultiMovies", "Actual host URL: $actualHostUrl")
-                            
-                            // Use appropriate extractor based on host
-                            when {
-                                actualHostUrl.contains("gdtot", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using GDTOT Extractor (Host: $hostName, Quality: $quality)")
-                                    loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
-                                }
-                                actualHostUrl.contains("multimoviesshg", ignoreCase = true) || actualHostUrl.contains("streamhg", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using StreamHG Extractor (Host: $hostName, Quality: $quality)")
-                                    loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
-                                }
-                                actualHostUrl.contains("hubcloud", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using Hubcloud Extractor (Host: $hostName, Quality: $quality)")
-                                    loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
-                                }
-                                else -> {
-                                    Log.d("MultiMovies", "Using generic extractor for: $actualHostUrl (Host: $hostName, Quality: $quality)")
-                                    loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
-                                }
-                            }
-                        } else {
-                            Log.w("MultiMovies", "Could not find actual host URL in redirect page for $hostName")
-                        }
-                    } catch (e: Exception) {
-                        Log.e("MultiMovies", "Failed to process download link: ${e.message}")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Error processing download section: ${e.message}")
-        }
-        
         return true
     }
 
@@ -346,7 +288,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         @JsonProperty("key") val key: String? = null,
         @JsonProperty("type") val type: String? = null,
     )
-
 
     data class DomainsParser(
         @JsonProperty("MultiMovies")

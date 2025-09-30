@@ -10,10 +10,18 @@ class MultiMoviesProviderPlugin: BasePlugin() {
     override fun load() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(MultiMoviesProvider())
-        
-        // Download Links Extractors
-        registerExtractorAPI(GDTOTExtractor())
-        registerExtractorAPI(StreamHG())  // NEW: Replaces FilePress
-        registerExtractorAPI(Hubcloud())
+        registerExtractorAPI(VidHidePro())
+        registerExtractorAPI(StreamWishCom())
+        registerExtractorAPI(Luluvdo())
+        registerExtractorAPI(LuluSt())
+        registerExtractorAPI(GDToTPro())
+        registerExtractorAPI(GDToTTop())
+        registerExtractorAPI(FilePressStore())
+        registerExtractorAPI(FilePressClick())
+        registerExtractorAPI(HubCloudInk())
+        registerExtractorAPI(HubCloudArt())
+        registerExtractorAPI(HubCloudDad())
+        registerExtractorAPI(HubCloudBz())
+        registerExtractorAPI(GoFileExtractor())
     }
 }
