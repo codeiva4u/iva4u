@@ -12,9 +12,6 @@ import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.M3u8Helper
-import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
-import com.lagradost.cloudstream3.utils.M3u8Helper2
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
@@ -226,7 +223,6 @@ object AesHelper {
     }
 }
 
-
 class Streamcasthub : ExtractorApi() {
     override var name = "Streamcasthub"
     override var mainUrl = "https://multimovies.streamcasthub.store"
@@ -253,15 +249,11 @@ class Streamcasthub : ExtractorApi() {
     }
 }
 
-
-
 class Strwishcom : StreamWishExtractor() {
     override val name = "Strwish"
     override val mainUrl = "https://strwish.com"
     override val requiresReferer = true
 }
-
-
 
 open class VidhideExtractor : ExtractorApi() {
     override var name = "VidHide"
@@ -316,7 +308,7 @@ class GDTOTExtractor : ExtractorApi() {
 // FilePress Extractor - Redirect page is BLANK
 // Testing showed: multimovies.network/links/XXX redirects but page is empty
 // JavaScript-heavy redirect that requires more complex handling
-class FilePressExtractor : ExtractorApi() {
+class FilePress : ExtractorApi() {
     override var name = "FilePress"
     override var mainUrl = "https://new3.filepress.top"
     override val requiresReferer = true
@@ -337,7 +329,7 @@ class FilePressExtractor : ExtractorApi() {
 // Hubcloud Extractor - FULLY WORKING! ✅
 // Live tested: Successfully extracts 4 download servers!
 // Servers: PixelDrain, 10Gbps, ZipDisk, Telegram
-class HubcloudExtractor : ExtractorApi() {
+class Hubcloud : ExtractorApi() {
     override var name = "Hubcloud"
     override var mainUrl = "https://hubcloud.one"
     override val requiresReferer = true
