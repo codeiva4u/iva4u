@@ -245,6 +245,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val req = app.get(data).document
+        
+        // 1. Handle Player Sources
         req.select("ul#playeroptionsul li").map {
             Triple(
                 it.attr("data-post"),
@@ -253,33 +255,75 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             )
         }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                try {
+                    val source = app.post(
+                        url = "$mainUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to id,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = mainUrl,
+                        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                    ).parsed<ResponseHash>().embed_url
+                    
+                    val link = source.substringAfter("\"").substringBefore("\"").trim()
+                    
+                    when {
+                        !link.contains("youtube") -> {
+                            if (link.contains("deaddrive.xyz")) {
+                                app.get(link).document.select("ul.list-server-items > li").map {
+                                    val server = it.attr("data-video")
+                                    loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                                }
+                            } else {
+                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                             }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                        }
+                        else -> return@amap
                     }
-
-                    else -> return@amap
+                } catch (e: Exception) {
+                    Log.e("MultiMovies", "Player source error: ${e.message}")
                 }
             }
         }
+        
+        // 2. Handle Download Links with igx.gtxgamer.site redirects
+        try {
+            req.select("table tbody tr").amap { row ->
+                val hostName = row.select("img").attr("alt")
+                val redirectLink = row.selectFirst("td a.btn")?.attr("href")
+                
+                if (redirectLink != null && redirectLink.isNotEmpty()) {
+                    Log.d("MultiMovies", "Processing $hostName link: $redirectLink")
+                    
+                    try {
+                        // Follow igx.gtxgamer.site redirect to get actual host URL
+                        val actualHostUrl = if (redirectLink.contains("igx.gtxgamer.site")) {
+                            val redirectResponse = app.get(
+                                redirectLink,
+                                allowRedirects = true,
+                                timeout = 15L
+                            )
+                            redirectResponse.url
+                        } else {
+                            redirectLink
+                        }
+                        
+                        if (actualHostUrl.isNotEmpty() && actualHostUrl.startsWith("http")) {
+                            Log.d("MultiMovies", "Actual host URL for $hostName: $actualHostUrl")
+                            loadExtractor(actualHostUrl, referer = data, subtitleCallback, callback)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MultiMovies", "Failed to process $hostName: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "Error processing download links: ${e.message}")
+        }
+        
         return true
     }
 
