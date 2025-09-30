@@ -310,24 +310,24 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                             // Use appropriate extractor based on host
                             when {
                                 actualHostUrl.contains("gdtot", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using GDTOT Extractor")
+                                    Log.d("MultiMovies", "Using GDTOT Extractor (Host: $hostName, Quality: $quality)")
                                     loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
                                 }
-                                actualHostUrl.contains("filepress", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using FilePress Extractor")
+                                actualHostUrl.contains("multimoviesshg", ignoreCase = true) || actualHostUrl.contains("streamhg", ignoreCase = true) -> {
+                                    Log.d("MultiMovies", "Using StreamHG Extractor (Host: $hostName, Quality: $quality)")
                                     loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
                                 }
                                 actualHostUrl.contains("hubcloud", ignoreCase = true) -> {
-                                    Log.d("MultiMovies", "Using Hubcloud Extractor")
+                                    Log.d("MultiMovies", "Using Hubcloud Extractor (Host: $hostName, Quality: $quality)")
                                     loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
                                 }
                                 else -> {
-                                    Log.d("MultiMovies", "Using generic extractor for: $actualHostUrl")
+                                    Log.d("MultiMovies", "Using generic extractor for: $actualHostUrl (Host: $hostName, Quality: $quality)")
                                     loadExtractor(actualHostUrl, referer = downloadLink, subtitleCallback, callback)
                                 }
                             }
                         } else {
-                            Log.w("MultiMovies", "Could not find actual host URL in redirect page")
+                            Log.w("MultiMovies", "Could not find actual host URL in redirect page for $hostName")
                         }
                     } catch (e: Exception) {
                         Log.e("MultiMovies", "Failed to process download link: ${e.message}")
