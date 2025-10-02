@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -231,7 +232,7 @@ open class Movierulzhd : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = Score.from10(rating)
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
@@ -243,7 +244,7 @@ open class Movierulzhd : MainAPI() {
                 this.backgroundPosterUrl= background
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = Score.from10(rating)
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
@@ -312,12 +313,11 @@ open class Movierulzhd : MainAPI() {
                                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                             ).parsed<ResponseHash>().embed_url
                             if (!source.contains("youtube")) {
-                                if (source.contains("/#"))
-                                {
+                                if (source.contains("/#")) {
                                     VidStack().getUrl(source,"",subtitleCallback,callback)
+                                } else {
+                                    loadExtractor(source, subtitleCallback, callback)
                                 }
-                                else
-                                loadExtractor(source, subtitleCallback, callback)
                             }
                         } catch (e: Exception) {
                             println("Error loading item: ${e.message}")

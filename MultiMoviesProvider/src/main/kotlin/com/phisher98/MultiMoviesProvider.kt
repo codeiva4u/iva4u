@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -51,22 +52,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override val mainPage = mainPageOf(
         "trending/" to "Trending",
-        "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/hollywood/" to "Hollywood Movies",
         "genre/south-indian/" to "South Indian Movies",
-        "genre/punjabi/" to "Punjabi Movies",
+        "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
         "genre/jio-ott/" to "Jio OTT",
         "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
-        "genre/k-drama/" to "KDrama",
         "genre/zee-5/" to "Zee5",
-        "genre/anime-hindi/" to "Anime Series",
-        "genre/anime-movies/" to "Anime Movies",
-        "genre/cartoon-network/" to "Cartoon Network",
-        "genre/disney-channel/" to "Disney Channel",
-        "genre/hungama/" to "Hungama",
     )
 
     override suspend fun getMainPage(
@@ -229,7 +223,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = Score.from10(rating)
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
@@ -241,7 +235,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                this.score = Score.from10(rating)
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
