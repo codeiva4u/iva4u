@@ -23,13 +23,16 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl = "https://hdhub4u.schule"
+    override var mainUrl: String = runBlocking {
+        HDhub4uPlugin.getDomains()?.HDHUB4u ?: "https://hdhub4u.menu"
+    }
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -50,30 +53,11 @@ class HDhub4uProvider : MainAPI() {
     private val headers =
         mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0","Cookie" to "xla=s4t")
 
-    companion object {
-        private const val DOMAINS_URL =
-            "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
-        private var cachedDomains: Domains? = null
-
-        suspend fun getDomains(forceRefresh: Boolean = false): Domains? {
-            if (cachedDomains == null || forceRefresh) {
-                try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<Domains>()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    return null
-                }
-            }
-            return cachedDomains
-        }
-    }
-
     override suspend fun getMainPage(
         page: Int, request: MainPageRequest
     ): HomePageResponse {
-        val newMainUrl = getDomains()?.hdhub4u ?: mainUrl
         val doc = app.get(
-            "$newMainUrl/${request.data}page/$page/",
+            "$mainUrl/${request.data}page/$page/",
             cacheTime = 60,
             headers = headers,
             allowRedirects = true
@@ -82,25 +66,18 @@ class HDhub4uProvider : MainAPI() {
         return newHomePageResponse(request.name, home, true)
     }
 
-    private fun toResult(post: Element): SearchResponse? {
-        // Optimized CSS selectors - more direct and faster
-        val titleElement = post.selectFirst("figcaption a p") ?: return null
-        val title = titleElement.text().trim()
-        if (title.isBlank()) return null
-        
-        val url = post.selectFirst("figure a")?.attr("href") ?: return null
-        if (url.isBlank() || !url.startsWith("http")) return null
-        
-        return newAnimeSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = post.selectFirst("figure img")?.attr("src")
+    private fun toResult(post: Element): SearchResponse {
+        val title = post.select("figcaption:nth-child(2) > a:nth-child(1) > p:nth-child(1)").text()
+        val url = post.select("figure:nth-child(1) > a:nth-child(2)").attr("href")
+            return newAnimeSearchResponse(title, url, TvType.Movie) {
+            this.posterUrl = post.select("figure:nth-child(1) > img:nth-child(1)").attr("src")
             this.quality = getSearchQuality(title)
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val newMainUrl = getDomains()?.hdhub4u ?: mainUrl
         val doc = app.get(
-            "$newMainUrl/?s=$query",
+            "$mainUrl/?s=$query",
             cacheTime = 60,
             headers = headers
         ).document
@@ -133,16 +110,16 @@ class HDhub4uProvider : MainAPI() {
         val doc = app.get(
             url, cacheTime = 60, headers = headers
         ).document
-        // Optimized title extraction - faster and more reliable
-        var title = doc.selectFirst(".page-body h2")?.text() 
-            ?: doc.selectFirst("h2.kno-ecr-pt")?.text() 
-            ?: doc.selectFirst("h2")?.text() 
-            ?: "Unknown Title"
+        var title = doc.select(
+            ".page-body h2[data-ved=\"2ahUKEwjL0NrBk4vnAhWlH7cAHRCeAlwQ3B0oATAfegQIFBAM\"], " +
+                    "h2[data-ved=\"2ahUKEwiP0pGdlermAhUFYVAKHV8tAmgQ3B0oATAZegQIDhAM\"]"
+        ).text()
         val seasontitle=title
         val seasonNumber = Regex("(?i)\\bSeason\\s*(\\d+)\\b").find(seasontitle)?.groupValues?.get(1)?.toIntOrNull()
         val image = doc.select("meta[property=og:image]").attr("content")
         val plot = doc.selectFirst(".kno-rdesc .kno-rdesc")?.text()
         val tags = doc.select(".page-meta em").eachText()
+        val poster = doc.select("main.page-body img.aligncenter").attr("src")
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
                 ?.replace("/embed/", "/watch?v=")
         extractLinksATags(doc.select(".page-body > div a"))
@@ -172,20 +149,14 @@ class HDhub4uProvider : MainAPI() {
         if (tvtype==TvType.Movie) {
             val movieList = mutableListOf<String>()
 
-            // Optimized movie link extraction - more specific and faster
             movieList.addAll(
-                doc.select("a[href*='hubdrive'], a[href*='hubcloud'], a[href*='taazabull24'], a[href*='hdstream4u']")
-                    .filter { link -> 
-                        val text = link.text().lowercase()
-                        text.contains("480") || text.contains("720") || text.contains("1080") || 
-                        text.contains("2160") || text.contains("4k") || text.contains("watch")
-                    }
+                doc.select("h3 a:matches(480|720|1080|2160|4K), h4 a:matches(480|720|1080|2160|4K)")
                     .map { it.attr("href") }
             )
 
             return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
                 this.backgroundPosterUrl = background
-                this.posterUrl= background
+                this.posterUrl= poster
                 this.year = year.toIntOrNull()
                 this.plot = description ?: plot
                 this.tags = genre ?: tags
@@ -196,8 +167,7 @@ class HDhub4uProvider : MainAPI() {
         } else {
             val episodesData = mutableListOf<Episode>()
             val epLinksMap = mutableMapOf<Int, MutableList<String>>()
-            // Optimized episode regex - compiled once for better performance
-            val episodeRegex = Regex("episode\\s*(\\d+)|ep\\s*(\\d+)", RegexOption.IGNORE_CASE)
+            val episodeRegex = Regex("EPiSODE\\s*(\\d+)", RegexOption.IGNORE_CASE)
 
             val TAG = "EpisodeParser"
 
@@ -228,7 +198,7 @@ class HDhub4uProvider : MainAPI() {
                                     Log.w(TAG, "Could not parse episode number from: $text")
                                 }
                             }
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             Log.e(TAG, "Error resolving direct link for URL: $url")
                         }
                     }
@@ -270,7 +240,7 @@ class HDhub4uProvider : MainAPI() {
 
             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesData) {
                 this.backgroundPosterUrl = background
-                this.posterUrl= background
+                this.posterUrl= poster
                 this.year = year.toIntOrNull()
                 this.plot = description ?: plot
                 this.tags = genre ?: tags
@@ -290,26 +260,22 @@ class HDhub4uProvider : MainAPI() {
         val links = try {
             val jsonArray = JSONArray(data)
             List(jsonArray.length()) { index -> jsonArray.getString(index) }
-                .filter { isValidStreamingLink(it) } // Use optimized validation
+                .filter { it.isNotBlank() }
         } catch (e: Exception) {
-            Log.e("HDhub4u", "Failed to parse link JSON: ${e.message}")
+            Log.e("Phisher", "Failed to parse link JSON: ${e.message}")
             return false
         }
 
-        // Process links with better error handling and early returns
-        links.forEach { link ->
+        for (link in links) {
             try {
-                val finalLink = if (link.contains("?id=")) {
+                val finalLink = if ("?id=" in link) {
                     getRedirectLinks(link)
                 } else {
                     link
                 }
-                
-                if (isValidStreamingLink(finalLink)) {
-                    loadExtractor(finalLink, subtitleCallback, callback)
-                }
+                loadExtractor(finalLink, subtitleCallback, callback)
             } catch (e: Exception) {
-                Log.e("HDhub4u", "Failed to process $link: ${e.message}")
+                Log.e("Phisher", "Failed to process $link: ${e.message}")
             }
         }
         return true
@@ -327,19 +293,18 @@ class HDhub4uProvider : MainAPI() {
         val lowercaseCheck = check?.lowercase()
         if (lowercaseCheck != null) {
             return when {
+                lowercaseCheck.contains("4k") || lowercaseCheck.contains("uhd") || lowercaseCheck.contains("2160p") -> SearchQuality.UHD
+                lowercaseCheck.contains("1440p") || lowercaseCheck.contains("qhd") -> SearchQuality.BlueRay
+                lowercaseCheck.contains("1080p") || lowercaseCheck.contains("fullhd") -> SearchQuality.HD
+                lowercaseCheck.contains("720p") -> SearchQuality.SD
                 lowercaseCheck.contains("webrip") || lowercaseCheck.contains("web-dl") -> SearchQuality.WebRip
                 lowercaseCheck.contains("bluray") -> SearchQuality.BlueRay
-                lowercaseCheck.contains("hdts") || lowercaseCheck.contains("hdcam") || lowercaseCheck.contains(
-                    "hdtc"
-                ) -> SearchQuality.HdCam
-
+                lowercaseCheck.contains("hdts") || lowercaseCheck.contains("hdcam") || lowercaseCheck.contains("hdtc") -> SearchQuality.HdCam
                 lowercaseCheck.contains("dvd") -> SearchQuality.DVD
-                lowercaseCheck.contains("cam") -> SearchQuality.Cam
                 lowercaseCheck.contains("camrip") || lowercaseCheck.contains("rip") -> SearchQuality.CamRip
-                lowercaseCheck.contains("hdrip") || lowercaseCheck.contains("hd") || lowercaseCheck.contains(
-                    "hdtv"
-                ) -> SearchQuality.HD
-
+                lowercaseCheck.contains("cam") -> SearchQuality.Cam
+                lowercaseCheck.contains("hdrip") || lowercaseCheck.contains("hdtv") -> SearchQuality.HD
+                lowercaseCheck.contains("hq") -> SearchQuality.HQ
                 else -> null
             }
         }

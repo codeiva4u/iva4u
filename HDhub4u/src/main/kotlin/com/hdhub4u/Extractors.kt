@@ -48,8 +48,6 @@ open class Hblinks : ExtractorApi() {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
                 "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
                 "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                // Support for new HubCloud domains  
-                "hubcloud.one" in lower -> loadExtractor(href, name, subtitleCallback, callback)
                 else -> loadSourceNameExtractor(name, href, "", subtitleCallback, callback)
             }
         }
@@ -125,15 +123,10 @@ class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Early validation with better error handling
-        val realUrl = url.takeIf { it.isNotBlank() && it.startsWith("http") } ?: return
-        
-        try {
-            URL(realUrl) // Validate URL format
-        } catch (e: Exception) {
-            Log.e("HubCloud", "Invalid URL format: $realUrl")
-            return
-        }
+
+        val realUrl = url.takeIf {
+            try { URL(it); true } catch (e: Exception) { Log.e("HubCloud", "Invalid URL: ${e.message}"); false }
+        } ?: return
 
         val baseUrl=getBaseUrl(realUrl)
 
@@ -158,7 +151,7 @@ class HubCloud : ExtractorApi() {
             return
         }
 
-        val document = app.get(href, timeout = 15).document
+        val document = app.get(href).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
