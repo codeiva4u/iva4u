@@ -292,7 +292,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
-                this.score = Score.from10(imdbRating.toRatingInt())
+                this.rating = imdbRating.toRatingInt()
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background
                 addActors(cast)
@@ -324,7 +324,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
-                this.score = Score.from10(imdbRating.toRatingInt())
+                this.rating = imdbRating.toRatingInt()
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background
                 addActors(cast)

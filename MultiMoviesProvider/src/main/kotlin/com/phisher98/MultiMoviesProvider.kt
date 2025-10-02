@@ -11,7 +11,6 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -57,7 +56,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         "genre/bollywood-movies/" to "Bollywood Movies",
         "genre/amazon-prime/" to "Amazon Prime",
         "genre/disney-hotstar/" to "Disney Hotstar",
-        "genre/jio-ott/" to "Jio OTT",
         "genre/netflix/" to "Netfilx",
         "genre/sony-liv/" to "Sony Live",
         "genre/zee-5/" to "Zee5",
@@ -223,7 +221,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.score = Score.from10(rating)
+                this.rating = rating
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
@@ -235,7 +233,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.score = Score.from10(rating)
+                this.rating = rating
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
