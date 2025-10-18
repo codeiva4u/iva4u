@@ -268,6 +268,7 @@ open class Movierulzhd : MainAPI() {
 
                         if (!source.contains("youtube")) {
                             when {
+                                source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, directUrl, subtitleCallback, callback)
                                 source.contains("molop.art") -> Akamaicdn().getUrl(source, directUrl, subtitleCallback, callback)
                                 source.contains("fmx.lol") -> FMX().getUrl(source, directUrl, subtitleCallback, callback)
                                 source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
@@ -304,6 +305,7 @@ open class Movierulzhd : MainAPI() {
                             ).parsed<ResponseHash>().embed_url
                             if (!source.contains("youtube")) {
                                 when {
+                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, data, subtitleCallback, callback)
                                     source.contains("molop.art") -> Akamaicdn().getUrl(source, data, subtitleCallback, callback)
                                     source.contains("fmx.lol") -> FMX().getUrl(source, data, subtitleCallback, callback)
                                     source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)

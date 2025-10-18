@@ -316,3 +316,81 @@ fun getIndexQuality(str: String?): Int {
     return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
         ?: Qualities.Unknown.value
 }
+
+open class Cherry : ExtractorApi() {
+    override val name = "Cherry"
+    override val mainUrl = "https://cherry.upns.online"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer" to (referer ?: mainUrl)
+            )
+            
+            // Cherry.upns.online uses hash-based IDs in URL fragment
+            // Extract video ID from hash
+            val videoId = url.substringAfter("#").takeIf { it.isNotEmpty() } ?: return
+            
+            // Try to load the player and extract video source
+            val doc = app.get(url, headers = headers).document
+            
+            // Look for video source in script tags
+            doc.select("script").forEach { script ->
+                val scriptContent = script.data()
+                
+                // Look for m3u8 or mp4 URLs
+                val m3u8Regex = Regex("""(https?://[^\s\"']+\.m3u8[^\s\"']*)""")
+                val mp4Regex = Regex("""(https?://[^\s\"']+\.mp4[^\s\"']*)""")
+                
+                m3u8Regex.find(scriptContent)?.groupValues?.get(1)?.let { m3u8Url ->
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name M3U8",
+                            m3u8Url,
+                            INFER_TYPE
+                        ) {
+                            this.referer = mainUrl
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
+                
+                mp4Regex.findAll(scriptContent).forEach { match ->
+                    val mp4Url = match.groupValues[1]
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name MP4",
+                            mp4Url,
+                            INFER_TYPE
+                        ) {
+                            this.referer = mainUrl
+                            this.quality = getQualityFromName(mp4Url)
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Cherry", "Error: ${e.message}")
+        }
+    }
+    
+    private fun getQualityFromName(url: String): Int {
+        return when {
+            url.contains("2160") || url.contains("4K", ignoreCase = true) -> Qualities.P2160.value
+            url.contains("1080") -> Qualities.P1080.value
+            url.contains("720") -> Qualities.P720.value
+            url.contains("480") -> Qualities.P480.value
+            url.contains("360") -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
+    }
+}
