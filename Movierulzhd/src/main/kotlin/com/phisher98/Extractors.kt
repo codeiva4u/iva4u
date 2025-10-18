@@ -9,35 +9,6 @@ import com.lagradost.cloudstream3.utils.JsUnpacker
 import okhttp3.FormBody
 import org.json.JSONObject
 
-open class FilemoonV2 : ExtractorApi() {
-    override var name = "Filemoon"
-    override var mainUrl = "https://filemoon.to"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val href=app.get(url).document.selectFirst("iframe")?.attr("src") ?:""
-        val res= app.get(href, headers = mapOf("Accept-Language" to "en-US,en;q=0.5","sec-fetch-dest" to "iframe")).document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
-        val m3u8= JsUnpacker(res).unpack()?.let { unPacked ->
-            Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)
-        }
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8 ?:"",
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
-    }
-}
-
 open class FMX : ExtractorApi() {
     override var name = "FMX"
     override var mainUrl = "https://fmx.lol"
