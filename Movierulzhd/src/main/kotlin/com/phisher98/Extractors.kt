@@ -98,8 +98,15 @@ class GDFlix : ExtractorApi() {
             when {
                 text.contains("DIRECT DL",ignoreCase = true) -> {
                     val link = anchor.attr("href")
+                    val linkName = if (fileName.contains(".mp4", ignoreCase = true) || 
+                                       fileName.contains(".mkv", ignoreCase = true) ||
+                                       fileName.contains(".avi", ignoreCase = true)) {
+                        "$source GDFlix[Stream/Download]"
+                    } else {
+                        "$source GDFlix[Direct]"
+                    }
                     callback.invoke(
-                        newExtractorLink("$source GDFlix[Direct]", "$source GDFlix[Direct] [$fileSize]", link) {
+                        newExtractorLink("$source GDFlix", "$linkName [$fileSize]", link, if (link.contains(".m3u8")) INFER_TYPE else null) {
                             this.quality = getIndexQuality(fileName)
                         }
                     )
@@ -115,7 +122,7 @@ class GDFlix : ExtractorApi() {
                                     .select("div.mb-4 > a").amap { sourceAnchor ->
                                         val sourceurl = sourceAnchor.attr("href")
                                         callback.invoke(
-                                            newExtractorLink("$source GDFlix[Index]", "$source GDFlix[Index] [$fileSize]", sourceurl) {
+                                            newExtractorLink("$source GDFlix", "$source GDFlix[Index Stream] [$fileSize]", sourceurl, if (sourceurl.contains(".m3u8")) INFER_TYPE else null) {
                                                 this.quality = getIndexQuality(fileName)
                                             }
                                         )
@@ -165,7 +172,7 @@ class GDFlix : ExtractorApi() {
                                 }
 
                                 callback.invoke(
-                                    newExtractorLink("$source GDFlix[DriveBot]", "$source GDFlix[DriveBot] [$fileSize]", downloadLink) {
+                                    newExtractorLink("$source GDFlix", "$source GDFlix[DriveBot Stream] [$fileSize]", downloadLink, if (downloadLink.contains(".m3u8")) INFER_TYPE else null) {
                                         this.referer = baseUrl
                                         this.quality = getIndexQuality(fileName)
                                     }
@@ -184,7 +191,7 @@ class GDFlix : ExtractorApi() {
                             .headers["location"]?.substringAfter("url=").orEmpty()
 
                         callback.invoke(
-                            newExtractorLink("$source GDFlix[Instant Download]", "$source GDFlix[Instant Download] [$fileSize]", link) {
+                            newExtractorLink("$source GDFlix", "$source GDFlix[Instant Stream] [$fileSize]", link, if (link.contains(".m3u8")) INFER_TYPE else null) {
                                 this.quality = getIndexQuality(fileName)
                             }
                         )
@@ -209,12 +216,16 @@ class GDFlix : ExtractorApi() {
                 }
 
                 text.contains("PixelDrain",ignoreCase = true) || text.contains("Pixel",ignoreCase = true)-> {
+                    val pixelLink = anchor.attr("href")
                     callback.invoke(
                         newExtractorLink(
-                            "$source GDFlix[Pixeldrain]",
-                            "$source GDFlix[Pixeldrain] [$fileSize]",
-                            anchor.attr("href"),
-                        ) { this.quality = quality }
+                            "$source GDFlix",
+                            "$source GDFlix[PixelDrain Stream] [$fileSize]",
+                            pixelLink,
+                            if (pixelLink.contains(".m3u8")) INFER_TYPE else null
+                        ) { 
+                            this.quality = getIndexQuality(fileName)
+                        }
                     )
                 }
 
@@ -233,7 +244,7 @@ class GDFlix : ExtractorApi() {
 
                 if (source?.isNotEmpty() == true) {
                     callback.invoke(
-                        newExtractorLink("$source GDFlix[CF]", "$source GDFlix[CF] [$fileSize]", sourceurl) {
+                        newExtractorLink("$source GDFlix", "$source GDFlix[CF Stream] [$fileSize]", sourceurl, if (sourceurl.contains(".m3u8")) INFER_TYPE else null) {
                             this.quality = getIndexQuality(fileName)
                         }
                     )
@@ -290,12 +301,27 @@ class Gofile : ExtractorApi() {
             } else {
                 "%.2f GB".format(fileSize / 1024.0 / 1024 / 1024)
             }
+            
+            // Check if it's a streamable video file
+            val isVideoFile = fileName.endsWith(".mp4", ignoreCase = true) ||
+                             fileName.endsWith(".mkv", ignoreCase = true) ||
+                             fileName.endsWith(".avi", ignoreCase = true) ||
+                             fileName.endsWith(".mov", ignoreCase = true) ||
+                             fileName.endsWith(".webm", ignoreCase = true) ||
+                             fileName.endsWith(".m3u8", ignoreCase = true)
+            
+            val linkLabel = if (isVideoFile) {
+                "Gofile[Stream/Download] [$sizeFormatted]"
+            } else {
+                "Gofile[Download] [$sizeFormatted]"
+            }
 
             callback.invoke(
                 newExtractorLink(
                     "Gofile",
-                    "Gofile [$sizeFormatted]",
-                    link
+                    linkLabel,
+                    link,
+                    if (fileName.endsWith(".m3u8", ignoreCase = true)) INFER_TYPE else null
                 ) {
                     this.quality = getQuality(fileName)
                     this.headers = mapOf("Cookie" to "accountToken=$token")
