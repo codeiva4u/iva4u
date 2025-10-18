@@ -15,24 +15,44 @@ open class FMX : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(url,referer=mainUrl).document
-            val extractedpack =response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().toString()
+        try {
+            val response = app.get(url, referer = referer ?: mainUrl).document
+            val extractedpack = response.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            
+            if (extractedpack.isNullOrEmpty()) {
+                Log.e("FMX", "No packed script found")
+                return null
+            }
+            
             JsUnpacker(extractedpack).unpack()?.let { unPacked ->
-                Regex("sources:\\[\\{file:\"(.*?)\"").find(unPacked)?.groupValues?.get(1)?.let { link ->
+                Regex("sources:\\[\\{file:[\"'](.*?)[\"']").find(unPacked)?.groupValues?.get(1)?.let { link ->
                     return listOf(
                         newExtractorLink(
                             this.name,
                             this.name,
                             url = link,
-                            INFER_TYPE
+                            if (link.contains(".m3u8")) INFER_TYPE else null
                         ) {
-                            this.referer = referer ?: ""
-                            this.quality = Qualities.Unknown.value
+                            this.referer = referer ?: mainUrl
+                            this.quality = getQualityFromString(link)
                         }
                     )
                 }
             }
-            return null
+        } catch (e: Exception) {
+            Log.e("FMX", "Error: ${e.message}")
+        }
+        return null
+    }
+    
+    private fun getQualityFromString(url: String): Int {
+        return when {
+            url.contains("1080") || url.contains("1920") -> Qualities.P1080.value
+            url.contains("720") || url.contains("1280") -> Qualities.P720.value
+            url.contains("480") -> Qualities.P480.value
+            url.contains("360") -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
     }
 }
 
@@ -47,19 +67,34 @@ open class Akamaicdn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val headers= mapOf("user-agent" to "okhttp/4.12.0")
-        val res = app.get(url, referer = referer, headers = headers).document
-        val sniffScript = res.selectFirst("script:containsData(sniff\\()")
-            ?.data()
-            ?.substringAfter("sniff(")
-            ?.substringBefore(");") ?: return
-        
-        val cleaned = sniffScript.replace(Regex("\\[.*?\\]"), "")
-        val regex = Regex("\"(.*?)\"")
-        val args = regex.findAll(cleaned).map { it.groupValues[1].trim() }.toList()
-        val token = args.lastOrNull().orEmpty()
-        val m3u8 = "$mainUrl/m3u8/${args[1]}/${args[2]}/master.txt?s=1&cache=1&plt=$token"
-        M3u8Helper.generateM3u8(name, m3u8, mainUrl, headers = headers).forEach(callback)
+        try {
+            val headers = mapOf(
+                "user-agent" to "okhttp/4.12.0",
+                "referer" to (referer ?: mainUrl)
+            )
+            
+            val res = app.get(url, referer = referer, headers = headers).document
+            val sniffScript = res.selectFirst("script:containsData(sniff\\()")
+                ?.data()
+                ?.substringAfter("sniff(")
+                ?.substringBefore(");") ?: return
+            
+            val cleaned = sniffScript.replace(Regex("\\[.*?\\]"), "")
+            val regex = Regex("\"(.*?)\"")
+            val args = regex.findAll(cleaned).map { it.groupValues[1].trim() }.toList()
+            
+            if (args.size < 3) {
+                Log.e("Akamaicdn", "Insufficient arguments extracted from sniff script")
+                return
+            }
+            
+            val token = args.lastOrNull().orEmpty()
+            val m3u8 = "$mainUrl/m3u8/${args[1]}/${args[2]}/master.txt?s=1&cache=1&plt=$token"
+            
+            M3u8Helper.generateM3u8(name, m3u8, mainUrl, headers = headers).forEach(callback)
+        } catch (e: Exception) {
+            Log.e("Akamaicdn", "Error: ${e.message}")
+        }
     }
 }
 
@@ -355,62 +390,79 @@ open class Cherry : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Cherry player uses VidStack and loads via JavaScript
-            // Extract the hash ID from URL
             val videoId = url.substringAfter("#").takeIf { it.isNotEmpty() } ?: return
             
             val headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer" to mainUrl,
+                "Referer" to (referer ?: mainUrl),
                 "Accept" to "*/*",
-                "Origin" to mainUrl
+                "Origin" to mainUrl,
+                "Accept-Language" to "en-US,en;q=0.9"
             )
             
-            // Try to get the page content
             val doc = app.get(url, headers = headers).document
             val pageHtml = doc.toString()
             
-            // Look for video manifest/source URLs in various formats
-            listOf(
-                Regex("""src["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
-                Regex("""source["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
-                Regex("""file["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
-                Regex("""url["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
-                Regex("""["'](https?://[^"']*master\.txt[^"']*)""", RegexOption.IGNORE_CASE),
-                Regex("""["'](https?://[^"']+m3u8/[^"']+)""", RegexOption.IGNORE_CASE)
-            ).forEach { regex ->
+            // Enhanced regex patterns for VidStack player and Cherry sources
+            val patterns = listOf(
+                // M3U8 patterns
+                Regex("""["']?(https?://[^"'\s]+\.m3u8[^"'\s]*)["']?"""),
+                Regex("""src["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
+                Regex("""source["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
+                Regex("""file["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
+                // Master.txt pattern (alternative format)
+                Regex("""["'](https?://[^"']*master\.txt[^"']*)["']"""),
+                // M3u8 path patterns
+                Regex("""["'](https?://[^"']+/m3u8/[^"']+)["']"""),
+                // VidStack specific
+                Regex("""https?://[^\s"']+/[^\s"']+\.m3u8""")
+            )
+            
+            val foundUrls = mutableSetOf<String>()
+            
+            patterns.forEach { regex ->
                 regex.findAll(pageHtml).forEach { match ->
-                    val videoUrl = match.groupValues.getOrNull(1) ?: return@forEach
-                    if (videoUrl.isNotEmpty() && (videoUrl.contains(".m3u8") || videoUrl.contains("master.txt") || videoUrl.contains("/m3u8/"))) {
+                    val videoUrl = match.groupValues.getOrNull(1)?.trim() 
+                        ?: match.value.trim().removeSurrounding("'").removeSurrounding("\"")
+                    
+                    if (videoUrl.isNotEmpty() && 
+                        (videoUrl.contains(".m3u8") || videoUrl.contains("master.txt") || videoUrl.contains("/m3u8/")) &&
+                        videoUrl.startsWith("http") &&
+                        !foundUrls.contains(videoUrl)) {
+                        
+                        foundUrls.add(videoUrl)
+                        
                         try {
                             M3u8Helper.generateM3u8(
                                 name,
                                 videoUrl,
-                                mainUrl,
+                                referer ?: mainUrl,
                                 headers = headers
                             ).forEach(callback)
                         } catch (e: Exception) {
-                            Log.d("Cherry M3U8", "Error generating M3U8: ${e.message}")
+                            Log.d("Cherry M3U8", "Error with URL $videoUrl: ${e.message}")
                         }
                     }
                 }
             }
             
-            // Also look for direct MP4 URLs
-            Regex("""["'](https?://[^"']+\.mp4[^"']*)""", RegexOption.IGNORE_CASE).findAll(pageHtml).forEach { match ->
-                val mp4Url = match.groupValues.getOrNull(1) ?: return@forEach
-                if (mp4Url.isNotEmpty() && !mp4Url.contains("poster")) {
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name MP4",
-                            mp4Url,
-                            null
-                        ) {
-                            this.referer = mainUrl
-                            this.quality = getQualityFromName(mp4Url)
-                        }
-                    )
+            // Fallback: Look for direct MP4 URLs
+            if (foundUrls.isEmpty()) {
+                Regex("""["'](https?://[^"']+\.mp4[^"']*)["']""").findAll(pageHtml).forEach { match ->
+                    val mp4Url = match.groupValues.getOrNull(1) ?: return@forEach
+                    if (mp4Url.isNotEmpty() && !mp4Url.contains("poster") && mp4Url.startsWith("http")) {
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name MP4",
+                                mp4Url,
+                                null
+                            ) {
+                                this.referer = referer ?: mainUrl
+                                this.quality = getQualityFromName(mp4Url)
+                            }
+                        )
+                    }
                 }
             }
             
