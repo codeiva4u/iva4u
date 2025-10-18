@@ -21,8 +21,5 @@ class MovierulzhdPlugin: BasePlugin() {
         registerExtractorAPI(GDFlix())
         registerExtractorAPI(Movierulzups())
         registerExtractorAPI(Movierulz())
-        registerExtractorAPI(VidStack())
-    
-        )
     }
 }
