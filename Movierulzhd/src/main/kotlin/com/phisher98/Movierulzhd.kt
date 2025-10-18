@@ -15,7 +15,6 @@ import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
-import com.lagradost.cloudstream3.extractors.VidStack
 import com.lagradost.cloudstream3.fixTitle
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -38,7 +37,6 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -309,7 +307,7 @@ open class Movierulzhd : MainAPI() {
                             if (!source.contains("youtube")) {
                                 if (source.contains("/#"))
                                 {
-                                    VidStack().getUrl(source,"",subtitleCallback,callback)
+
                                 }
                                 else
                                 loadExtractor(source, subtitleCallback, callback)

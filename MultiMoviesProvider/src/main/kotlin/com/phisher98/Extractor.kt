@@ -5,7 +5,6 @@ import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
-import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -18,59 +17,6 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class MultimoviesAIO: StreamWishExtractor() {
-    override var name = "Multimovies Cloud AIO"
-    override var mainUrl = "https://allinonedownloader.fun"
-    override var requiresReferer = true
-}
-
-class Techinmind: GDMirrorbot() {
-    override var name = "Techinmind Cloud AIO"
-    override var mainUrl = "https://stream.techinmind.space"
-    override var requiresReferer = true
-}
-
-class Dhcplay: VidhideExtractor() {
-    override var name = "DHC Play"
-    override var mainUrl = "https://dhcplay.com"
-    override var requiresReferer = true
-}
-
-class Multimovies: StreamWishExtractor() {
-    override var name = "Multimovies Cloud"
-    override var mainUrl = "https://multimovies.cloud"
-    override var requiresReferer = true
-}
-
-class Animezia : VidhideExtractor() {
-    override var name = "Animezia"
-    override var mainUrl = "https://animezia.cloud"
-    override var requiresReferer = true
-}
-
-class server1 : VidStack() {
-    override var name = "MultimoviesVidstack"
-    override var mainUrl = "https://server1.uns.bio"
-    override var requiresReferer = true
-}
-
-class server2 : VidhideExtractor() {
-    override var name = "Multimovies Vidhide"
-    override var mainUrl = "https://server2.shop"
-    override var requiresReferer = true
-}
-
-class Asnwish : StreamWishExtractor() {
-    override val name = "Streanwish Asn"
-    override val mainUrl = "https://asnwish.com"
-    override val requiresReferer = true
-}
-
-class CdnwishCom : StreamWishExtractor() {
-    override val name = "Cdnwish"
-    override val mainUrl = "https://cdnwish.com"
-    override val requiresReferer = true
-}
 open class GDMirrorbot : ExtractorApi() {
     override var name = "GDMirrorbot"
     override var mainUrl = "https://gdmirrorbot.nl"
@@ -142,8 +88,8 @@ open class GDMirrorbot : ExtractorApi() {
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
                 when (friendlyName) {
-                    "StreamHG","EarnVids" -> VidhideExtractor().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "StreamHG","EarnVids" -> VidhideIva().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "RpmShare", "UpnShare", "StreamP2p" -> VidStackIva().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
                 }
             } catch (e: Exception) {
@@ -157,9 +103,8 @@ open class GDMirrorbot : ExtractorApi() {
     }
 }
 
-
-open class VidStack : ExtractorApi() {
-    override var name = "Vidstack"
+open class VidStackIva : ExtractorApi() {
+    override var name = "VidstackIva"
     override var mainUrl = "https://vidstack.io"
     override val requiresReferer = true
 
@@ -232,73 +177,8 @@ object AesHelper {
     }
 }
 
-
-class Streamcasthub : ExtractorApi() {
-    override var name = "Streamcasthub"
-    override var mainUrl = "https://multimovies.streamcasthub.store"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val id=url.substringAfterLast("/#")
-        val m3u8= "https://ss1.rackcloudservice.cyou/ic/$id/master.txt"
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8,
-                url,
-                Qualities.Unknown.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
-    }
-}
-
-
-
-class Strwishcom : StreamWishExtractor() {
-    override val name = "Strwish"
-    override val mainUrl = "https://strwish.com"
-    override val requiresReferer = true
-}
-
-class MultimoviesShg : VidhideExtractor() {
-    override var name = "StreamHG"
-    override var mainUrl = "https://multimoviesshg.com"
-    override var requiresReferer = true
-}
-
-class P2pplay : VidStack() {
-    override var name = "StreamP2p"
-    override var mainUrl = "https://multimovies.p2pplay.pro"
-    override var requiresReferer = true
-}
-
-class Rpmhub : VidStack() {
-    override var name = "RpmShare"
-    override var mainUrl = "https://multimovies.rpmhub.site"
-    override var requiresReferer = true
-}
-
-class Smoothpre : VidhideExtractor() {
-    override var name = "EarnVids"
-    override var mainUrl = "https://smoothpre.com"
-    override var requiresReferer = true
-}
-
-class Ssntechinmind : VidhideExtractor() {
-    override var name = "SSN Techinmind"
-    override var mainUrl = "https://ssn.techinmind.space"
-    override var requiresReferer = true
-}
-
-open class VidhideExtractor : ExtractorApi() {
-    override var name = "VidHide"
+open class VidhideIva : ExtractorApi() {
+    override var name = "VidHideIva"
     override var mainUrl = "https://vidhide.com"
     override val requiresReferer = false
 

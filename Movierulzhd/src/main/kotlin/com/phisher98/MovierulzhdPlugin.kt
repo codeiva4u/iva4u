@@ -10,16 +10,8 @@ class MovierulzhdPlugin: BasePlugin() {
     override fun load() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(Movierulzhd())
-       
-        registerExtractorAPI(FMHD())
-       
         registerExtractorAPI(Akamaicdn())
-        registerExtractorAPI(Luluvdo())
         registerExtractorAPI(FMX())
-        registerExtractorAPI(Lulust())
-        registerExtractorAPI(Playonion())
         registerExtractorAPI(GDFlix())
-        registerExtractorAPI(Movierulzups())
-        registerExtractorAPI(Movierulz())
     }
 }
