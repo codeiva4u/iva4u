@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
-import com.lagradost.cloudstream3.extractors.VidHidePro
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -31,7 +30,7 @@ class Techinmind: GDMirrorbot() {
     override var requiresReferer = true
 }
 
-class Dhcplay: VidHidePro() {
+class Dhcplay: VidhideExtractor() {
     override var name = "DHC Play"
     override var mainUrl = "https://dhcplay.com"
     override var requiresReferer = true
@@ -143,7 +142,7 @@ open class GDMirrorbot : ExtractorApi() {
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
                 when (friendlyName) {
-                    "StreamHG","EarnVids" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "StreamHG","EarnVids" -> VidhideExtractor().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
                 }
@@ -268,7 +267,7 @@ class Strwishcom : StreamWishExtractor() {
     override val requiresReferer = true
 }
 
-class MultimoviesShg : VidHidePro() {
+class MultimoviesShg : VidhideExtractor() {
     override var name = "StreamHG"
     override var mainUrl = "https://multimoviesshg.com"
     override var requiresReferer = true
@@ -286,7 +285,7 @@ class Rpmhub : VidStack() {
     override var requiresReferer = true
 }
 
-class Smoothpre : VidHidePro() {
+class Smoothpre : VidhideExtractor() {
     override var name = "EarnVids"
     override var mainUrl = "https://smoothpre.com"
     override var requiresReferer = true
