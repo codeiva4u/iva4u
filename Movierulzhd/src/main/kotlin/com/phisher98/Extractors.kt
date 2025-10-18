@@ -355,48 +355,57 @@ open class Cherry : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer" to (referer ?: mainUrl)
-            )
-            
-            // Cherry.upns.online uses hash-based IDs in URL fragment
-            // Extract video ID from hash
+            // Cherry player uses VidStack and loads via JavaScript
+            // Extract the hash ID from URL
             val videoId = url.substringAfter("#").takeIf { it.isNotEmpty() } ?: return
             
-            // Try to load the player and extract video source
-            val doc = app.get(url, headers = headers).document
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer" to mainUrl,
+                "Accept" to "*/*",
+                "Origin" to mainUrl
+            )
             
-            // Look for video source in script tags
-            doc.select("script").forEach { script ->
-                val scriptContent = script.data()
-                
-                // Look for m3u8 or mp4 URLs
-                val m3u8Regex = Regex("""(https?://[^\s\"']+\.m3u8[^\s\"']*)""")
-                val mp4Regex = Regex("""(https?://[^\s\"']+\.mp4[^\s\"']*)""")
-                
-                m3u8Regex.find(scriptContent)?.groupValues?.get(1)?.let { m3u8Url ->
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name M3U8",
-                            m3u8Url,
-                            INFER_TYPE
-                        ) {
-                            this.referer = mainUrl
-                            this.quality = Qualities.Unknown.value
+            // Try to get the page content
+            val doc = app.get(url, headers = headers).document
+            val pageHtml = doc.toString()
+            
+            // Look for video manifest/source URLs in various formats
+            listOf(
+                Regex("""src["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
+                Regex("""source["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
+                Regex("""file["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
+                Regex("""url["']?\s*:\s*["'](https?://[^"']+\.m3u8[^"']*)""", RegexOption.IGNORE_CASE),
+                Regex("""["'](https?://[^"']*master\.txt[^"']*)""", RegexOption.IGNORE_CASE),
+                Regex("""["'](https?://[^"']+m3u8/[^"']+)""", RegexOption.IGNORE_CASE)
+            ).forEach { regex ->
+                regex.findAll(pageHtml).forEach { match ->
+                    val videoUrl = match.groupValues.getOrNull(1) ?: return@forEach
+                    if (videoUrl.isNotEmpty() && (videoUrl.contains(".m3u8") || videoUrl.contains("master.txt") || videoUrl.contains("/m3u8/"))) {
+                        try {
+                            M3u8Helper.generateM3u8(
+                                name,
+                                videoUrl,
+                                mainUrl,
+                                headers = headers
+                            ).forEach(callback)
+                        } catch (e: Exception) {
+                            Log.d("Cherry M3U8", "Error generating M3U8: ${e.message}")
                         }
-                    )
+                    }
                 }
-                
-                mp4Regex.findAll(scriptContent).forEach { match ->
-                    val mp4Url = match.groupValues[1]
+            }
+            
+            // Also look for direct MP4 URLs
+            Regex("""["'](https?://[^"']+\.mp4[^"']*)""", RegexOption.IGNORE_CASE).findAll(pageHtml).forEach { match ->
+                val mp4Url = match.groupValues.getOrNull(1) ?: return@forEach
+                if (mp4Url.isNotEmpty() && !mp4Url.contains("poster")) {
                     callback.invoke(
                         newExtractorLink(
                             name,
                             "$name MP4",
                             mp4Url,
-                            INFER_TYPE
+                            null
                         ) {
                             this.referer = mainUrl
                             this.quality = getQualityFromName(mp4Url)
@@ -404,6 +413,7 @@ open class Cherry : ExtractorApi() {
                     )
                 }
             }
+            
         } catch (e: Exception) {
             Log.e("Cherry", "Error: ${e.message}")
         }
