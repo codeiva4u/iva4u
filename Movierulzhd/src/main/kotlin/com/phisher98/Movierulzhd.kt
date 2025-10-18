@@ -30,6 +30,7 @@ import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import okhttp3.Interceptor
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -273,7 +274,19 @@ open class Movierulzhd : MainAPI() {
 
                         if (!source.contains("youtube")) {
                             when {
-                                source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, baseUrl, subtitleCallback, callback)
+                                source.contains("cherry.upns.online") || source.contains("upns.online") -> {
+                                    // Cherry is JavaScript-based player, return iframe URL directly
+                                    callback.invoke(
+                                        newExtractorLink(
+                                            "Cherry",
+                                            "Cherry [Iframe]",
+                                            source,
+                                            null
+                                        ) {
+                                            this.referer = baseUrl
+                                        }
+                                    )
+                                }
                                 source.contains("molop.art") -> Akamaicdn().getUrl(source, baseUrl, subtitleCallback, callback)
                                 source.contains("fmx.lol") -> FMX().getUrl(source, baseUrl, subtitleCallback, callback)
                                 source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
@@ -315,7 +328,19 @@ open class Movierulzhd : MainAPI() {
                             ).parsed<ResponseHash>().embed_url
                             if (!source.contains("youtube")) {
                                 when {
-                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, data, subtitleCallback, callback)
+                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> {
+                                        // Cherry is JavaScript-based player, return iframe URL directly
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "Cherry",
+                                                "Cherry [Iframe]",
+                                                source,
+                                                null
+                                            ) {
+                                                this.referer = data
+                                            }
+                                        )
+                                    }
                                     source.contains("molop.art") -> Akamaicdn().getUrl(source, data, subtitleCallback, callback)
                                     source.contains("fmx.lol") -> FMX().getUrl(source, data, subtitleCallback, callback)
                                     source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
