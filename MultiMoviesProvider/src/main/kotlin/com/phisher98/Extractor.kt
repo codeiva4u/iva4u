@@ -90,7 +90,7 @@ open class GDMirrorbot : ExtractorApi() {
                 when (friendlyName) {
                     "StreamHG","EarnVids" -> VidhideIva().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStackIva().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    else -> loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
+                    else -> Log.d("Phisher", "Unknown source: $friendlyName - $fullUrl (skipped)")
                 }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to extract from $friendlyName at $fullUrl: $e")

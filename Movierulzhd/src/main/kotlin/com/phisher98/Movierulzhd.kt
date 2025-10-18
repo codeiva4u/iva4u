@@ -30,13 +30,6 @@ import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.newExtractorLink
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import okhttp3.Interceptor
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -274,7 +267,12 @@ open class Movierulzhd : MainAPI() {
                         ).parsed<ResponseHash>().embed_url
 
                         if (!source.contains("youtube")) {
-                            loadCustomExtractor(name,source, "$directUrl/", subtitleCallback, callback)
+                            when {
+                                source.contains("molop.art") -> Akamaicdn().getUrl(source, directUrl, subtitleCallback, callback)
+                                source.contains("fmx.lol") -> FMX().getUrl(source, directUrl, subtitleCallback, callback)
+                                source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
+                                else -> {}
+                            }
                         }
                     } catch (e: Exception) {
                         println("Error loading direct source: ${e.message}")
@@ -305,12 +303,12 @@ open class Movierulzhd : MainAPI() {
                                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                             ).parsed<ResponseHash>().embed_url
                             if (!source.contains("youtube")) {
-                                if (source.contains("/#"))
-                                {
-
+                                when {
+                                    source.contains("molop.art") -> Akamaicdn().getUrl(source, data, subtitleCallback, callback)
+                                    source.contains("fmx.lol") -> FMX().getUrl(source, data, subtitleCallback, callback)
+                                    source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
+                                    else -> {}
                                 }
-                                else
-                                loadExtractor(source, subtitleCallback, callback)
                             }
                         } catch (e: Exception) {
                             println("Error loading item: ${e.message}")
@@ -334,37 +332,6 @@ open class Movierulzhd : MainAPI() {
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
             this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
             else -> this.attr("abs:src")
-        }
-    }
-
-    private suspend fun loadCustomExtractor(
-        name: String? = null,
-        url: String,
-        referer: String? = null,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-        quality: Int? = null,
-    ) {
-        loadExtractor(url, referer, subtitleCallback) { link ->
-            CoroutineScope(Dispatchers.IO).launch {
-                callback.invoke(
-                    newExtractorLink(
-                        name ?: link.source,
-                        name ?: link.name,
-                        link.url,
-                    ) {
-                        this.quality = when {
-                            link.name == "VidSrc" -> Qualities.P1080.value
-                            link.type == ExtractorLinkType.M3U8 -> link.quality
-                            else -> quality ?: link.quality
-                        }
-                        this.type = link.type
-                        this.referer = link.referer
-                        this.headers = link.headers
-                        this.extractorData = link.extractorData
-                    }
-                )
-            }
         }
     }
 

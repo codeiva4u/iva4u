@@ -28,7 +28,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
@@ -268,15 +267,32 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
                 when {
                     !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                        when {
+                            link.contains("gdmirrorbot") -> {
+                                GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
                             }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                            link.contains("vidhide") || link.contains("streamhg") || link.contains("smoothpre") -> {
+                                VidhideIva().getUrl(link, mainUrl, subtitleCallback, callback)
+                            }
+                            link.contains("vidstack") || link.contains("rpmhub") || link.contains("p2pplay") || link.contains("uns.bio") -> {
+                                VidStackIva().getUrl(link, mainUrl, subtitleCallback, callback)
+                            }
+                            link.contains("stream.techinmind.space") -> {
+                                GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
+                            }
+                            link.contains("deaddrive.xyz") -> {
+                                app.get(link).document.select("ul.list-server-items > li").map {
+                                    val server = it.attr("data-video")
+                                    when {
+                                        server.contains("vidhide") || server.contains("streamhg") -> 
+                                            VidhideIva().getUrl(server, mainUrl, subtitleCallback, callback)
+                                        server.contains("vidstack") || server.contains("rpmshare") || server.contains("streamp2p") || server.contains("upnshare") -> 
+                                            VidStackIva().getUrl(server, mainUrl, subtitleCallback, callback)
+                                    }
+                                }
+                            }
+                        }
                     }
-
                     else -> return@amap
                 }
             }
