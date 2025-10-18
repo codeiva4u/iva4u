@@ -188,23 +188,27 @@ open class Movierulzhd : MainAPI() {
             } else {
             val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
 				if (check) {
-				    document.select("ul#playeroptionsul > li").drop(1).map {
+				    document.select("ul#playeroptionsul > li")
+				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+				        .drop(1).map {
 				        val name = it.selectFirst("span.title")?.text()
 				        val type = it.attr("data-type")
 				        val post = it.attr("data-post")
 				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume).toJson())
+                        newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
                         {
                             this.name=name
                         }
 				    }
 				} else {
-				    document.select("ul#playeroptionsul > li").map {
+				    document.select("ul#playeroptionsul > li")
+				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+				        .map {
 				        val name = it.selectFirst("span.title")?.text()
 				        val type = it.attr("data-type")
 				        val post = it.attr("data-post")
 				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume).toJson())
+                        newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
                         {
                             this.name=name
                         }
@@ -254,8 +258,9 @@ open class Movierulzhd : MainAPI() {
                 val loadData = AppUtils.tryParseJson<LinkData>(data)
                 if (loadData != null) {
                     try {
+                        val baseUrl = loadData.baseUrl ?: directUrl
                         val source = app.post(
-                            url = "$directUrl/wp-admin/admin-ajax.php",
+                            url = "$baseUrl/wp-admin/admin-ajax.php",
                             data = mapOf(
                                 "action" to "doo_player_ajax",
                                 "post" to "${loadData.post}",
@@ -268,9 +273,9 @@ open class Movierulzhd : MainAPI() {
 
                         if (!source.contains("youtube")) {
                             when {
-                                source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, directUrl, subtitleCallback, callback)
-                                source.contains("molop.art") -> Akamaicdn().getUrl(source, directUrl, subtitleCallback, callback)
-                                source.contains("fmx.lol") -> FMX().getUrl(source, directUrl, subtitleCallback, callback)
+                                source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, baseUrl, subtitleCallback, callback)
+                                source.contains("molop.art") -> Akamaicdn().getUrl(source, baseUrl, subtitleCallback, callback)
+                                source.contains("fmx.lol") -> FMX().getUrl(source, baseUrl, subtitleCallback, callback)
                                 source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
                                 else -> {}
                             }
@@ -281,19 +286,24 @@ open class Movierulzhd : MainAPI() {
                 }
             } else {
                 try {
-                    val document = app.get(data).document
-                    val items = document.select("ul#playeroptionsul > li").map {
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }
+                    val response = app.get(data)
+                    val document = response.document
+                    val baseUrl = getBaseUrl(response.url)
+                    
+                    val items = document.select("ul#playeroptionsul > li")
+                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                        .map {
+                            Triple(
+                                it.attr("data-post"),
+                                it.attr("data-nume"),
+                                it.attr("data-type")
+                            )
+                        }
 
                     items.amap { (post, nume, type) ->
                         try {
                             val source = app.post(
-                                url = "$directUrl/wp-admin/admin-ajax.php",
+                                url = "$baseUrl/wp-admin/admin-ajax.php",
                                 data = mapOf(
                                     "action" to "doo_player_ajax",
                                     "post" to post,
@@ -396,6 +406,7 @@ open class Movierulzhd : MainAPI() {
         val type: String? = null,
         val post: String? = null,
         val nume: String? = null,
+        val baseUrl: String? = null,
     )
 
 
