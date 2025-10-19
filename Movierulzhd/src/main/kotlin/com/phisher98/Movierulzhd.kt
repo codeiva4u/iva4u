@@ -31,8 +31,10 @@ import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.Interceptor
+import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import java.net.URI
 
@@ -277,82 +279,37 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = if (data.startsWith("{")) {
-            // Episode data in JSON format
-            val linkData = AppUtils.parseJson<LinkData>(data)
-            val response = app.post(
-                url = "${linkData.url}/wp-admin/admin-ajax.php",
-                data = mapOf(
-                    "action" to "doo_player_ajax",
-                    "post" to linkData.post,
-                    "nume" to linkData.nume,
-                    "type" to linkData.type
-                ),
-                referer = linkData.url,
-                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-            )
-            response
+        val document = if (data.startsWith("http")) {
+            app.get(data).document
         } else {
-            // Movie URL - extract from page
-            val req = app.get(data)
-            directUrl = getBaseUrl(req.url)
-            req.document.select("ul#playeroptionsul li")
-                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                .amap {
-                    val post = it.attr("data-post")
-                    val nume = it.attr("data-nume")
-                    val type = it.attr("data-type")
-                    
-                    val response = app.post(
-                        url = "$directUrl/wp-admin/admin-ajax.php",
-                        data = mapOf(
-                            "action" to "doo_player_ajax",
-                            "post" to post,
-                            "nume" to nume,
-                            "type" to type
-                        ),
-                        referer = data,
-                        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                    )
-                    
-                    processEmbedUrl(response, data, subtitleCallback, callback)
-                }
-            return true
-        }
-        
-        processEmbedUrl(doc, data, subtitleCallback, callback)
-        return true
-    }
+            val linkData = AppUtils.parseJson<LinkData>(data)
+            val body = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", linkData.post)
+                .addEncoded("nume", linkData.nume)
+                .addEncoded("type", linkData.type)
+                .build()
 
-    private suspend fun processEmbedUrl(
-        response: NiceResponse,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val source = response.parsed<ResponseHash>().embed_url
-            val link = source.substringAfter("\"").substringBefore("\"").trim()
-            
-            when {
-                !link.contains("youtube") -> {
-                    when {
-                        link.contains("gdmirrorbot") || link.contains("stream.techinmind.space") -> {
-                            GDMirrorbot().getUrl(link, referer, subtitleCallback, callback)
-                        }
-                        link.contains("vidhide") || link.contains("streamhg") || link.contains("smoothpre") || link.contains("earnvids") -> {
-                            VidhideIva().getUrl(link, referer, subtitleCallback, callback)
-                        }
-                        link.contains("vidstack") || link.contains("rpmhub") || link.contains("rpmshare") ||
-                        link.contains("p2pplay") || link.contains("streamp2p") || link.contains("uns.bio") ||
-                        link.contains("upnshare") || link.contains("upns.online") -> {
-                            VidStackIva().getUrl(link, referer, subtitleCallback, callback)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Ignore parsing errors
+            val postResponse = app.post(
+                url = "${linkData.url}/wp-admin/admin-ajax.php",
+                requestBody = body,
+                referer = linkData.url
+            ).parsed<ResponseHash>()
+
+            app.get(
+                postResponse.embed_url,
+                referer = linkData.url
+            ).document
         }
+
+        // Extract iframe sources
+        document.select("iframe").forEach { iframe ->
+            val iframeSrc = iframe.attr("src")
+            if (iframeSrc.isNotEmpty()) {
+                loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+            }
+        }
+
+        return true
     }
 }
