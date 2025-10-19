@@ -400,21 +400,61 @@ open class Cherry : ExtractorApi() {
                 "Accept-Language" to "en-US,en;q=0.9"
             )
             
+            // Method 1: Try API endpoint first (most reliable)
+            try {
+                val apiUrl = "$mainUrl/api/v1/video?id=$videoId&w=1440&h=900&r="
+                val apiResponse = app.get(apiUrl, headers = headers, referer = referer ?: mainUrl)
+                
+                if (apiResponse.isSuccessful) {
+                    val apiJson = apiResponse.parsed<CherryApiResponse>()
+                    apiJson.sources?.forEach { source ->
+                        if (source.file.isNotEmpty()) {
+                            try {
+                                when {
+                                    source.file.contains(".m3u8") || source.file.contains("master.txt") -> {
+                                        M3u8Helper.generateM3u8(
+                                            name,
+                                            source.file,
+                                            referer ?: mainUrl,
+                                            headers = headers
+                                        ).forEach(callback)
+                                    }
+                                    source.file.contains(".mp4") -> {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                name,
+                                                "${name} ${source.label ?: ""}",
+                                                source.file,
+                                                null
+                                            ) {
+                                                this.referer = referer ?: mainUrl
+                                                this.quality = getQualityFromLabel(source.label)
+                                            }
+                                        )
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.d("Cherry API", "Error processing source: ${e.message}")
+                            }
+                        }
+                    }
+                    return
+                }
+            } catch (e: Exception) {
+                Log.d("Cherry", "API method failed, trying HTML parsing: ${e.message}")
+            }
+            
+            // Method 2: Fallback to HTML parsing
             val doc = app.get(url, headers = headers).document
             val pageHtml = doc.toString()
             
-            // Enhanced regex patterns for VidStack player and Cherry sources
             val patterns = listOf(
-                // M3U8 patterns
                 Regex("""["']?(https?://[^"'\s]+\.m3u8[^"'\s]*)["']?"""),
                 Regex("""src["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
                 Regex("""source["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
                 Regex("""file["']?\s*[=:]\s*["'](https?://[^"']+\.m3u8[^"']*)["']"""),
-                // Master.txt pattern (alternative format)
                 Regex("""["'](https?://[^"']*master\.txt[^"']*)["']"""),
-                // M3u8 path patterns
                 Regex("""["'](https?://[^"']+/m3u8/[^"']+)["']"""),
-                // VidStack specific
                 Regex("""https?://[^\s"']+/[^\s"']+\.m3u8""")
             )
             
@@ -446,7 +486,6 @@ open class Cherry : ExtractorApi() {
                 }
             }
             
-            // Fallback: Look for direct MP4 URLs
             if (foundUrls.isEmpty()) {
                 Regex("""["'](https?://[^"']+\.mp4[^"']*)["']""").findAll(pageHtml).forEach { match ->
                     val mp4Url = match.groupValues.getOrNull(1) ?: return@forEach
@@ -471,6 +510,18 @@ open class Cherry : ExtractorApi() {
         }
     }
     
+    private fun getQualityFromLabel(label: String?): Int {
+        return when {
+            label == null -> Qualities.Unknown.value
+            label.contains("2160") || label.contains("4K", ignoreCase = true) -> Qualities.P2160.value
+            label.contains("1080") -> Qualities.P1080.value
+            label.contains("720") -> Qualities.P720.value
+            label.contains("480") -> Qualities.P480.value
+            label.contains("360") -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
+    }
+    
     private fun getQualityFromName(url: String): Int {
         return when {
             url.contains("2160") || url.contains("4K", ignoreCase = true) -> Qualities.P2160.value
@@ -481,4 +532,14 @@ open class Cherry : ExtractorApi() {
             else -> Qualities.Unknown.value
         }
     }
+    
+    data class CherrySource(
+        @com.fasterxml.jackson.annotation.JsonProperty("file") val file: String,
+        @com.fasterxml.jackson.annotation.JsonProperty("label") val label: String? = null,
+        @com.fasterxml.jackson.annotation.JsonProperty("type") val type: String? = null
+    )
+    
+    data class CherryApiResponse(
+        @com.fasterxml.jackson.annotation.JsonProperty("sources") val sources: List<CherrySource>? = null
+    )
 }
