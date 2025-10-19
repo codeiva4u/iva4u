@@ -31,6 +31,7 @@ import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.nicehttp.NiceResponse
 import okhttp3.Interceptor
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -248,127 +249,20 @@ open class Movierulzhd : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        suspend fun dispatchToExtractor(source: String, referer: String) {
-            if (source.contains("youtube")) {
-                println("Skipping YouTube source: $source")
-                return
-            }
-            when {
-                source.contains("cherry.upns.online") || source.contains("upns.online") -> {
-                    println("Calling Cherry extractor for: $source")
-                    Cherry().getUrl(source, referer, subtitleCallback, callback)
-                }
-                source.contains("molop.art") -> {
-                    println("Calling Akamaicdn extractor for: $source")
-                    Akamaicdn().getUrl(source, referer, subtitleCallback, callback)
-                }
-                source.contains("fmx.lol") -> {
-                    println("Calling FMX extractor for: $source")
-                    FMX().getUrl(source, referer, subtitleCallback, callback)
-                }
-                source.contains("gdflix") -> {
-                    println("Calling GDFlix extractor for: $source")
-                    GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
-                }
-                else -> {
-                    println("No extractor found for source: $source")
-                }
-            }
-        }
+    data class LinkData(
+        val name: String?,
+        val type: String,
+        val post: String,
+        val nume: String,
+        val url: String
+    )
 
-        suspend fun fetchEmbedUrl(baseUrl: String, post: String, nume: String, type: String, referer: String): String? {
-            // Try admin-ajax first
-            try {
-                val embed = app.post(
-                    url = "$baseUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to post,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = referer,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                if (embed.isNullOrBlank()) throw Exception("Empty embed_url from admin-ajax")
-                println("Got embed_url via admin-ajax: $embed")
-                return embed
-            } catch (e: Exception) {
-                println("Admin-ajax failed: ${e.message}")
-            }
-            // Fallback to REST API
-            return try {
-                val restUrl = "$baseUrl/wp-json/dooplayer/v2/$post/$nume/$type"
-                val rest = app.get(restUrl, referer = referer, headers = mapOf("X-Requested-With" to "XMLHttpRequest"))
-                val embed = rest.parsed<ResponseHash>().embed_url
-                println("Got embed_url via REST: $embed")
-                embed
-            } catch (e: Exception) {
-                println("REST fallback failed: ${e.message}")
-                null
-            }
-        }
+    data class ResponseHash(
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("type") val type: String? = null,
+    )
 
-        try {
-            if (data.startsWith("{")) {
-                val loadData = AppUtils.tryParseJson<LinkData>(data)
-                if (loadData != null) {
-                    val baseUrl = loadData.baseUrl ?: directUrl
-                    val referer = baseUrl
-                    val post = loadData.post ?: return false
-                    val nume = loadData.nume ?: return false
-                    val type = loadData.type ?: return false
-                    val source = fetchEmbedUrl(baseUrl, post, nume, type, referer)
-                    if (!source.isNullOrBlank()) {
-                        dispatchToExtractor(source, referer)
-                    } else {
-                        println("No source found for episode linkData")
-                        return false
-                    }
-                }
-            } else {
-                val response = app.get(data)
-                val document = response.document
-                val baseUrl = getBaseUrl(response.url)
-
-                val items = document.select("ul#playeroptionsul > li")
-                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                    .map {
-                        Triple(
-                            it.attr("data-post"),
-                            it.attr("data-nume"),
-                            it.attr("data-type")
-                        )
-                    }
-
-                if (items.isEmpty()) {
-                    println("No player items found on page")
-                }
-
-                items.amap { (post, nume, type) ->
-                    try {
-                        val source = fetchEmbedUrl(baseUrl, post, nume, type, data)
-                        if (!source.isNullOrBlank()) dispatchToExtractor(source, data)
-                    } catch (e: Exception) {
-                        println("Error loading item: ${e.message}")
-                    }
-                }
-            }
-            return true
-        } catch (e: Exception) {
-            println("General error in loadLinks: ${e.message}")
-            return false
-        }
-    }
-
-
-    private fun Element.getImageAttr(): String {
+    private fun Element.getImageAttr(): String? {
         return when {
             this.hasAttr("data-src") -> this.attr("abs:data-src")
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
@@ -377,72 +271,88 @@ open class Movierulzhd : MainAPI() {
         }
     }
 
-
-    override fun getVideoInterceptor(extractorLink: ExtractorLink): Interceptor {
-        return Interceptor { chain ->
-            val request = chain.request()
-            val originalUrl = request.url.toString()
-            val modifiedRequest = if (originalUrl.startsWith("https://exxample.com/")) {
-                val encodedPart = originalUrl.removePrefix("https://exxample.com/")
-                val decodedUrl = try {
-                    base64Decode(encodedPart)
-                } catch (e: IllegalArgumentException) {
-                    println("Failed to decode Base64: ${e.message}")
-                    null
-                }
-                if (decodedUrl != null) {
-                    request.newBuilder()
-                        .url(decodedUrl)
-                        .build()
-                } else {
-                    request
-                }
-            } else {
-                request
-            }
-
-            val finalRequest = if (modifiedRequest.url.host.contains("sukumsanghas.com")) {
-                modifiedRequest.newBuilder()
-                    .header("Accept", "*/*")
-                    .header("Accept-Encoding", "gzip, deflate, br")
-                    .header("Accept-Language", "en-US,en;q=0.5")
-                    .header("Cache-Control", "no-cache")
-                    .header("Connection", "keep-alive")
-                    .header("DNT", "1")
-                    .header("Origin", "https://molop.art")
-                    .header("Pragma", "no-cache")
-                    .header("Referer", "https://molop.art/")
-                    .header("Sec-Fetch-Dest", "empty")
-                    .header("Sec-Fetch-Mode", "cors")
-                    .header("Sec-Fetch-Site", "cross-site")
-                    .header("Sec-GPC", "1")
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0"
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val doc = if (data.startsWith("{")) {
+            // Episode data in JSON format
+            val linkData = AppUtils.parseJson<LinkData>(data)
+            val response = app.post(
+                url = "${linkData.url}/wp-admin/admin-ajax.php",
+                data = mapOf(
+                    "action" to "doo_player_ajax",
+                    "post" to linkData.post,
+                    "nume" to linkData.nume,
+                    "type" to linkData.type
+                ),
+                referer = linkData.url,
+                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+            )
+            response
+        } else {
+            // Movie URL - extract from page
+            val req = app.get(data)
+            directUrl = getBaseUrl(req.url)
+            req.document.select("ul#playeroptionsul li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .amap {
+                    val post = it.attr("data-post")
+                    val nume = it.attr("data-nume")
+                    val type = it.attr("data-type")
+                    
+                    val response = app.post(
+                        url = "$directUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to post,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = data,
+                        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                     )
-                    .build()
-            } else {
-                modifiedRequest
-            }
-            chain.proceed(finalRequest)
+                    
+                    processEmbedUrl(response, data, subtitleCallback, callback)
+                }
+            return true
         }
+        
+        processEmbedUrl(doc, data, subtitleCallback, callback)
+        return true
     }
 
-
-
-
-    data class LinkData(
-        val tag: String? = null,
-        val type: String? = null,
-        val post: String? = null,
-        val nume: String? = null,
-        val baseUrl: String? = null,
-    )
-
-
-
-    data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("type") val type: String?,
-    )
+    private suspend fun processEmbedUrl(
+        response: NiceResponse,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val source = response.parsed<ResponseHash>().embed_url
+            val link = source.substringAfter("\"").substringBefore("\"").trim()
+            
+            when {
+                !link.contains("youtube") -> {
+                    when {
+                        link.contains("gdmirrorbot") || link.contains("stream.techinmind.space") -> {
+                            GDMirrorbot().getUrl(link, referer, subtitleCallback, callback)
+                        }
+                        link.contains("vidhide") || link.contains("streamhg") || link.contains("smoothpre") || link.contains("earnvids") -> {
+                            VidhideIva().getUrl(link, referer, subtitleCallback, callback)
+                        }
+                        link.contains("vidstack") || link.contains("rpmhub") || link.contains("rpmshare") ||
+                        link.contains("p2pplay") || link.contains("streamp2p") || link.contains("uns.bio") ||
+                        link.contains("upnshare") || link.contains("upns.online") -> {
+                            VidStackIva().getUrl(link, referer, subtitleCallback, callback)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors
+        }
+    }
 }
