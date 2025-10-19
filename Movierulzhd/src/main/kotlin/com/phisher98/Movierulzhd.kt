@@ -254,115 +254,110 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        suspend fun dispatchToExtractor(source: String, referer: String) {
+            if (source.contains("youtube")) {
+                println("Skipping YouTube source: $source")
+                return
+            }
+            when {
+                source.contains("cherry.upns.online") || source.contains("upns.online") -> {
+                    println("Calling Cherry extractor for: $source")
+                    Cherry().getUrl(source, referer, subtitleCallback, callback)
+                }
+                source.contains("molop.art") -> {
+                    println("Calling Akamaicdn extractor for: $source")
+                    Akamaicdn().getUrl(source, referer, subtitleCallback, callback)
+                }
+                source.contains("fmx.lol") -> {
+                    println("Calling FMX extractor for: $source")
+                    FMX().getUrl(source, referer, subtitleCallback, callback)
+                }
+                source.contains("gdflix") -> {
+                    println("Calling GDFlix extractor for: $source")
+                    GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
+                }
+                else -> {
+                    println("No extractor found for source: $source")
+                }
+            }
+        }
+
+        suspend fun fetchEmbedUrl(baseUrl: String, post: String, nume: String, type: String, referer: String): String? {
+            // Try admin-ajax first
+            try {
+                val embed = app.post(
+                    url = "$baseUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to post,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = referer,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                if (embed.isNullOrBlank()) throw Exception("Empty embed_url from admin-ajax")
+                println("Got embed_url via admin-ajax: $embed")
+                return embed
+            } catch (e: Exception) {
+                println("Admin-ajax failed: ${e.message}")
+            }
+            // Fallback to REST API
+            return try {
+                val restUrl = "$baseUrl/wp-json/dooplayer/v2/$post/$nume/$type"
+                val rest = app.get(restUrl, referer = referer, headers = mapOf("X-Requested-With" to "XMLHttpRequest"))
+                val embed = rest.parsed<ResponseHash>().embed_url
+                println("Got embed_url via REST: $embed")
+                embed
+            } catch (e: Exception) {
+                println("REST fallback failed: ${e.message}")
+                null
+            }
+        }
+
         try {
             if (data.startsWith("{")) {
                 val loadData = AppUtils.tryParseJson<LinkData>(data)
                 if (loadData != null) {
-                    try {
-                        val baseUrl = loadData.baseUrl ?: directUrl
-                        val source = app.post(
-                            url = "$baseUrl/wp-admin/admin-ajax.php",
-                            data = mapOf(
-                                "action" to "doo_player_ajax",
-                                "post" to "${loadData.post}",
-                                "nume" to "${loadData.nume}",
-                                "type" to "${loadData.type}"
-                            ),
-                            referer = data,
-                            headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                        ).parsed<ResponseHash>().embed_url
-
-                        println("Got embed_url: $source")
-                        if (!source.contains("youtube")) {
-                            when {
-                                source.contains("cherry.upns.online") || source.contains("upns.online") -> {
-                                    println("Calling Cherry extractor for: $source")
-                                    Cherry().getUrl(source, baseUrl, subtitleCallback, callback)
-                                }
-                                source.contains("molop.art") -> {
-                                    println("Calling Akamaicdn extractor for: $source")
-                                    Akamaicdn().getUrl(source, baseUrl, subtitleCallback, callback)
-                                }
-                                source.contains("fmx.lol") -> {
-                                    println("Calling FMX extractor for: $source")
-                                    FMX().getUrl(source, baseUrl, subtitleCallback, callback)
-                                }
-                                source.contains("gdflix") -> {
-                                    println("Calling GDFlix extractor for: $source")
-                                    GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
-                                }
-                                else -> {
-                                    println("No extractor found for source: $source")
-                                }
-                            }
-                        } else {
-                            println("Skipping YouTube source: $source")
-                        }
-                    } catch (e: Exception) {
-                        println("Error loading direct source: ${e.message}")
+                    val baseUrl = loadData.baseUrl ?: directUrl
+                    val referer = baseUrl
+                    val post = loadData.post ?: return false
+                    val nume = loadData.nume ?: return false
+                    val type = loadData.type ?: return false
+                    val source = fetchEmbedUrl(baseUrl, post, nume, type, referer)
+                    if (!source.isNullOrBlank()) {
+                        dispatchToExtractor(source, referer)
+                    } else {
+                        println("No source found for episode linkData")
+                        return false
                     }
                 }
             } else {
-                try {
-                    val response = app.get(data)
-                    val document = response.document
-                    val baseUrl = getBaseUrl(response.url)
-                    
-                    val items = document.select("ul#playeroptionsul > li")
-                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                        .map {
-                            Triple(
-                                it.attr("data-post"),
-                                it.attr("data-nume"),
-                                it.attr("data-type")
-                            )
-                        }
+                val response = app.get(data)
+                val document = response.document
+                val baseUrl = getBaseUrl(response.url)
 
-                    items.amap { (post, nume, type) ->
-                        try {
-                            val source = app.post(
-                                url = "$baseUrl/wp-admin/admin-ajax.php",
-                                data = mapOf(
-                                    "action" to "doo_player_ajax",
-                                    "post" to post,
-                                    "nume" to nume,
-                                    "type" to type
-                                ),
-                                referer = data,
-                                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                            ).parsed<ResponseHash>().embed_url
-                            println("Got embed_url: $source")
-                            if (!source.contains("youtube")) {
-                                when {
-                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> {
-                                        println("Calling Cherry extractor for: $source")
-                                        Cherry().getUrl(source, data, subtitleCallback, callback)
-                                    }
-                                    source.contains("molop.art") -> {
-                                        println("Calling Akamaicdn extractor for: $source")
-                                        Akamaicdn().getUrl(source, data, subtitleCallback, callback)
-                                    }
-                                    source.contains("fmx.lol") -> {
-                                        println("Calling FMX extractor for: $source")
-                                        FMX().getUrl(source, data, subtitleCallback, callback)
-                                    }
-                                    source.contains("gdflix") -> {
-                                        println("Calling GDFlix extractor for: $source")
-                                        GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
-                                    }
-                                    else -> {
-                                        println("No extractor found for source: $source")
-                                    }
-                                }
-                            } else {
-                                println("Skipping YouTube source: $source")
-                            }
-                        } catch (e: Exception) {
-                            println("Error loading item: ${e.message}")
-                        }
+                val items = document.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                    .map {
+                        Triple(
+                            it.attr("data-post"),
+                            it.attr("data-nume"),
+                            it.attr("data-type")
+                        )
                     }
-                } catch (e: Exception) {
-                    println("Error processing HTML document: ${e.message}")
+
+                if (items.isEmpty()) {
+                    println("No player items found on page")
+                }
+
+                items.amap { (post, nume, type) ->
+                    try {
+                        val source = fetchEmbedUrl(baseUrl, post, nume, type, data)
+                        if (!source.isNullOrBlank()) dispatchToExtractor(source, data)
+                    } catch (e: Exception) {
+                        println("Error loading item: ${e.message}")
+                    }
                 }
             }
             return true
