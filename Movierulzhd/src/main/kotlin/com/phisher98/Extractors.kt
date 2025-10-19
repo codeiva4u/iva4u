@@ -390,7 +390,13 @@ open class Cherry : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val videoId = url.substringAfter("#").takeIf { it.isNotEmpty() } ?: return
+            // Extract video ID - handle both #id and #id&dl=1 formats
+            val videoId = url.substringAfter("#").substringBefore("&").takeIf { it.isNotEmpty() } ?: run {
+                Log.e("Cherry", "No video ID found in URL: $url")
+                return
+            }
+            
+            Log.d("Cherry", "Extracting video with ID: $videoId from URL: $url")
             
             val headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -403,45 +409,60 @@ open class Cherry : ExtractorApi() {
             // Method 1: Try API endpoint first (most reliable)
             try {
                 val apiUrl = "$mainUrl/api/v1/video?id=$videoId&w=1440&h=900&r="
+                Log.d("Cherry", "Trying API: $apiUrl")
                 val apiResponse = app.get(apiUrl, headers = headers, referer = referer ?: mainUrl)
                 
                 if (apiResponse.isSuccessful) {
+                    val responseText = apiResponse.text
+                    Log.d("Cherry", "API Response received: ${responseText.take(200)}")
+                    
                     val apiJson = apiResponse.parsed<CherryApiResponse>()
-                    apiJson.sources?.forEach { source ->
-                        if (source.file.isNotEmpty()) {
-                            try {
-                                when {
-                                    source.file.contains(".m3u8") || source.file.contains("master.txt") -> {
-                                        M3u8Helper.generateM3u8(
-                                            name,
-                                            source.file,
-                                            referer ?: mainUrl,
-                                            headers = headers
-                                        ).forEach(callback)
-                                    }
-                                    source.file.contains(".mp4") -> {
-                                        callback.invoke(
-                                            newExtractorLink(
+                    if (apiJson.sources.isNullOrEmpty()) {
+                        Log.e("Cherry", "API returned no sources")
+                    } else {
+                        Log.d("Cherry", "Found ${apiJson.sources.size} sources from API")
+                        apiJson.sources.forEach { source ->
+                            if (source.file.isNotEmpty()) {
+                                Log.d("Cherry", "Processing source: ${source.file}")
+                                try {
+                                    when {
+                                        source.file.contains(".m3u8") || source.file.contains("master.txt") -> {
+                                            Log.d("Cherry", "Generating M3U8 links for: ${source.file}")
+                                            M3u8Helper.generateM3u8(
                                                 name,
-                                                "${name} ${source.label ?: ""}",
                                                 source.file,
-                                                null
-                                            ) {
-                                                this.referer = referer ?: mainUrl
-                                                this.quality = getQualityFromLabel(source.label)
-                                            }
-                                        )
+                                                referer ?: mainUrl,
+                                                headers = headers
+                                            ).forEach(callback)
+                                        }
+                                        source.file.contains(".mp4") -> {
+                                            Log.d("Cherry", "Adding MP4 link: ${source.file}")
+                                            callback.invoke(
+                                                newExtractorLink(
+                                                    name,
+                                                    "${name} ${source.label ?: ""}",
+                                                    source.file,
+                                                    null
+                                                ) {
+                                                    this.referer = referer ?: mainUrl
+                                                    this.quality = getQualityFromLabel(source.label)
+                                                }
+                                            )
+                                        }
                                     }
+                                } catch (e: Exception) {
+                                    Log.e("Cherry API", "Error processing source: ${e.message}")
                                 }
-                            } catch (e: Exception) {
-                                Log.d("Cherry API", "Error processing source: ${e.message}")
                             }
                         }
+                        return
                     }
-                    return
+                } else {
+                    Log.e("Cherry", "API request failed with status: ${apiResponse.code}")
                 }
             } catch (e: Exception) {
-                Log.d("Cherry", "API method failed, trying HTML parsing: ${e.message}")
+                Log.e("Cherry", "API method failed: ${e.message}")
+                e.printStackTrace()
             }
             
             // Method 2: Fallback to HTML parsing

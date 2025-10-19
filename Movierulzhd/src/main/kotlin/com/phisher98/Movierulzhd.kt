@@ -272,14 +272,31 @@ open class Movierulzhd : MainAPI() {
                             headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                         ).parsed<ResponseHash>().embed_url
 
+                        println("Got embed_url: $source")
                         if (!source.contains("youtube")) {
                             when {
-                                source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, baseUrl, subtitleCallback, callback)
-                                source.contains("molop.art") -> Akamaicdn().getUrl(source, baseUrl, subtitleCallback, callback)
-                                source.contains("fmx.lol") -> FMX().getUrl(source, baseUrl, subtitleCallback, callback)
-                                source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
-                                else -> {}
+                                source.contains("cherry.upns.online") || source.contains("upns.online") -> {
+                                    println("Calling Cherry extractor for: $source")
+                                    Cherry().getUrl(source, baseUrl, subtitleCallback, callback)
+                                }
+                                source.contains("molop.art") -> {
+                                    println("Calling Akamaicdn extractor for: $source")
+                                    Akamaicdn().getUrl(source, baseUrl, subtitleCallback, callback)
+                                }
+                                source.contains("fmx.lol") -> {
+                                    println("Calling FMX extractor for: $source")
+                                    FMX().getUrl(source, baseUrl, subtitleCallback, callback)
+                                }
+                                source.contains("gdflix") -> {
+                                    println("Calling GDFlix extractor for: $source")
+                                    GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
+                                }
+                                else -> {
+                                    println("No extractor found for source: $source")
+                                }
                             }
+                        } else {
+                            println("Skipping YouTube source: $source")
                         }
                     } catch (e: Exception) {
                         println("Error loading direct source: ${e.message}")
@@ -314,14 +331,31 @@ open class Movierulzhd : MainAPI() {
                                 referer = data,
                                 headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                             ).parsed<ResponseHash>().embed_url
+                            println("Got embed_url: $source")
                             if (!source.contains("youtube")) {
                                 when {
-                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> Cherry().getUrl(source, data, subtitleCallback, callback)
-                                    source.contains("molop.art") -> Akamaicdn().getUrl(source, data, subtitleCallback, callback)
-                                    source.contains("fmx.lol") -> FMX().getUrl(source, data, subtitleCallback, callback)
-                                    source.contains("gdflix") -> GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
-                                    else -> {}
+                                    source.contains("cherry.upns.online") || source.contains("upns.online") -> {
+                                        println("Calling Cherry extractor for: $source")
+                                        Cherry().getUrl(source, data, subtitleCallback, callback)
+                                    }
+                                    source.contains("molop.art") -> {
+                                        println("Calling Akamaicdn extractor for: $source")
+                                        Akamaicdn().getUrl(source, data, subtitleCallback, callback)
+                                    }
+                                    source.contains("fmx.lol") -> {
+                                        println("Calling FMX extractor for: $source")
+                                        FMX().getUrl(source, data, subtitleCallback, callback)
+                                    }
+                                    source.contains("gdflix") -> {
+                                        println("Calling GDFlix extractor for: $source")
+                                        GDFlix().getUrl(source, "Movierulz", subtitleCallback, callback)
+                                    }
+                                    else -> {
+                                        println("No extractor found for source: $source")
+                                    }
                                 }
+                            } else {
+                                println("Skipping YouTube source: $source")
                             }
                         } catch (e: Exception) {
                             println("Error loading item: ${e.message}")
