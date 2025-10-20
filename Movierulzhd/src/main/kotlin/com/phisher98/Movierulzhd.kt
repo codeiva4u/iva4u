@@ -12,9 +12,7 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.fixTitle
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -30,10 +28,7 @@ import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.nicehttp.NiceResponse
-import okhttp3.Interceptor
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -279,37 +274,131 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = if (data.startsWith("http")) {
-            app.get(data).document
-        } else {
-            val linkData = AppUtils.parseJson<LinkData>(data)
-            val body = FormBody.Builder()
-                .addEncoded("action", "doo_player_ajax")
-                .addEncoded("post", linkData.post)
-                .addEncoded("nume", linkData.nume)
-                .addEncoded("type", linkData.type)
-                .build()
+        try {
+            val document = if (data.startsWith("http")) {
+                app.get(data).document
+            } else {
+                val linkData = AppUtils.parseJson<LinkData>(data)
+                val body = FormBody.Builder()
+                    .addEncoded("action", "doo_player_ajax")
+                    .addEncoded("post", linkData.post)
+                    .addEncoded("nume", linkData.nume)
+                    .addEncoded("type", linkData.type)
+                    .build()
 
-            val postResponse = app.post(
-                url = "${linkData.url}/wp-admin/admin-ajax.php",
-                requestBody = body,
-                referer = linkData.url
-            ).parsed<ResponseHash>()
+                val postResponse = app.post(
+                    url = "${linkData.url}/wp-admin/admin-ajax.php",
+                    requestBody = body,
+                    referer = linkData.url
+                ).parsed<ResponseHash>()
 
-            app.get(
-                postResponse.embed_url,
-                referer = linkData.url
-            ).document
-        }
-
-        // Extract iframe sources
-        document.select("iframe").forEach { iframe ->
-            val iframeSrc = iframe.attr("src")
-            if (iframeSrc.isNotEmpty()) {
-                loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+                app.get(
+                    postResponse.embed_url,
+                    referer = linkData.url
+                ).document
             }
-        }
 
-        return true
+            var linksFound = 0
+
+            // Extract iframe sources
+            document.select("iframe").forEach { iframe ->
+                var iframeSrc = iframe.attr("src")
+                
+                // Handle relative URLs
+                if (iframeSrc.isNotEmpty() && !iframeSrc.startsWith("http")) {
+                    iframeSrc = if (iframeSrc.startsWith("//")) {
+                        "https:$iframeSrc"
+                    } else if (iframeSrc.startsWith("/")) {
+                        "$directUrl$iframeSrc"
+                    } else {
+                        "$directUrl/$iframeSrc"
+                    }
+                }
+                
+                if (iframeSrc.isNotEmpty()) {
+                    try {
+                        com.lagradost.api.Log.d("Movierulzhd", "Extracting from: $iframeSrc")
+                        val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+                        if (extracted) {
+                            linksFound++
+                        }
+                    } catch (e: Exception) {
+                        com.lagradost.api.Log.e("Movierulzhd", "Failed to extract from $iframeSrc: ${e.message}")
+                    }
+                }
+            }
+
+            // Also check for direct video links in source tags
+            document.select("source").forEach { source ->
+                val videoSrc = source.attr("src")
+                if (videoSrc.isNotEmpty() && (videoSrc.contains(".m3u8") || videoSrc.contains(".mp4") || videoSrc.contains(".mkv"))) {
+                    try {
+                        callback.invoke(
+                            com.lagradost.cloudstream3.utils.newExtractorLink(
+                                "Direct",
+                                "Direct",
+                                videoSrc
+                            ) {
+                                this.referer = directUrl
+                            }
+                        )
+                        linksFound++
+                    } catch (e: Exception) {
+                        com.lagradost.api.Log.e("Movierulzhd", "Failed to add direct link: ${e.message}")
+                    }
+                }
+            }
+
+            // Check for video URLs in script tags
+            document.select("script").forEach { script ->
+                val scriptData = script.data()
+                
+                // Look for m3u8 URLs
+                if (scriptData.contains(".m3u8")) {
+                    val m3u8Regex = """(https?://[^\s"']+\.m3u8[^\s"']*)""".toRegex()
+                    m3u8Regex.findAll(scriptData).forEach { match ->
+                        val m3u8Url = match.groupValues[1]
+                        try {
+                            com.lagradost.cloudstream3.utils.M3u8Helper.generateM3u8(
+                                source = "Embedded",
+                                streamUrl = m3u8Url,
+                                referer = directUrl
+                            ).forEach(callback)
+                            linksFound++
+                        } catch (e: Exception) {
+                            com.lagradost.api.Log.e("Movierulzhd", "Failed to extract m3u8: ${e.message}")
+                        }
+                    }
+                }
+                
+                // Look for mp4/mkv URLs
+                if (scriptData.contains(".mp4") || scriptData.contains(".mkv")) {
+                    val videoRegex = """(https?://[^\s"']+\.(mp4|mkv)[^\s"']*)""".toRegex()
+                    videoRegex.findAll(scriptData).forEach { match ->
+                        val videoUrl = match.groupValues[1]
+                        try {
+                            callback.invoke(
+                                com.lagradost.cloudstream3.utils.newExtractorLink(
+                                    "Embedded",
+                                    "Embedded",
+                                    videoUrl
+                                ) {
+                                    this.referer = directUrl
+                                }
+                            )
+                            linksFound++
+                        } catch (e: Exception) {
+                            com.lagradost.api.Log.e("Movierulzhd", "Failed to add video link: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
+            return linksFound > 0
+        } catch (e: Exception) {
+            com.lagradost.api.Log.e("Movierulzhd", "loadLinks error: ${e.message}")
+            return false
+        }
     }
 }

@@ -6,10 +6,17 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 @CloudstreamPlugin
 class MovierulzhdPlugin: BasePlugin() {
     override fun load() {
-        // All providers should be added in this manner. Please don't edit the providers list directly.
+        // Register main provider
         registerMainAPI(Movierulzhd())
         
-        // Register extractors
-        registerExtractorAPI(CherryExtractor())
+        // Register all video hosting extractors
+        registerExtractorAPI(GDMirrorbot())
+        registerExtractorAPI(VidstackExtractor())
+        registerExtractorAPI(VidhideExtractor())
+        registerExtractorAPI(StreamTapeExtractor())
+        registerExtractorAPI(FilemoonExtractor())
+        registerExtractorAPI(DoodstreamExtractor())
+        registerExtractorAPI(StreamWishExtractor())
+        registerExtractorAPI(MultiHostExtractor())
     }
 }
