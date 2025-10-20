@@ -274,11 +274,18 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        com.lagradost.api.Log.d("Movierulzhd", "========== LOADLINKS START ==========")
+        com.lagradost.api.Log.d("Movierulzhd", "Data: $data")
+        
         try {
             val document = if (data.startsWith("http")) {
+                com.lagradost.api.Log.d("Movierulzhd", "Direct URL mode")
                 app.get(data).document
             } else {
+                com.lagradost.api.Log.d("Movierulzhd", "AJAX mode - parsing LinkData")
                 val linkData = AppUtils.parseJson<LinkData>(data)
+                com.lagradost.api.Log.d("Movierulzhd", "LinkData parsed: post=${linkData.post}, nume=${linkData.nume}, type=${linkData.type}")
+                
                 val body = FormBody.Builder()
                     .addEncoded("action", "doo_player_ajax")
                     .addEncoded("post", linkData.post)
@@ -291,6 +298,8 @@ open class Movierulzhd : MainAPI() {
                     requestBody = body,
                     referer = linkData.url
                 ).parsed<ResponseHash>()
+                
+                com.lagradost.api.Log.d("Movierulzhd", "Got embed URL: ${postResponse.embed_url}")
 
                 app.get(
                     postResponse.embed_url,
@@ -299,6 +308,7 @@ open class Movierulzhd : MainAPI() {
             }
 
             var linksFound = 0
+            com.lagradost.api.Log.d("Movierulzhd", "Document loaded, searching for iframes...")
 
             // Extract iframe sources
             document.select("iframe").forEach { iframe ->
@@ -319,11 +329,20 @@ open class Movierulzhd : MainAPI() {
                     try {
                         com.lagradost.api.Log.d("Movierulzhd", "Found iframe: $iframeSrc")
                         
-                        // Check if it's a Cherry URL (cherry.upns.online)
+                        // Try CherryExtractor first for cherry.upns.online URLs
                         if (iframeSrc.contains("cherry.upns.online", ignoreCase = true)) {
-                            com.lagradost.api.Log.d("Movierulzhd", "Cherry URL detected, using CherryExtractor")
-                            CherryExtractor().getUrl(iframeSrc, directUrl, subtitleCallback, callback)
-                            linksFound++
+                            com.lagradost.api.Log.d("Movierulzhd", "Cherry URL detected")
+                            try {
+                                CherryExtractor().getUrl(iframeSrc, directUrl, subtitleCallback, callback)
+                                linksFound++
+                            } catch (e: Exception) {
+                                com.lagradost.api.Log.e("Movierulzhd", "CherryExtractor failed, trying loadExtractor")
+                                // Fallback to standard loadExtractor
+                                val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+                                if (extracted) {
+                                    linksFound++
+                                }
+                            }
                         } else {
                             // Try standard loadExtractor for other domains
                             val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
@@ -403,10 +422,15 @@ open class Movierulzhd : MainAPI() {
                 }
             }
 
+            com.lagradost.api.Log.d("Movierulzhd", "========== LOADLINKS END ==========")
             com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
+            com.lagradost.api.Log.d("Movierulzhd", "Returning: ${linksFound > 0}")
+            
             return linksFound > 0
         } catch (e: Exception) {
+            com.lagradost.api.Log.e("Movierulzhd", "========== LOADLINKS FAILED ==========")
             com.lagradost.api.Log.e("Movierulzhd", "loadLinks error: ${e.message}")
+            e.printStackTrace()
             return false
         }
     }
