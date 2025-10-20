@@ -9,14 +9,8 @@ class MovierulzhdPlugin: BasePlugin() {
         // Register main provider
         registerMainAPI(Movierulzhd())
         
-        // Register all video hosting extractors
-        registerExtractorAPI(GDMirrorbot())
-        registerExtractorAPI(VidstackExtractor())
-        registerExtractorAPI(VidhideExtractor())
-        registerExtractorAPI(StreamTapeExtractor())
-        registerExtractorAPI(FilemoonExtractor())
-        registerExtractorAPI(DoodstreamExtractor())
-        registerExtractorAPI(StreamWishExtractor())
-        registerExtractorAPI(MultiHostExtractor())
+        // Register Cherry extractor (cherry.upns.online)
+        // This is the ONLY video hoster used by Movierulzhd
+        registerExtractorAPI(CherryExtractor())
     }
 }
