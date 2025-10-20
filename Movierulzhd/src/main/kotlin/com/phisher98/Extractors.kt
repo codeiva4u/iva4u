@@ -17,8 +17,14 @@ open class CherryExtractor : ExtractorApi() {
 
     data class VideoSource(
         @JsonProperty("src") val src: String?,
+        @JsonProperty("file") val file: String?,
         @JsonProperty("type") val type: String?,
-        @JsonProperty("quality") val quality: String?
+        @JsonProperty("quality") val quality: String?,
+        @JsonProperty("label") val label: String?
+    )
+    
+    data class SourceResponse(
+        @JsonProperty("data") val data: List<VideoSource>?
     )
 
     override suspend fun getUrl(
@@ -73,17 +79,31 @@ open class CherryExtractor : ExtractorApi() {
                     )
                 )
                 
-                Log.d("CherryExtractor", "API Response: ${apiResponse.text}")
+                val responseText = apiResponse.text
+                Log.d("CherryExtractor", "API Response: $responseText")
                 
-                // Parse JSON and extract sources
-                val sources = AppUtils.parseJson<List<VideoSource>>(apiResponse.text)
+                // Try to parse as array or object
+                val sources = try {
+                    AppUtils.parseJson<List<VideoSource>>(responseText)
+                } catch (e: Exception) {
+                    try {
+                        val wrapper = AppUtils.parseJson<SourceResponse>(responseText)
+                        wrapper.data ?: emptyList()
+                    } catch (e2: Exception) {
+                        Log.e("CherryExtractor", "Failed to parse API response: ${e2.message}")
+                        emptyList()
+                    }
+                }
+                
                 sources.forEach { source ->
-                    source.src?.let { videoUrl ->
-                        Log.d("CherryExtractor", "Found API source: $videoUrl (${source.quality})")
+                    val videoUrl = source.src ?: source.file
+                    videoUrl?.let {
+                        val quality = source.quality ?: source.label ?: "Unknown"
+                        Log.d("CherryExtractor", "Found API source: $videoUrl ($quality)")
                         
                         if (videoUrl.contains(".m3u8")) {
                             M3u8Helper.generateM3u8(
-                                source = "$name ${source.quality ?: ""}",
+                                source = "$name $quality",
                                 streamUrl = videoUrl,
                                 referer = url,
                                 headers = mapOf("Origin" to mainUrl)
@@ -91,8 +111,8 @@ open class CherryExtractor : ExtractorApi() {
                         } else {
                             callback.invoke(
                                 newExtractorLink(
-                                    source = "$name ${source.quality ?: ""}",
-                                    name = "$name ${source.quality ?: ""}",
+                                    source = "$name $quality",
+                                    name = "$name $quality",
                                     url = videoUrl
                                 ) {
                                     this.referer = url

@@ -189,7 +189,7 @@ open class Movierulzhd : MainAPI() {
 				if (check) {
 				    document.select("ul#playeroptionsul > li")
 				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-				        .drop(1).map {
+				        .drop(1).mapIndexed { index, it ->
 				        val name = it.selectFirst("span.title")?.text()
 				        val type = it.attr("data-type")
 				        val post = it.attr("data-post")
@@ -197,12 +197,14 @@ open class Movierulzhd : MainAPI() {
                         newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
                         {
                             this.name=name
+                            this.episode = index + 1
+                            this.season = 1
                         }
 				    }
 				} else {
 				    document.select("ul#playeroptionsul > li")
 				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-				        .map {
+				        .mapIndexed { index, it ->
 				        val name = it.selectFirst("span.title")?.text()
 				        val type = it.attr("data-type")
 				        val post = it.attr("data-post")
@@ -210,6 +212,8 @@ open class Movierulzhd : MainAPI() {
                         newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
                         {
                             this.name=name
+                            this.episode = index + 1
+                            this.season = 1
                         }
 				    }
 				}
@@ -276,11 +280,16 @@ open class Movierulzhd : MainAPI() {
     ): Boolean {
         com.lagradost.api.Log.d("Movierulzhd", "========== LOADLINKS START ==========")
         com.lagradost.api.Log.d("Movierulzhd", "Data: $data")
+        com.lagradost.api.Log.d("Movierulzhd", "directUrl: $directUrl")
         
         try {
             val document = if (data.startsWith("http")) {
                 com.lagradost.api.Log.d("Movierulzhd", "Direct URL mode")
-                app.get(data).document
+                val response = app.get(data)
+                if (directUrl.isEmpty()) {
+                    directUrl = getBaseUrl(response.url)
+                }
+                response.document
             } else {
                 com.lagradost.api.Log.d("Movierulzhd", "AJAX mode - parsing LinkData")
                 val linkData = AppUtils.parseJson<LinkData>(data)
@@ -293,16 +302,38 @@ open class Movierulzhd : MainAPI() {
                     .addEncoded("type", linkData.type)
                     .build()
 
-                val postResponse = app.post(
-                    url = "${linkData.url}/wp-admin/admin-ajax.php",
-                    requestBody = body,
-                    referer = linkData.url
-                ).parsed<ResponseHash>()
+                val ajaxUrl = "${linkData.url}/wp-admin/admin-ajax.php"
+                com.lagradost.api.Log.d("Movierulzhd", "Making POST to: $ajaxUrl")
                 
+                val ajaxResponse = app.post(
+                    url = ajaxUrl,
+                    requestBody = body,
+                    referer = linkData.url,
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Accept" to "application/json, text/javascript, */*; q=0.01",
+                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
+                    )
+                )
+                
+                com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
+                val postResponse = ajaxResponse.parsed<ResponseHash>()
                 com.lagradost.api.Log.d("Movierulzhd", "Got embed URL: ${postResponse.embed_url}")
 
+                val embedUrl = if (!postResponse.embed_url.startsWith("http")) {
+                    if (postResponse.embed_url.startsWith("//")) {
+                        "https:${postResponse.embed_url}"
+                    } else {
+                        "${linkData.url}${postResponse.embed_url}"
+                    }
+                } else {
+                    postResponse.embed_url
+                }
+                
+                com.lagradost.api.Log.d("Movierulzhd", "Fixed embed URL: $embedUrl")
+
                 app.get(
-                    postResponse.embed_url,
+                    embedUrl,
                     referer = linkData.url
                 ).document
             }
