@@ -348,15 +348,13 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Check if it's a Cherry video hoster
-        when {
-            url.contains("cherry.upns.online") -> {
-                CherryExtractor().getUrl(url, referer, subtitleCallback, callback)
-            }
-            else -> {
-                // Try built-in CloudStream extractors for other hosters
-                loadExtractor(url, referer, subtitleCallback, callback)
-            }
+        // Skip Cherry links as they use protected streams that don't work in CloudStream
+        if (url.contains("cherry.upns.online")) {
+            // Cherry uses custom protected video delivery - skip it
+            return
         }
+        
+        // Use built-in CloudStream extractors for all other video hosters
+        loadExtractor(url, referer, subtitleCallback, callback)
     }
 }
