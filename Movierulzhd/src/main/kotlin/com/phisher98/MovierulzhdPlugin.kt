@@ -9,7 +9,6 @@ class MovierulzhdPlugin: BasePlugin() {
         // Register main provider
         registerMainAPI(Movierulzhd())
         
-        // Register extractors
-        registerExtractorAPI(CherryExtractor())
+        // No custom extractors - using CloudStream's built-in extractors
     }
 }

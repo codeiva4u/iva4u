@@ -340,17 +340,14 @@ open class Movierulzhd : MainAPI() {
                         
                         com.lagradost.api.Log.d("Movierulzhd", "Processing embed URL: $embedUrl")
                         
-                        // Try Cherry extractor first
-                        if (embedUrl.contains("cherry.upns.online")) {
-                            com.lagradost.api.Log.d("Movierulzhd", "Using CherryExtractor for $embedUrl")
-                            CherryExtractor().getUrl(embedUrl, directUrl, subtitleCallback, callback)
+                        // Use standard loadExtractor for all domains
+                        // CloudStream3 has built-in support for many video hosts
+                        val extracted = loadExtractor(embedUrl, directUrl, subtitleCallback, callback)
+                        if (extracted) {
                             linksFound++
+                            com.lagradost.api.Log.d("Movierulzhd", "Successfully extracted from: $embedUrl")
                         } else {
-                            // Try standard loadExtractor
-                            val extracted = loadExtractor(embedUrl, directUrl, subtitleCallback, callback)
-                            if (extracted) {
-                                linksFound++
-                            }
+                            com.lagradost.api.Log.w("Movierulzhd", "No extractor found for: $embedUrl")
                         }
                     } catch (e: Exception) {
                         com.lagradost.api.Log.e("Movierulzhd", "Failed to process player option: ${e.message}")
@@ -406,17 +403,13 @@ open class Movierulzhd : MainAPI() {
 
             var linksFound = 0
             
-            // Try Cherry extractor first
-            if (embedUrl.contains("cherry.upns.online")) {
-                com.lagradost.api.Log.d("Movierulzhd", "Using CherryExtractor for $embedUrl")
-                CherryExtractor().getUrl(embedUrl, linkData.url, subtitleCallback, callback)
+            // Use standard loadExtractor
+            val extracted = loadExtractor(embedUrl, linkData.url, subtitleCallback, callback)
+            if (extracted) {
                 linksFound++
+                com.lagradost.api.Log.d("Movierulzhd", "Successfully extracted from: $embedUrl")
             } else {
-                // Try standard loadExtractor
-                val extracted = loadExtractor(embedUrl, linkData.url, subtitleCallback, callback)
-                if (extracted) {
-                    linksFound++
-                }
+                com.lagradost.api.Log.w("Movierulzhd", "No extractor found for: $embedUrl")
             }
             
             com.lagradost.api.Log.d("Movierulzhd", "========== EPISODE LOADLINKS END ==========")
