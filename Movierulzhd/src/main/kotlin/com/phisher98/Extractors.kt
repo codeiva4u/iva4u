@@ -10,7 +10,7 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 class CherryExtractor : ExtractorApi() {
     override val name = "Cherry"
     override val mainUrl = "https://cherry.upns.online"
-    override val requiresReferer = false
+    override val requiresReferer = true
 
     override suspend fun getUrl(
         url: String,
@@ -23,35 +23,19 @@ class CherryExtractor : ExtractorApi() {
         val videoId = url.substringAfter("#")
         if (videoId.isEmpty() || videoId == url) return
         
-        // API endpoint: https://cherry.upns.online/api/v1/video?id={videoId}&w=1440&h=900&r=
-        val apiUrl = "$mainUrl/api/v1/video?id=$videoId&w=1440&h=900&r="
+        // API endpoint returns actual video file
+        // The API endpoint itself IS the video source
+        val videoUrl = "$mainUrl/api/v1/video?id=$videoId"
         
-        try {
-            val response = app.get(apiUrl, referer = referer ?: url)
-            val videoUrl = response.url // Follow redirects to get actual video URL
-            
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    name,
-                    videoUrl
-                ) {
-                    this.referer = referer ?: mainUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
-        } catch (e: Exception) {
-            // Fallback: if API call fails, try direct API URL
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    name,
-                    apiUrl
-                ) {
-                    this.referer = referer ?: mainUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
-        }
+        callback.invoke(
+            newExtractorLink(
+                name,
+                name,
+                videoUrl
+            ) {
+                this.referer = url  // Use original iframe URL as referer
+                this.quality = Qualities.Unknown.value
+            }
+        )
     }
 }
