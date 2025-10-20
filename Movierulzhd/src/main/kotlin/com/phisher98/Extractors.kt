@@ -3,11 +3,8 @@ package com.phisher98
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.network.WebViewResolver
-import com.lagradost.cloudstream3.utils.ExtractorApi
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.M3u8Helper
-import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.*
+import org.jsoup.nodes.Document
 
 /**
  * CherryExtractor - Movierulzhd की primary video hosting service
@@ -15,12 +12,12 @@ import com.lagradost.cloudstream3.utils.Qualities
  * Host: cherry.upns.online
  * Technology: Vidstack Player v16.5.3
  * 
- * Implementation Strategy:
- *   1. Enhanced WebView with better video URL detection
- *   2. Network request monitoring to capture video URLs
- *   3. Support for HLS (m3u8), DASH (mpd), and direct video (mp4/mkv)
- *   4. Ad layer bypass with proper user-agent and headers
- *   5. Multiple regex patterns for robust URL extraction
+ * New Implementation Strategy (Without WebView):
+ *   1. Direct HTTP request to Cherry page
+ *   2. Extract video ID from URL hash
+ *   3. Parse JavaScript modules and embedded data
+ *   4. Extract video sources from Vidstack player configuration
+ *   5. Support for HLS (m3u8) and direct video (mp4/mkv)
  */
 open class CherryExtractor : ExtractorApi() {
     override val name = "Cherry"
@@ -36,218 +33,221 @@ open class CherryExtractor : ExtractorApi() {
         try {
             Log.d("CherryExtractor", "Starting extraction from: $url")
             
-            // Enhanced headers for better compatibility
-            val customHeaders = mapOf(
-                "Accept" to "*/*",
+            // Extract video ID from URL (e.g., "lopb3d" from "https://cherry.upns.online/#lopb3d")
+            val videoId = url.substringAfter("#").substringBefore("&")
+            Log.d("CherryExtractor", "Video ID: $videoId")
+            
+            // Custom headers
+            val headers = mapOf(
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language" to "en-US,en;q=0.5",
                 "Origin" to mainUrl,
                 "Referer" to (referer ?: mainUrl),
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent" to "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             )
             
-            // Approach 1: Enhanced WebView with multiple video format detection
-            val response = app.get(
-                url = url,
-                referer = referer ?: mainUrl,
-                headers = customHeaders,
-                interceptor = WebViewResolver(
-                    // Enhanced regex for better video URL detection
-                    Regex("""(https?://[^\s"'<>{}\[\]]+\.(m3u8|mp4|mkv|ts|mpd)[^\s"'<>{}\[\]]*)""")
-                )
-            )
-            
-            val capturedUrl = response.url
-            Log.d("CherryExtractor", "WebView captured URL: $capturedUrl")
-            
-            // Check if WebView captured a video URL
-            if (capturedUrl.contains(".m3u8") || 
-                capturedUrl.contains(".mpd") ||
-                capturedUrl.contains(".mp4") || 
-                capturedUrl.contains(".mkv") ||
-                capturedUrl.contains(".ts")) {
-                
-                Log.d("CherryExtractor", "Direct video URL captured: $capturedUrl")
-                
-                when {
-                    capturedUrl.contains(".m3u8") -> {
-                        M3u8Helper.generateM3u8(
-                            source = name,
-                            streamUrl = capturedUrl,
-                            referer = url,
-                            headers = customHeaders
-                        ).forEach(callback)
-                    }
-                    capturedUrl.contains(".mpd") -> {
-                        // DASH stream support
-                        callback.invoke(
-                            com.lagradost.cloudstream3.utils.newExtractorLink(
-                                source = name,
-                                name = "$name DASH",
-                                url = capturedUrl
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                    else -> {
-                        callback.invoke(
-                            com.lagradost.cloudstream3.utils.newExtractorLink(
-                                source = name,
-                                name = name,
-                                url = capturedUrl
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                }
-                return
-            }
-            
-            // Approach 2: Parse page HTML and JavaScript with enhanced patterns
-            Log.d("CherryExtractor", "WebView didn't capture video, trying HTML parsing")
+            // Fetch the page
+            val response = app.get(url, headers = headers)
             val document = response.document
+            val pageHtml = response.text
             
-            // Pattern 1: Look in script tags for video URLs with enhanced patterns
-            document.select("script").forEach { script ->
-                val scriptData = script.data()
-                
-                // Skip ad-related scripts
-                if (scriptData.contains("girlieturtle") || scriptData.contains("managerX")) {
-                    return@forEach
-                }
-                
-                // Enhanced URL patterns for better detection
-                val patterns = listOf(
-                    // Pattern 1: Standard video URLs (m3u8, mp4, mkv, mpd, ts)
-                    """(https?://[^\s"'<>{}\[\]]+\.(m3u8|mp4|mkv|mpd|ts)[^\s"'<>{}\[\]]*)["\'\s<>]""".toRegex(),
-                    // Pattern 2: Escaped URLs in JavaScript
-                    """["']([^"']*\.(m3u8|mp4|mkv|mpd|ts)[^"']*)["']""".toRegex(),
-                    // Pattern 3: URL constructor patterns
-                    """url[:\s]*["']([^"']+)["']""".toRegex(),
-                    // Pattern 4: Source/src patterns
-                    """(?:source|src)[:\s]*["']([^"']+\.(m3u8|mp4|mkv|mpd|ts)[^"']*)["']""".toRegex(),
-                    // Pattern 5: Vidstack player specific
-                    """(?:streamUrl|videoUrl|file)[:\s]*["']([^"']+)["']""".toRegex(),
-                    // Pattern 6: HLS/DASH manifest patterns
-                    """(?:manifest|playlist)[:\s]*["']([^"']+\.(m3u8|mpd)[^"']*)["']""".toRegex()
-                )
-                
-                patterns.forEach { pattern ->
-                    pattern.findAll(scriptData).forEach { match ->
-                        val videoUrl = match.groupValues[1]
-                            .replace("\\\\", "|")    // Replace escaped backslashes temporarily
-                            .replace("\\/", "/")       // Fix escaped forward slashes
-                            .replace("|", "\\")        // Restore backslashes
-                            .trim()
-                        
-                        // Validate URL - enhanced to support more formats
-                        if (videoUrl.startsWith("http") && 
-                            (videoUrl.contains(".m3u8") || 
-                             videoUrl.contains(".mpd") ||
-                             videoUrl.contains(".mp4") || 
-                             videoUrl.contains(".mkv") ||
-                             videoUrl.contains(".ts"))) {
-                            
-                            Log.d("CherryExtractor", "Found video URL in script: $videoUrl")
-                            
-                            try {
-                                when {
-                                    videoUrl.contains(".m3u8") -> {
-                                        M3u8Helper.generateM3u8(
-                                            source = name,
-                                            streamUrl = videoUrl,
-                                            referer = url,
-                                            headers = customHeaders
-                                        ).forEach(callback)
-                                    }
-                                    videoUrl.contains(".mpd") -> {
-                                        // DASH stream
-                                        callback.invoke(
-                                            com.lagradost.cloudstream3.utils.newExtractorLink(
-                                                source = name,
-                                                name = "$name DASH",
-                                                url = videoUrl
-                                            ) {
-                                                this.referer = url
-                                                this.quality = Qualities.Unknown.value
-                                            }
-                                        )
-                                    }
-                                    else -> {
-                                        // Direct video (mp4, mkv, ts)
-                                        callback.invoke(
-                                            com.lagradost.cloudstream3.utils.newExtractorLink(
-                                                source = name,
-                                                name = name,
-                                                url = videoUrl
-                                            ) {
-                                                this.referer = url
-                                                this.quality = Qualities.Unknown.value
-                                            }
-                                        )
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e("CherryExtractor", "Error processing URL $videoUrl: ${e.message}")
-                            }
-                        }
-                    }
-                }
+            Log.d("CherryExtractor", "Page loaded, parsing content...")
+            
+            // Try multiple extraction methods
+            var foundLinks = false
+            
+            // Method 1: Extract from JavaScript modules
+            foundLinks = extractFromModules(pageHtml, videoId, url, headers, callback) || foundLinks
+            
+            // Method 2: Extract from inline scripts  
+            foundLinks = extractFromScripts(document, url, headers, callback) || foundLinks
+            
+            // Method 3: Try API endpoint (if video ID is available)
+            if (!foundLinks && videoId.isNotEmpty()) {
+                foundLinks = tryApiEndpoint(videoId, url, headers, callback) || foundLinks
             }
             
-            // Pattern 2: Check video/source elements with enhanced format support
-            document.select("video source, video").forEach { element ->
-                val src = element.attr("src").takeIf { it.isNotEmpty() }
-                if (src != null && (src.contains(".m3u8") || src.contains(".mpd") || src.contains(".mp4"))) {
-                    Log.d("CherryExtractor", "Found video in HTML element: $src")
-                    
-                    try {
-                        when {
-                            src.contains(".m3u8") -> {
-                                M3u8Helper.generateM3u8(
-                                    source = name,
-                                    streamUrl = src,
-                                    referer = url,
-                                    headers = customHeaders
-                                ).forEach(callback)
-                            }
-                            src.contains(".mpd") -> {
-                                callback.invoke(
-                                    com.lagradost.cloudstream3.utils.newExtractorLink(
-                                        source = name,
-                                        name = "$name DASH",
-                                        url = src
-                                    ) {
-                                        this.referer = url
-                                        this.quality = Qualities.Unknown.value
-                                    }
-                                )
-                            }
-                            else -> {
-                                callback.invoke(
-                                    com.lagradost.cloudstream3.utils.newExtractorLink(
-                                        source = name,
-                                        name = name,
-                                        url = src
-                                    ) {
-                                        this.referer = url
-                                        this.quality = Qualities.Unknown.value
-                                    }
-                                )
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("CherryExtractor", "Error processing element src: ${e.message}")
-                    }
-                }
+            if (!foundLinks) {
+                Log.e("CherryExtractor", "No video links found after all extraction attempts")
+            } else {
+                Log.d("CherryExtractor", "Successfully extracted video links")
             }
-            
-            Log.d("CherryExtractor", "Extraction completed")
             
         } catch (e: Exception) {
             Log.e("CherryExtractor", "Fatal extraction error: ${e.message}")
+            e.printStackTrace()
         }
+    }
+    
+    // Method 1: Extract from JavaScript modules
+    private suspend fun extractFromModules(
+        pageHtml: String,
+        videoId: String,
+        referer: String,
+        headers: Map<String, String>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        try {
+            // Look for module imports that might contain video data
+            val modulePattern = """src=["'](/assets/[^"']+\.js)["']""".toRegex()
+            val matches = modulePattern.findAll(pageHtml)
+            
+            for (match in matches) {
+                val modulePath = match.groupValues[1]
+                if (modulePath.isNotEmpty()) {
+                    val moduleUrl = "$mainUrl$modulePath"
+                    Log.d("CherryExtractor", "Checking module: $moduleUrl")
+                    
+                    try {
+                        val moduleContent = app.get(moduleUrl, headers = headers).text
+                        if (extractVideoUrlsFromScript(moduleContent, referer, callback)) {
+                            return true
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CherryExtractor", "Failed to fetch module: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CherryExtractor", "Module extraction error: ${e.message}")
+        }
+        return false
+    }
+    
+    // Method 2: Extract from inline scripts
+    private suspend fun extractFromScripts(
+        document: Document,
+        referer: String,
+        headers: Map<String, String>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        var found = false
+        
+        document.select("script").forEach { script ->
+            val scriptData = script.data()
+            
+            // Skip ad scripts
+            if (scriptData.contains("girlieturtle") || scriptData.contains("managerX")) {
+                return@forEach
+            }
+            
+            if (extractVideoUrlsFromScript(scriptData, referer, callback)) {
+                found = true
+            }
+        }
+        
+        return found
+    }
+    
+    // Method 3: Try API endpoint
+    private suspend fun tryApiEndpoint(
+        videoId: String,
+        referer: String,
+        headers: Map<String, String>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        try {
+            // Try common API patterns
+            val apiUrls = listOf(
+                "$mainUrl/api/source/$videoId",
+                "$mainUrl/api/video/$videoId",
+                "$mainUrl/source/$videoId",
+                "$mainUrl/get/$videoId"
+            )
+            
+            for (apiUrl in apiUrls) {
+                try {
+                    Log.d("CherryExtractor", "Trying API: $apiUrl")
+                    val response = app.get(apiUrl, headers = headers)
+                    
+                    if (response.code < 400) {
+                        val data = response.text
+                        if (extractVideoUrlsFromScript(data, referer, callback)) {
+                            return true
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continue to next API URL
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CherryExtractor", "API extraction error: ${e.message}")
+        }
+        return false
+    }
+    
+    // Common method to extract video URLs from any script content
+    private suspend fun extractVideoUrlsFromScript(
+        scriptData: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        var found = false
+        
+        // Enhanced regex patterns for video URLs
+        val patterns = listOf(
+            // Pattern 1: Standard video URLs
+            """(https?://[^\s"'<>{}\[\]]+\.(m3u8|mp4|mkv|ts)[^\s"'<>{}\[\]]*)["\'\s<>]""".toRegex(),
+            // Pattern 2: Quoted URLs
+            """["']([^"']*\.(m3u8|mp4|mkv|ts)[^"']*)["']""".toRegex(),
+            // Pattern 3: Source/src/url patterns
+            """(?:src|source|url|file)[:\s=]+["']([^"']+\.(m3u8|mp4|mkv|ts)[^"']*)["']""".toRegex(),
+            // Pattern 4: Vidstack specific patterns
+            """(?:streamUrl|videoUrl)["']?[:\s=]+["']([^"']+)["']""".toRegex()
+        )
+        
+        for (pattern in patterns) {
+            pattern.findAll(scriptData).forEach { match ->
+                var videoUrl = match.groupValues[1]
+                    .replace("\\\\", "/")
+                    .replace("\\/", "/")
+                    .trim()
+                
+                // Clean up the URL
+                if (videoUrl.startsWith("//")) {
+                    videoUrl = "https:$videoUrl"
+                }
+                
+                // Validate and add the URL
+                if (videoUrl.startsWith("http") && 
+                    (videoUrl.contains(".m3u8") || 
+                     videoUrl.contains(".mp4") || 
+                     videoUrl.contains(".mkv") ||
+                     videoUrl.contains(".ts"))) {
+                    
+                    Log.d("CherryExtractor", "Found video URL: $videoUrl")
+                    
+                    try {
+                        when {
+                            videoUrl.contains(".m3u8") -> {
+                                M3u8Helper.generateM3u8(
+                                    source = name,
+                                    streamUrl = videoUrl,
+                                    referer = referer
+                                ).forEach(callback)
+                                found = true
+                            }
+                            else -> {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        source = name,
+                                        name = name,
+                                        url = videoUrl
+                                    ) {
+                                        this.referer = referer
+                                        this.quality = Qualities.Unknown.value
+                                    }
+                                )
+                                found = true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CherryExtractor", "Error adding video URL: ${e.message}")
+                    }
+                }
+            }
+        }
+        
+        return found
     }
 }
