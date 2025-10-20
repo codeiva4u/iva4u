@@ -317,10 +317,19 @@ open class Movierulzhd : MainAPI() {
                 
                 if (iframeSrc.isNotEmpty()) {
                     try {
-                        com.lagradost.api.Log.d("Movierulzhd", "Extracting from: $iframeSrc")
-                        val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
-                        if (extracted) {
+                        com.lagradost.api.Log.d("Movierulzhd", "Found iframe: $iframeSrc")
+                        
+                        // Check if it's a Cherry URL (cherry.upns.online)
+                        if (iframeSrc.contains("cherry.upns.online", ignoreCase = true)) {
+                            com.lagradost.api.Log.d("Movierulzhd", "Cherry URL detected, using CherryExtractor")
+                            CherryExtractor().getUrl(iframeSrc, directUrl, subtitleCallback, callback)
                             linksFound++
+                        } else {
+                            // Try standard loadExtractor for other domains
+                            val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+                            if (extracted) {
+                                linksFound++
+                            }
                         }
                     } catch (e: Exception) {
                         com.lagradost.api.Log.e("Movierulzhd", "Failed to extract from $iframeSrc: ${e.message}")
