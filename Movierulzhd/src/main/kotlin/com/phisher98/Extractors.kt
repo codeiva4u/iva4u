@@ -2,11 +2,13 @@ package com.phisher98
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.network.WebViewResolver
-import com.lagradost.cloudstream3.utils.*
-import okhttp3.FormBody
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.JsUnpacker
+import com.lagradost.cloudstream3.utils.Qualities
 import org.json.JSONObject
 import java.net.URI
 import javax.crypto.Cipher
@@ -79,8 +81,13 @@ class CherryExtractor : ExtractorApi() {
                     for (iv in ivs) {
                         try {
                             val decrypted = CherryAesHelper.decryptAES(encoded, key, iv)
-                            val m3u8Regex = Regex(""""source":"(.*?)"""").find(decrypted)
-                            val m3u8 = m3u8Regex?.groupValues?.get(1)?.replace("\\/", "/")
+                            // Try JSON parsing first
+                            val m3u8 = try {
+                                JSONObject(decrypted).getString("source")
+                            } catch (e: Exception) {
+                                // Fallback to regex if JSON parsing fails
+                                Regex(""""source"\s*:\s*"([^"]+)"""").find(decrypted)?.groupValues?.get(1)
+                            }
                             
                             if (!m3u8.isNullOrBlank() && (m3u8.contains("m3u8") || m3u8.contains("http"))) {
                                 Log.d("Cherry", "AES decryption successful: $m3u8")
@@ -139,8 +146,9 @@ class CherryExtractor : ExtractorApi() {
             // Method 3: Try iframe HTML and JavaScript parsing
             try {
                 Log.d("Cherry", "Method 3: Trying iframe HTML/JS extraction...")
-                val iframeHtml = app.get(url, headers = headers).text
-                val iframeDoc = app.get(url, headers = headers).document
+                val iframeResponse = app.get(url, headers = headers)
+                val iframeHtml = iframeResponse.text
+                val iframeDoc = iframeResponse.document
                 
                 // Try extracting from video/source tags
                 val videoSrc = iframeDoc.select("source[src*=m3u8]").attr("src").ifBlank {
@@ -182,7 +190,7 @@ class CherryExtractor : ExtractorApi() {
                 }
                 
                 // Try unpacking obfuscated JavaScript (eval/p/a/c/k/e/d)
-                val packedRegex = Regex("""eval\\(function\\(p,a,c,k,e,d\\)""")
+                val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)""")
                 if (packedRegex.containsMatchIn(iframeHtml)) {
                     Log.d("Cherry", "Found packed JavaScript, unpacking...")
                     try {
