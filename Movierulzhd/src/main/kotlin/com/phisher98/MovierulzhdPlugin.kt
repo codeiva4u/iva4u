@@ -8,5 +8,8 @@ class MovierulzhdPlugin: BasePlugin() {
     override fun load() {
         // Register main provider
         registerMainAPI(Movierulzhd())
+        
+        // Register extractors
+        registerExtractorAPI(CherryExtractor())
     }
 }
