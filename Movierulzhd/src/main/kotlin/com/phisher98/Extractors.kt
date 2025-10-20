@@ -2,13 +2,12 @@ package com.phisher98
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.network.WebViewResolver
-import com.lagradost.cloudstream3.utils.ExtractorApi
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.*
+import okhttp3.FormBody
+import org.json.JSONObject
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -46,20 +45,31 @@ class CherryExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
+            Log.d("Cherry", "Starting extraction for URL: $url")
+            
             // Extract video ID from URL fragment
             val videoId = url.substringAfter("#").substringBefore("&")
-            if (videoId.isEmpty() || videoId == url) return
+            if (videoId.isEmpty() || videoId == url) {
+                Log.e("Cherry", "Invalid video ID from URL")
+                return
+            }
             
+            Log.d("Cherry", "Extracted video ID: $videoId")
             val baseUrl = getBaseUrl(url)
             val headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
-                "Referer" to url
+                "Referer" to url,
+                "Accept" to "*/*",
+                "Origin" to baseUrl
             )
             
             // Method 1: Try AES decryption (like VidStack)
             try {
+                Log.d("Cherry", "Method 1: Trying AES decryption...")
                 val apiUrl = "$baseUrl/api/v1/video?id=$videoId"
+                Log.d("Cherry", "API URL: $apiUrl")
                 val encoded = app.get(apiUrl, headers = headers).text.trim()
+                Log.d("Cherry", "Encoded response length: ${encoded.length}")
                 
                 // Try multiple key/IV combinations
                 val keys = listOf("kiemtienmua911ca", "cherry123456789")
@@ -98,12 +108,12 @@ class CherryExtractor : ExtractorApi() {
             
             // Method 2: Try WebView extraction (like VidHide)
             try {
-                Log.d("Cherry", "Trying WebView extraction")
+                Log.d("Cherry", "Method 2: Trying WebView extraction...")
                 val response = app.get(
                     url,
                     referer = referer ?: mainUrl,
                     interceptor = WebViewResolver(
-                        Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8)""")
+                        Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
                     )
                 )
                 
@@ -121,13 +131,18 @@ class CherryExtractor : ExtractorApi() {
                     )
                     return
                 }
+                Log.d("Cherry", "WebView did not capture M3U8 URL")
             } catch (e: Exception) {
                 Log.e("Cherry", "WebView extraction failed: ${e.message}")
             }
             
-            // Method 3: Try iframe HTML parsing
+            // Method 3: Try iframe HTML and JavaScript parsing
             try {
+                Log.d("Cherry", "Method 3: Trying iframe HTML/JS extraction...")
+                val iframeHtml = app.get(url, headers = headers).text
                 val iframeDoc = app.get(url, headers = headers).document
+                
+                // Try extracting from video/source tags
                 val videoSrc = iframeDoc.select("source[src*=m3u8]").attr("src").ifBlank {
                     iframeDoc.select("video source").firstOrNull()?.attr("src")
                 }
@@ -146,12 +161,60 @@ class CherryExtractor : ExtractorApi() {
                     )
                     return
                 }
+                
+                // Try extracting from JavaScript
+                val m3u8Regex = Regex("""(https?://[^"'\\s]+\.m3u8[^"'\\s]*)""")
+                val jsMatch = m3u8Regex.find(iframeHtml)
+                if (jsMatch != null) {
+                    val m3u8Url = jsMatch.groupValues[1]
+                    Log.d("Cherry", "JavaScript extraction successful: $m3u8Url")
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name [JS]",
+                            url = m3u8Url,
+                            referer = url,
+                            quality = Qualities.P720.value,
+                            type = ExtractorLinkType.M3U8
+                        )
+                    )
+                    return
+                }
+                
+                // Try unpacking obfuscated JavaScript (eval/p/a/c/k/e/d)
+                val packedRegex = Regex("""eval\\(function\\(p,a,c,k,e,d\\)""")
+                if (packedRegex.containsMatchIn(iframeHtml)) {
+                    Log.d("Cherry", "Found packed JavaScript, unpacking...")
+                    try {
+                        val unpacked = JsUnpacker(iframeHtml).unpack()
+                        val unpackedMatch = m3u8Regex.find(unpacked ?: "")
+                        if (unpackedMatch != null) {
+                            val m3u8Url = unpackedMatch.groupValues[1]
+                            Log.d("Cherry", "Unpacked JS extraction successful: $m3u8Url")
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = name,
+                                    name = "$name [Unpacked]",
+                                    url = m3u8Url,
+                                    referer = url,
+                                    quality = Qualities.P720.value,
+                                    type = ExtractorLinkType.M3U8
+                                )
+                            )
+                            return
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Cherry", "JS unpacking failed: ${e.message}")
+                    }
+                }
+                
+                Log.d("Cherry", "No M3U8 found in iframe HTML or JS")
             } catch (e: Exception) {
-                Log.e("Cherry", "Iframe parsing failed: ${e.message}")
+                Log.e("Cherry", "Iframe/JS parsing failed: ${e.message}")
             }
             
             // If all else fails, log error
-            Log.e("Cherry", "Unable to extract playable M3U8 from Cherry - all methods failed")
+            Log.e("Cherry", "Unable to extract playable M3U8 from Cherry - all 3 methods failed")
             
         } catch (e: Exception) {
             Log.e("Cherry", "All extraction methods failed: ${e.message}")
