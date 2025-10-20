@@ -278,148 +278,82 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        com.lagradost.api.Log.d("Movierulzhd", "========== LOADLINKS START ==========")
-        com.lagradost.api.Log.d("Movierulzhd", "Data: $data")
-        com.lagradost.api.Log.d("Movierulzhd", "directUrl: $directUrl")
         
-        try {
-            // Check if this is a direct movie URL (not JSON data)
-            if (data.startsWith("http")) {
-                com.lagradost.api.Log.d("Movierulzhd", "Movie URL mode - extracting player options")
-                val response = app.get(data)
-                directUrl = getBaseUrl(response.url)
-                val document = response.document
-                
-                // Extract all player options from the page
-                val playerOptions = document.select("ul#playeroptionsul > li")
-                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                
-                com.lagradost.api.Log.d("Movierulzhd", "Found ${playerOptions.size} player options")
-                
-                var linksFound = 0
-                playerOptions.forEach { option ->
-                    try {
-                        val type = option.attr("data-type")
-                        val post = option.attr("data-post")
-                        val nume = option.attr("data-nume")
-                        val name = option.selectFirst("span.title")?.text() ?: "Unknown"
-                        
-                        com.lagradost.api.Log.d("Movierulzhd", "Processing option: $name (post=$post, nume=$nume, type=$type)")
-                        
-                        val body = FormBody.Builder()
-                            .addEncoded("action", "doo_player_ajax")
-                            .addEncoded("post", post)
-                            .addEncoded("nume", nume)
-                            .addEncoded("type", type)
-                            .build()
-
-                        val ajaxUrl = "$directUrl/wp-admin/admin-ajax.php"
-                        val ajaxResponse = app.post(
-                            url = ajaxUrl,
-                            requestBody = body,
-                            referer = directUrl,
-                            headers = mapOf(
-                                "X-Requested-With" to "XMLHttpRequest",
-                                "Accept" to "application/json, text/javascript, */*; q=0.01",
-                                "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
-                            )
-                        )
-                        
-                        com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
-                        val postResponse = ajaxResponse.parsed<ResponseHash>()
-                        var embedUrl = postResponse.embed_url
-                        
-                        // Fix relative URLs
-                        if (!embedUrl.startsWith("http")) {
-                            embedUrl = when {
-                                embedUrl.startsWith("//") -> "https:$embedUrl"
-                                embedUrl.startsWith("/") -> "$directUrl$embedUrl"
-                                else -> "$directUrl/$embedUrl"
-                            }
-                        }
-                        
-                        com.lagradost.api.Log.d("Movierulzhd", "Processing embed URL: $embedUrl")
-                        
-                        // Use standard loadExtractor for all domains
-                        // CloudStream3 has built-in support for many video hosts
-                        val extracted = loadExtractor(embedUrl, directUrl, subtitleCallback, callback)
-                        if (extracted) {
-                            linksFound++
-                            com.lagradost.api.Log.d("Movierulzhd", "Successfully extracted from: $embedUrl")
-                        } else {
-                            com.lagradost.api.Log.w("Movierulzhd", "No extractor found for: $embedUrl")
-                        }
-                    } catch (e: Exception) {
-                        com.lagradost.api.Log.e("Movierulzhd", "Failed to process player option: ${e.message}")
+        // Check if data is a URL or LinkData JSON
+        val isUrl = data.startsWith("http")
+        
+        if (isUrl) {
+            // For movies, data is direct URL
+            val document = app.get(data).document
+            
+            // Extract player options
+            document.select("ul#playeroptionsul > li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .forEach { element ->
+                    val type = element.attr("data-type")
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    
+                    // Get iframe URL from player API
+                    val iframeUrl = getIframeUrl(type, post, nume)
+                    if (!iframeUrl.isNullOrEmpty()) {
+                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                     }
                 }
-                
-                com.lagradost.api.Log.d("Movierulzhd", "========== MOVIE LOADLINKS END ==========")
-                com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
-                return linksFound > 0
+        } else {
+            // For episodes, data is LinkData JSON
+            try {
+                val linkData = AppUtils.parseJson<LinkData>(data)
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            
-            // JSON data mode (for TV series episodes)
-            com.lagradost.api.Log.d("Movierulzhd", "Episode/Series mode - parsing LinkData")
-            val linkData = AppUtils.parseJson<LinkData>(data)
-            directUrl = linkData.url
-            com.lagradost.api.Log.d("Movierulzhd", "LinkData parsed: post=${linkData.post}, nume=${linkData.nume}, type=${linkData.type}")
-            
-            val body = FormBody.Builder()
+        }
+        
+        return true
+    }
+    
+    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
+        return try {
+            // Call player API
+            val requestBody = FormBody.Builder()
                 .addEncoded("action", "doo_player_ajax")
-                .addEncoded("post", linkData.post)
-                .addEncoded("nume", linkData.nume)
-                .addEncoded("type", linkData.type)
+                .addEncoded("post", post)
+                .addEncoded("nume", nume)
+                .addEncoded("type", type)
                 .build()
-
-            val ajaxUrl = "${linkData.url}/wp-admin/admin-ajax.php"
-            com.lagradost.api.Log.d("Movierulzhd", "Making POST to: $ajaxUrl")
             
-            val ajaxResponse = app.post(
-                url = ajaxUrl,
-                requestBody = body,
-                referer = linkData.url,
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = requestBody,
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
-                    "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
+                    "Referer" to mainUrl
                 )
-            )
+            ).parsedSafe<ResponseHash>()
             
-            com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
-            val postResponse = ajaxResponse.parsed<ResponseHash>()
-            var embedUrl = postResponse.embed_url
-            
-            // Fix relative URLs
-            if (!embedUrl.startsWith("http")) {
-                embedUrl = when {
-                    embedUrl.startsWith("//") -> "https:$embedUrl"
-                    embedUrl.startsWith("/") -> "${linkData.url}$embedUrl"
-                    else -> "${linkData.url}/$embedUrl"
-                }
-            }
-            
-            com.lagradost.api.Log.d("Movierulzhd", "Processing embed URL: $embedUrl")
-
-            var linksFound = 0
-            
-            // Use standard loadExtractor
-            val extracted = loadExtractor(embedUrl, linkData.url, subtitleCallback, callback)
-            if (extracted) {
-                linksFound++
-                com.lagradost.api.Log.d("Movierulzhd", "Successfully extracted from: $embedUrl")
-            } else {
-                com.lagradost.api.Log.w("Movierulzhd", "No extractor found for: $embedUrl")
-            }
-            
-            com.lagradost.api.Log.d("Movierulzhd", "========== EPISODE LOADLINKS END ==========")
-            com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
-            return linksFound > 0
+            response?.embed_url
         } catch (e: Exception) {
-            com.lagradost.api.Log.e("Movierulzhd", "========== LOADLINKS FAILED ==========")
-            com.lagradost.api.Log.e("Movierulzhd", "loadLinks error: ${e.message}")
             e.printStackTrace()
-            return false
+            null
+        }
+    }
+    
+    private suspend fun loadExtractorLink(
+        url: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // Check if it's a Cherry video hoster
+        if (url.contains("cherry.upns.online")) {
+            CherryExtractor().getUrl(url, referer, subtitleCallback, callback)
+        } else {
+            // Try built-in extractors
+            loadExtractor(url, referer, subtitleCallback, callback)
         }
     }
 }
