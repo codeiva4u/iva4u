@@ -9,6 +9,8 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
 import javax.crypto.Cipher
@@ -92,14 +94,15 @@ class CherryExtractor : ExtractorApi() {
                             if (!m3u8.isNullOrBlank() && (m3u8.contains("m3u8") || m3u8.contains("http"))) {
                                 Log.d("Cherry", "AES decryption successful: $m3u8")
                                 callback.invoke(
-                                    ExtractorLink(
-                                        source = name,
-                                        name = "$name [Decrypted]",
-                                        url = m3u8,
-                                        referer = url,
-                                        quality = Qualities.P1080.value,
-                                        type = ExtractorLinkType.M3U8
-                                    )
+                                    newExtractorLink(
+                                        name,
+                                        "$name [Decrypted]",
+                                        m3u8,
+                                        ExtractorLinkType.M3U8
+                                    ) {
+                                        this.referer = url
+                                        this.quality = Qualities.P1080.value
+                                    }
                                 )
                                 return
                             }
@@ -127,14 +130,15 @@ class CherryExtractor : ExtractorApi() {
                 if (response.url.contains("m3u8")) {
                     Log.d("Cherry", "WebView extraction successful: ${response.url}")
                     callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "$name [WebView]",
-                            url = response.url,
-                            referer = url,
-                            quality = Qualities.P1080.value,
-                            type = ExtractorLinkType.M3U8
-                        )
+                        newExtractorLink(
+                            name,
+                            "$name [WebView]",
+                            response.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
                     )
                     return
                 }
@@ -158,14 +162,15 @@ class CherryExtractor : ExtractorApi() {
                 if (!videoSrc.isNullOrBlank() && videoSrc.contains("m3u8")) {
                     Log.d("Cherry", "iframe HTML extraction successful: $videoSrc")
                     callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "$name [Iframe]",
-                            url = videoSrc,
-                            referer = url,
-                            quality = Qualities.P720.value,
-                            type = ExtractorLinkType.M3U8
-                        )
+                        newExtractorLink(
+                            name,
+                            "$name [Iframe]",
+                            videoSrc,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P720.value
+                        }
                     )
                     return
                 }
@@ -177,14 +182,15 @@ class CherryExtractor : ExtractorApi() {
                     val m3u8Url = jsMatch.groupValues[1]
                     Log.d("Cherry", "JavaScript extraction successful: $m3u8Url")
                     callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "$name [JS]",
-                            url = m3u8Url,
-                            referer = url,
-                            quality = Qualities.P720.value,
-                            type = ExtractorLinkType.M3U8
-                        )
+                        newExtractorLink(
+                            name,
+                            "$name [JS]",
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P720.value
+                        }
                     )
                     return
                 }
@@ -200,14 +206,15 @@ class CherryExtractor : ExtractorApi() {
                             val m3u8Url = unpackedMatch.groupValues[1]
                             Log.d("Cherry", "Unpacked JS extraction successful: $m3u8Url")
                             callback.invoke(
-                                ExtractorLink(
-                                    source = name,
-                                    name = "$name [Unpacked]",
-                                    url = m3u8Url,
-                                    referer = url,
-                                    quality = Qualities.P720.value,
-                                    type = ExtractorLinkType.M3U8
-                                )
+                                newExtractorLink(
+                                    name,
+                                    "$name [Unpacked]",
+                                    m3u8Url,
+                                    ExtractorLinkType.M3U8
+                                ) {
+                                    this.referer = url
+                                    this.quality = Qualities.P720.value
+                                }
                             )
                             return
                         }
