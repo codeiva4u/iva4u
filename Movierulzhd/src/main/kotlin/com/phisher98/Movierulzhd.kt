@@ -348,9 +348,9 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Skip Cherry links as they use protected streams that don't work in CloudStream
+        // For Cherry, try custom extraction
         if (url.contains("cherry.upns.online")) {
-            // Cherry uses custom protected video delivery - skip it
+            CherryExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         

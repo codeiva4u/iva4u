@@ -22,53 +22,21 @@ class CherryExtractor : ExtractorApi() {
     ) {
         // Extract video ID from URL fragment
         // URL format: https://cherry.upns.online/#{videoId}
-        val videoId = url.substringAfter("#")
+        val videoId = url.substringAfter("#").substringBefore("&")
         if (videoId.isEmpty() || videoId == url) return
         
-        try {
-            // Fetch the iframe page HTML
-            val document = app.get(url).document
-            
-            // Try to find video/source elements in the player
-            val videoSrc = document.select("video source").attr("src")
-            if (videoSrc.isNotBlank()) {
-                val fullUrl = if (videoSrc.startsWith("http")) videoSrc else "$mainUrl$videoSrc"
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        fullUrl,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-                return
+        // Use download parameter which might provide direct video file
+        val downloadUrl = "$url&dl=1"
+        
+        callback.invoke(
+            newExtractorLink(
+                name,
+                "$name [Download]",
+                downloadUrl
+            ) {
+                this.referer = url
+                this.quality = Qualities.Unknown.value
             }
-            
-            // Fallback: Try API endpoint with proper stream type
-            // Cherry uses custom video delivery, mark as M3U8 for better compatibility
-            val apiUrl = "$mainUrl/api/v1/video?id=$videoId"
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    name,
-                    apiUrl,
-                    ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
-                    this.headers = mapOf(
-                        "Accept" to "*/*",
-                        "Accept-Language" to "en-US,en;q=0.9",
-                        "Sec-Fetch-Dest" to "video",
-                        "Sec-Fetch-Mode" to "no-cors"
-                    )
-                }
-            )
-        } catch (e: Exception) {
-            // If everything fails, return nothing
-        }
+        )
     }
 }
