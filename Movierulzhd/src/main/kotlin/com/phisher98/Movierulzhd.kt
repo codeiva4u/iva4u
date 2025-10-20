@@ -283,171 +283,144 @@ open class Movierulzhd : MainAPI() {
         com.lagradost.api.Log.d("Movierulzhd", "directUrl: $directUrl")
         
         try {
-            val document = if (data.startsWith("http")) {
-                com.lagradost.api.Log.d("Movierulzhd", "Direct URL mode")
+            // Check if this is a direct movie URL (not JSON data)
+            if (data.startsWith("http")) {
+                com.lagradost.api.Log.d("Movierulzhd", "Movie URL mode - extracting player options")
                 val response = app.get(data)
-                if (directUrl.isEmpty()) {
-                    directUrl = getBaseUrl(response.url)
-                }
-                response.document
-            } else {
-                com.lagradost.api.Log.d("Movierulzhd", "AJAX mode - parsing LinkData")
-                val linkData = AppUtils.parseJson<LinkData>(data)
-                com.lagradost.api.Log.d("Movierulzhd", "LinkData parsed: post=${linkData.post}, nume=${linkData.nume}, type=${linkData.type}")
+                directUrl = getBaseUrl(response.url)
+                val document = response.document
                 
-                val body = FormBody.Builder()
-                    .addEncoded("action", "doo_player_ajax")
-                    .addEncoded("post", linkData.post)
-                    .addEncoded("nume", linkData.nume)
-                    .addEncoded("type", linkData.type)
-                    .build()
-
-                val ajaxUrl = "${linkData.url}/wp-admin/admin-ajax.php"
-                com.lagradost.api.Log.d("Movierulzhd", "Making POST to: $ajaxUrl")
+                // Extract all player options from the page
+                val playerOptions = document.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
                 
-                val ajaxResponse = app.post(
-                    url = ajaxUrl,
-                    requestBody = body,
-                    referer = linkData.url,
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Accept" to "application/json, text/javascript, */*; q=0.01",
-                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
-                    )
-                )
+                com.lagradost.api.Log.d("Movierulzhd", "Found ${playerOptions.size} player options")
                 
-                com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
-                val postResponse = ajaxResponse.parsed<ResponseHash>()
-                com.lagradost.api.Log.d("Movierulzhd", "Got embed URL: ${postResponse.embed_url}")
-
-                val embedUrl = if (!postResponse.embed_url.startsWith("http")) {
-                    if (postResponse.embed_url.startsWith("//")) {
-                        "https:${postResponse.embed_url}"
-                    } else {
-                        "${linkData.url}${postResponse.embed_url}"
-                    }
-                } else {
-                    postResponse.embed_url
-                }
-                
-                com.lagradost.api.Log.d("Movierulzhd", "Fixed embed URL: $embedUrl")
-
-                app.get(
-                    embedUrl,
-                    referer = linkData.url
-                ).document
-            }
-
-            var linksFound = 0
-            com.lagradost.api.Log.d("Movierulzhd", "Document loaded, searching for iframes...")
-
-            // Extract iframe sources
-            document.select("iframe").forEach { iframe ->
-                var iframeSrc = iframe.attr("src")
-                
-                // Handle relative URLs
-                if (iframeSrc.isNotEmpty() && !iframeSrc.startsWith("http")) {
-                    iframeSrc = if (iframeSrc.startsWith("//")) {
-                        "https:$iframeSrc"
-                    } else if (iframeSrc.startsWith("/")) {
-                        "$directUrl$iframeSrc"
-                    } else {
-                        "$directUrl/$iframeSrc"
-                    }
-                }
-                
-                if (iframeSrc.isNotEmpty()) {
+                var linksFound = 0
+                playerOptions.forEach { option ->
                     try {
-                        com.lagradost.api.Log.d("Movierulzhd", "Found iframe: $iframeSrc")
+                        val type = option.attr("data-type")
+                        val post = option.attr("data-post")
+                        val nume = option.attr("data-nume")
+                        val name = option.selectFirst("span.title")?.text() ?: "Unknown"
                         
-                        // Try Cherry extractor first for cherry.upns.online
-                        if (iframeSrc.contains("cherry.upns.online")) {
-                            com.lagradost.api.Log.d("Movierulzhd", "Using CherryExtractor")
-                            CherryExtractor().getUrl(iframeSrc, directUrl, subtitleCallback, callback)
+                        com.lagradost.api.Log.d("Movierulzhd", "Processing option: $name (post=$post, nume=$nume, type=$type)")
+                        
+                        val body = FormBody.Builder()
+                            .addEncoded("action", "doo_player_ajax")
+                            .addEncoded("post", post)
+                            .addEncoded("nume", nume)
+                            .addEncoded("type", type)
+                            .build()
+
+                        val ajaxUrl = "$directUrl/wp-admin/admin-ajax.php"
+                        val ajaxResponse = app.post(
+                            url = ajaxUrl,
+                            requestBody = body,
+                            referer = directUrl,
+                            headers = mapOf(
+                                "X-Requested-With" to "XMLHttpRequest",
+                                "Accept" to "application/json, text/javascript, */*; q=0.01",
+                                "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
+                            )
+                        )
+                        
+                        com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
+                        val postResponse = ajaxResponse.parsed<ResponseHash>()
+                        var embedUrl = postResponse.embed_url
+                        
+                        // Fix relative URLs
+                        if (!embedUrl.startsWith("http")) {
+                            embedUrl = when {
+                                embedUrl.startsWith("//") -> "https:$embedUrl"
+                                embedUrl.startsWith("/") -> "$directUrl$embedUrl"
+                                else -> "$directUrl/$embedUrl"
+                            }
+                        }
+                        
+                        com.lagradost.api.Log.d("Movierulzhd", "Processing embed URL: $embedUrl")
+                        
+                        // Try Cherry extractor first
+                        if (embedUrl.contains("cherry.upns.online")) {
+                            com.lagradost.api.Log.d("Movierulzhd", "Using CherryExtractor for $embedUrl")
+                            CherryExtractor().getUrl(embedUrl, directUrl, subtitleCallback, callback)
                             linksFound++
                         } else {
-                            // Try standard loadExtractor for other domains
-                            val extracted = loadExtractor(iframeSrc, directUrl, subtitleCallback, callback)
+                            // Try standard loadExtractor
+                            val extracted = loadExtractor(embedUrl, directUrl, subtitleCallback, callback)
                             if (extracted) {
                                 linksFound++
                             }
                         }
                     } catch (e: Exception) {
-                        com.lagradost.api.Log.e("Movierulzhd", "Failed to extract from $iframeSrc: ${e.message}")
-                    }
-                }
-            }
-
-            // Also check for direct video links in source tags
-            document.select("source").forEach { source ->
-                val videoSrc = source.attr("src")
-                if (videoSrc.isNotEmpty() && (videoSrc.contains(".m3u8") || videoSrc.contains(".mp4") || videoSrc.contains(".mkv"))) {
-                    try {
-                        callback.invoke(
-                            com.lagradost.cloudstream3.utils.newExtractorLink(
-                                "Direct",
-                                "Direct",
-                                videoSrc
-                            ) {
-                                this.referer = directUrl
-                            }
-                        )
-                        linksFound++
-                    } catch (e: Exception) {
-                        com.lagradost.api.Log.e("Movierulzhd", "Failed to add direct link: ${e.message}")
-                    }
-                }
-            }
-
-            // Check for video URLs in script tags
-            document.select("script").forEach { script ->
-                val scriptData = script.data()
-                
-                // Look for m3u8 URLs
-                if (scriptData.contains(".m3u8")) {
-                    val m3u8Regex = """(https?://[^\s"']+\.m3u8[^\s"']*)""".toRegex()
-                    m3u8Regex.findAll(scriptData).forEach { match ->
-                        val m3u8Url = match.groupValues[1]
-                        try {
-                            com.lagradost.cloudstream3.utils.M3u8Helper.generateM3u8(
-                                source = "Embedded",
-                                streamUrl = m3u8Url,
-                                referer = directUrl
-                            ).forEach(callback)
-                            linksFound++
-                        } catch (e: Exception) {
-                            com.lagradost.api.Log.e("Movierulzhd", "Failed to extract m3u8: ${e.message}")
-                        }
+                        com.lagradost.api.Log.e("Movierulzhd", "Failed to process player option: ${e.message}")
                     }
                 }
                 
-                // Look for mp4/mkv URLs
-                if (scriptData.contains(".mp4") || scriptData.contains(".mkv")) {
-                    val videoRegex = """(https?://[^\s"']+\.(mp4|mkv)[^\s"']*)""".toRegex()
-                    videoRegex.findAll(scriptData).forEach { match ->
-                        val videoUrl = match.groupValues[1]
-                        try {
-                            callback.invoke(
-                                com.lagradost.cloudstream3.utils.newExtractorLink(
-                                    "Embedded",
-                                    "Embedded",
-                                    videoUrl
-                                ) {
-                                    this.referer = directUrl
-                                }
-                            )
-                            linksFound++
-                        } catch (e: Exception) {
-                            com.lagradost.api.Log.e("Movierulzhd", "Failed to add video link: ${e.message}")
-                        }
-                    }
-                }
+                com.lagradost.api.Log.d("Movierulzhd", "========== MOVIE LOADLINKS END ==========")
+                com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
+                return linksFound > 0
             }
-
-            com.lagradost.api.Log.d("Movierulzhd", "========== LOADLINKS END ==========")
-            com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
-            com.lagradost.api.Log.d("Movierulzhd", "Returning: ${linksFound > 0}")
             
+            // JSON data mode (for TV series episodes)
+            com.lagradost.api.Log.d("Movierulzhd", "Episode/Series mode - parsing LinkData")
+            val linkData = AppUtils.parseJson<LinkData>(data)
+            directUrl = linkData.url
+            com.lagradost.api.Log.d("Movierulzhd", "LinkData parsed: post=${linkData.post}, nume=${linkData.nume}, type=${linkData.type}")
+            
+            val body = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", linkData.post)
+                .addEncoded("nume", linkData.nume)
+                .addEncoded("type", linkData.type)
+                .build()
+
+            val ajaxUrl = "${linkData.url}/wp-admin/admin-ajax.php"
+            com.lagradost.api.Log.d("Movierulzhd", "Making POST to: $ajaxUrl")
+            
+            val ajaxResponse = app.post(
+                url = ajaxUrl,
+                requestBody = body,
+                referer = linkData.url,
+                headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
+                )
+            )
+            
+            com.lagradost.api.Log.d("Movierulzhd", "AJAX Response: ${ajaxResponse.text}")
+            val postResponse = ajaxResponse.parsed<ResponseHash>()
+            var embedUrl = postResponse.embed_url
+            
+            // Fix relative URLs
+            if (!embedUrl.startsWith("http")) {
+                embedUrl = when {
+                    embedUrl.startsWith("//") -> "https:$embedUrl"
+                    embedUrl.startsWith("/") -> "${linkData.url}$embedUrl"
+                    else -> "${linkData.url}/$embedUrl"
+                }
+            }
+            
+            com.lagradost.api.Log.d("Movierulzhd", "Processing embed URL: $embedUrl")
+
+            var linksFound = 0
+            
+            // Try Cherry extractor first
+            if (embedUrl.contains("cherry.upns.online")) {
+                com.lagradost.api.Log.d("Movierulzhd", "Using CherryExtractor for $embedUrl")
+                CherryExtractor().getUrl(embedUrl, linkData.url, subtitleCallback, callback)
+                linksFound++
+            } else {
+                // Try standard loadExtractor
+                val extracted = loadExtractor(embedUrl, linkData.url, subtitleCallback, callback)
+                if (extracted) {
+                    linksFound++
+                }
+            }
+            
+            com.lagradost.api.Log.d("Movierulzhd", "========== EPISODE LOADLINKS END ==========")
+            com.lagradost.api.Log.d("Movierulzhd", "Total links found: $linksFound")
             return linksFound > 0
         } catch (e: Exception) {
             com.lagradost.api.Log.e("Movierulzhd", "========== LOADLINKS FAILED ==========")
