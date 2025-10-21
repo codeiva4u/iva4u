@@ -348,8 +348,14 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // For Cherry, try custom extraction
-        if (url.contains("cherry.upns.online")) {
+        // Cherry - Multiple domains support
+        val cherryDomains = listOf(
+            "cherry.upns.online",
+            //"cherry2.upns.online",  // Backup domain
+            //"cherry.upns.net"       // Alternative domain
+        )
+        
+        if (cherryDomains.any { url.contains(it, ignoreCase = true) }) {
             CherryExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
