@@ -10,12 +10,12 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-
 open class GDMirrorbot : ExtractorApi() {
     override var name = "GDMirrorbot"
     override var mainUrl = "https://gdmirrorbot.nl"
@@ -87,8 +87,8 @@ open class GDMirrorbot : ExtractorApi() {
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
                 when (friendlyName) {
-                    "StreamHG","EarnVids" -> VidhideIva().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    "RpmShare", "UpnShare", "StreamP2p" -> VidStackIva().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "StreamHG", "EarnVids", "SMWH", "FLLS" -> VidhideIva().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "RpmShare", "UpnShare", "StreamP2p", "RPMSHRE", "UPNSHR", "STRMP2" -> VidStackIva().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> Log.d("Phisher", "Unknown source: $friendlyName - $fullUrl (skipped)")
                 }
             } catch (e: Exception) {

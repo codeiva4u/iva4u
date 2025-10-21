@@ -33,7 +33,7 @@ import okhttp3.FormBody
 import org.jsoup.nodes.Element
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl: String = "https://multimovies.sale"
+    override var mainUrl: String = "https://multimovies.cheap"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
@@ -268,25 +268,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 when {
                     !link.contains("youtube") -> {
                         when {
-                            link.contains("gdmirrorbot") -> {
+                            // GDMirrorbot और techinmind - primary gateway
+                            link.contains("gdmirrorbot") || link.contains("stream.techinmind.space") -> {
                                 GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
                             }
-                            link.contains("vidhide") || link.contains("streamhg") || link.contains("smoothpre") -> {
+                            // Vidhide family - StreamHG, SmoothPre, EarnVids
+                            link.contains("vidhide") || link.contains("streamhg") || 
+                            link.contains("smoothpre") || link.contains("earnvids") ||
+                            link.contains("multimoviesshg") -> {
                                 VidhideIva().getUrl(link, mainUrl, subtitleCallback, callback)
                             }
-                            link.contains("vidstack") || link.contains("rpmhub") || link.contains("p2pplay") || link.contains("uns.bio") -> {
+                            // Vidstack family - RpmShare, StreamP2p, UpnShare
+                            link.contains("vidstack") || link.contains("rpmhub") || 
+                            link.contains("p2pplay") || link.contains("uns.bio") ||
+                            link.contains("rpmshare") || link.contains("streamp2p") || 
+                            link.contains("upnshare") -> {
                                 VidStackIva().getUrl(link, mainUrl, subtitleCallback, callback)
                             }
-                            link.contains("stream.techinmind.space") -> {
-                                GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
+                            // DeadDrive - multiple servers
                             link.contains("deaddrive.xyz") -> {
                                 app.get(link).document.select("ul.list-server-items > li").map {
                                     val server = it.attr("data-video")
                                     when {
-                                        server.contains("vidhide") || server.contains("streamhg") -> 
+                                        server.contains("vidhide") || server.contains("streamhg") || 
+                                        server.contains("smoothpre") || server.contains("earnvids") -> 
                                             VidhideIva().getUrl(server, mainUrl, subtitleCallback, callback)
-                                        server.contains("vidstack") || server.contains("rpmshare") || server.contains("streamp2p") || server.contains("upnshare") -> 
+                                        server.contains("vidstack") || server.contains("rpmshare") || 
+                                        server.contains("streamp2p") || server.contains("upnshare") ||
+                                        server.contains("rpmhub") || server.contains("p2pplay") || 
+                                        server.contains("uns.bio") -> 
                                             VidStackIva().getUrl(server, mainUrl, subtitleCallback, callback)
                                     }
                                 }
