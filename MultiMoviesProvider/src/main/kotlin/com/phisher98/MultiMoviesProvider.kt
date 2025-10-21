@@ -28,6 +28,7 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
@@ -265,46 +266,32 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).parsed<ResponseHash>().embed_url
                 val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        when {
-                            // GDMirrorbot और techinmind - primary gateway
-                            link.contains("gdmirrorbot") || link.contains("stream.techinmind.space") -> {
-                                GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
-                            // Vidhide family - StreamHG, SmoothPre, EarnVids
-                            link.contains("vidhide") || link.contains("streamhg") || 
-                            link.contains("smoothpre") || link.contains("earnvids") ||
-                            link.contains("multimoviesshg") -> {
-                                VidhideIva().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
-                            // Vidstack family - RpmShare, StreamP2p, UpnShare
-                            link.contains("vidstack") || link.contains("rpmhub") || 
-                            link.contains("p2pplay") || link.contains("uns.bio") ||
-                            link.contains("rpmshare") || link.contains("streamp2p") || 
-                            link.contains("upnshare") -> {
-                                VidStackIva().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
-                            // DeadDrive - multiple servers
-                            link.contains("deaddrive.xyz") -> {
-                                app.get(link).document.select("ul.list-server-items > li").map {
-                                    val server = it.attr("data-video")
-                                    when {
-                                        server.contains("vidhide") || server.contains("streamhg") || 
-                                        server.contains("smoothpre") || server.contains("earnvids") -> 
-                                            VidhideIva().getUrl(server, mainUrl, subtitleCallback, callback)
-                                        server.contains("vidstack") || server.contains("rpmshare") || 
-                                        server.contains("streamp2p") || server.contains("upnshare") ||
-                                        server.contains("rpmhub") || server.contains("p2pplay") || 
-                                        server.contains("uns.bio") -> 
-                                            VidStackIva().getUrl(server, mainUrl, subtitleCallback, callback)
-                                    }
-                                }
-                            }
+                // Skip YouTube trailers
+                if (link.contains("youtube")) return@amap
+                
+                // ✨ Special handling for GDMirrorbot gateway (multiple domains)
+                if (link.contains("gdmirrorbot") || link.contains("stream.techinmind.space")) {
+                    GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
+                    return@amap
+                }
+                
+                // DeadDrive - multiple servers
+                if (link.contains("deaddrive.xyz")) {
+                    app.get(link).document.select("ul.list-server-items > li").amap {
+                        val server = it.attr("data-video")
+                        if (server.isNotBlank() && !server.contains("youtube")) {
+                            loadExtractor(server, mainUrl, subtitleCallback, callback)
                         }
                     }
-                    else -> return@amap
+                    return@amap
                 }
+                
+                // ✨ Automatic Detection for all other extractors
+                // Extractor.kt me registered extractors automatically kaam karenge:
+                // - VidStackIva (RpmShare, StreamP2p, UpnShare)
+                // - VidhideIva (StreamHG, EarnVids, SmoothPre)
+                // - CloudStream built-in extractors
+                loadExtractor(link, mainUrl, subtitleCallback, callback)
             }
         }
         return true
