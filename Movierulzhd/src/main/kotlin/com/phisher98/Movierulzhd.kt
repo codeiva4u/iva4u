@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -148,7 +149,7 @@ open class Movierulzhd : MainAPI() {
         val trailer = document.selectFirst("div.embed iframe")?.attr("src")
         val ratingText = document.selectFirst("span.dt_rating_vgs")?.text()
         val score = try { 
-            ratingText?.toDoubleOrNull()?.times(10.0)?.toInt() 
+            ratingText?.toDoubleOrNull()?.let { Score.from10(it) }
         } catch (e: Exception) { 
             null 
         }
@@ -228,7 +229,7 @@ open class Movierulzhd : MainAPI() {
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.score = score?.toDouble()
+                this.score = score
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)
@@ -240,7 +241,7 @@ open class Movierulzhd : MainAPI() {
                 this.backgroundPosterUrl= background
                 this.plot = description
                 this.tags = tags
-                this.score = score?.toDouble()
+                this.score = score
                 addActors(actors)
                 this.recommendations = recommendations
                 addTrailer(trailer)

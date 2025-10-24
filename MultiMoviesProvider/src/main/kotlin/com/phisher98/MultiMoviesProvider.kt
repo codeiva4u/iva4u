@@ -30,7 +30,6 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 
