@@ -9,16 +9,197 @@ import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.FixQuality
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.getAndUnpack
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-open class GDMirrorbot : ExtractorApi() {
-    override var name = "GDMirrorbot"
+// StreamHG Extractor
+open class StreamHG : ExtractorApi() {
+    override var name = "StreamHG"
+    override var mainUrl = "https://multimoviesshg.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val doc = response.document
+            
+            // Extract m3u8 URL from page scripts
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StreamHG", "Error: ${e.message}")
+        }
+    }
+}
+
+// StreamP2P Extractor
+open class StreamP2P : ExtractorApi() {
+    override var name = "StreamP2P"
+    override var mainUrl = "https://multimovies.p2pplay.pro"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val embedUrl = url.replace("/#", "/e/")
+            val response = app.get(embedUrl, referer = referer)
+            val doc = response.document
+            
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StreamP2P", "Error: ${e.message}")
+        }
+    }
+}
+
+// RpmShare Extractor
+open class RpmShare : ExtractorApi() {
+    override var name = "RpmShare"
+    override var mainUrl = "https://multimovies.rpmhub.site"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val embedUrl = url.replace("/#", "/e/")
+            val response = app.get(embedUrl, referer = referer)
+            val doc = response.document
+            
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("RpmShare", "Error: ${e.message}")
+        }
+    }
+}
+
+// UpnShare Extractor
+open class UpnShare : ExtractorApi() {
+    override var name = "UpnShare"
+    override var mainUrl = "https://server1.uns.bio"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val embedUrl = url.replace("/#", "/e/")
+            val response = app.get(embedUrl, referer = referer)
+            val doc = response.document
+            
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("UpnShare", "Error: ${e.message}")
+        }
+    }
+}
+
+// EarnVids (SmoothPre) Extractor
+open class EarnVids : ExtractorApi() {
+    override var name = "EarnVids"
+    override var mainUrl = "https://smoothpre.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val doc = response.document
+            
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("EarnVids", "Error: ${e.message}")
+        }
+    }
+}
+
+// GDMirrorBot Extractor
+open class GDMirrorBot : ExtractorApi() {
+    override var name = "GDMirrorBot"
     override var mainUrl = "https://gdmirrorbot.nl"
     override val requiresReferer = true
 
@@ -28,84 +209,50 @@ open class GDMirrorbot : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val (sid, host) = if (!url.contains("key=")) {
-            Pair(url.substringAfterLast("embed/"), getBaseUrl(app.get(url).url))
-        } else {
-            var pageText = app.get(url).text
-            val finalId = Regex("""FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            val myKey = Regex("""myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            val idType = Regex("""idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
-            val baseUrl = Regex("""let\s+baseUrl\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            val hostUrl = baseUrl?.let { getBaseUrl(it) }
-
-            if (finalId != null && myKey != null) {
-                val apiUrl = "$mainUrl/mymovieapi?$idType=$finalId&key=$myKey"
-                pageText = app.get(apiUrl).text
-            }
-
-            val jsonElement = JsonParser.parseString(pageText)
-            if (!jsonElement.isJsonObject) return
-            val jsonObject = jsonElement.asJsonObject
-
-            val embedId = url.substringAfterLast("/")
-            val sidValue = jsonObject["data"]?.asJsonArray
-                ?.takeIf { it.size() > 0 }
-                ?.get(0)?.asJsonObject
-                ?.get("fileslug")?.asString
-                ?.takeIf { it.isNotBlank() } ?: embedId
-
-            Pair(sidValue, hostUrl)
-        }
-
-        val postData = mapOf("sid" to sid)
-        val responseText = app.post("$host/embedhelper.php", data = postData).text
-
-        val rootElement = JsonParser.parseString(responseText)
-        if (!rootElement.isJsonObject) return
-        val root = rootElement.asJsonObject
-
-        val siteUrls = root["siteUrls"]?.asJsonObject ?: return
-        val siteFriendlyNames = root["siteFriendlyNames"]?.asJsonObject
-
-        val decodedMresult = when {
-            root["mresult"]?.isJsonObject == true -> root["mresult"]!!.asJsonObject
-            root["mresult"]?.isJsonPrimitive == true -> try {
-                base64Decode(root["mresult"]!!.asString)
-                    .let { JsonParser.parseString(it).asJsonObject }
-            } catch (e: Exception) {
-                Log.e("Phisher", "Failed to decode mresult: $e")
-                return
-            }
-            else -> return
-        }
-
-        siteUrls.keySet().intersect(decodedMresult.keySet()).forEach { key ->
-            val base = siteUrls[key]?.asString?.trimEnd('/') ?: return@forEach
-            val path = decodedMresult[key]?.asString?.trimStart('/') ?: return@forEach
-            val fullUrl = "$base/$path"
-            val friendlyName = siteFriendlyNames?.get(key)?.asString ?: key
-
-            try {
-                Log.d("Phisher","$friendlyName $fullUrl")
-                when (friendlyName) {
-                    "StreamHG", "EarnVids", "SMWH", "FLLS" -> VidhideIva().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    "RpmShare", "UpnShare", "StreamP2p", "RPMSHRE", "UPNSHR", "STRMP2" -> VidStackIva().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    else -> Log.d("Phisher", "Unknown source: $friendlyName - $fullUrl (skipped)")
+        try {
+            val response = app.get(url, referer = referer)
+            val doc = response.document
+            
+            // Get all server links from the modal
+            doc.select("li.server-item[data-link]").forEach { element ->
+                val serverLink = element.attr("data-link")
+                val serverName = element.selectFirst(".server-name")?.text() ?: name
+                
+                if (serverLink.isNotEmpty()) {
+                    // Recursively extract from sub-hosters
+                    try {
+                        loadExtractor(serverLink, referer, subtitleCallback, callback)
+                    } catch (e: Exception) {
+                        Log.e("GDMirrorBot", "Error loading $serverName: ${e.message}")
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("Phisher", "Failed to extract from $friendlyName at $fullUrl: $e")
             }
+            
+            // Get download link - Temporarily commented due to deprecated API
+            // doc.select("a.dlvideoLinks").forEach { element ->
+            //     val downloadUrl = element.attr("href")
+            //     if (downloadUrl.isNotEmpty()) {
+            //         callback.invoke(
+            //             ExtractorLink(
+            //                 "$name - Download",
+            //                 "Download",
+            //                 downloadUrl,
+            //                 referer ?: mainUrl,
+            //                 Qualities.Unknown.value
+            //             )
+            //         )
+            //     }
+            // }
+        } catch (e: Exception) {
+            Log.e("GDMirrorBot", "Error: ${e.message}")
         }
-    }
-
-    private fun getBaseUrl(url: String): String {
-        return URI(url).let { "${it.scheme}://${it.host}" }
     }
 }
 
-open class VidStackIva : ExtractorApi() {
-    override var name = "VidstackIva"
-    override var mainUrl = "https://vidstack.io"
+// TechInMind Extractor (for TV shows)
+open class TechInMind : ExtractorApi() {
+    override var name = "TechInMind"
+    override var mainUrl = "https://stream.techinmind.space"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -113,213 +260,26 @@ open class VidStackIva : ExtractorApi() {
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
-    )
-    {
-        val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
-        val hash = url.substringAfterLast("#").substringAfter("/")
-        val baseurl = getBaseUrl(url)
-
-        val encoded = app.get("$baseurl/api/v1/video?id=$hash", headers = headers).text.trim()
-
-        val key = "kiemtienmua911ca"
-        val ivList = listOf("1234567890oiuytr", "0123456789abcdef")
-
-        val decryptedText = ivList.firstNotNullOfOrNull { iv ->
-            try {
-                AesHelper.decryptAES(encoded, key, iv)
-            } catch (e: Exception) {
-                null
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val doc = response.document
+            
+            val scriptText = doc.selectFirst("script:containsData(sources)")?.data()
+            if (scriptText != null) {
+                val m3u8Regex = """(https?://[^"'\s]+\.m3u8[^"'\s]*)""".toRegex()
+                val m3u8Url = m3u8Regex.find(scriptText)?.groupValues?.get(1)
+                
+                if (m3u8Url != null) {
+                    M3u8Helper.generateM3u8(
+                        name,
+                        m3u8Url,
+                        referer ?: mainUrl
+                    ).forEach(callback)
+                }
             }
-        } ?: throw Exception("Failed to decrypt with all IVs")
-
-        val m3u8 = Regex("\"source\":\"(.*?)\"").find(decryptedText)
-            ?.groupValues?.get(1)
-            ?.replace("\\/", "/") ?: ""
-
-        callback.invoke(
-            ExtractorLink(
-                this.name,
-                this.name,
-                m3u8,
-                url,
-                Qualities.P1080.value,
-                type = ExtractorLinkType.M3U8,
-            )
-        )
-    }
-
-    private fun getBaseUrl(url: String): String {
-        return try {
-            URI(url).let { "${it.scheme}://${it.host}" }
         } catch (e: Exception) {
-            Log.e("Vidstack", "getBaseUrl fallback: ${e.message}")
-            mainUrl
-        }
-    }
-}
-
-object AesHelper {
-    private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
-
-    fun decryptAES(inputHex: String, key: String, iv: String): String {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
-        val ivSpec = IvParameterSpec(iv.toByteArray(Charsets.UTF_8))
-
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
-        val decryptedBytes = cipher.doFinal(inputHex.hexToByteArray())
-        return String(decryptedBytes, Charsets.UTF_8)
-    }
-
-    private fun String.hexToByteArray(): ByteArray {
-        check(length % 2 == 0) { "Hex string must have an even length" }
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    }
-}
-
-open class VidhideIva : ExtractorApi() {
-    override var name = "VidHideIva"
-    override var mainUrl = "https://vidhide.com"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-        val response = app.get(
-            url, referer = referer ?: "$mainUrl/", interceptor = WebViewResolver(
-                Regex("""master\.m3u8""")
-            )
-        )
-        val sources = mutableListOf<ExtractorLink>()
-        if (response.url.contains("m3u8"))
-            sources.add(
-                newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = response.url,
-                    ExtractorLinkType.M3U8
-                ) {
-                    this.referer = referer ?: "$mainUrl/"
-                    this.quality = Qualities.Unknown.value
-                }
-
-            )
-        return sources
-    }
-}
-
-open class StreamWishIva : ExtractorApi() {
-    override var name = "StreamWishIva"
-    override var mainUrl = "https://streamwish.com"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = app.get(url, referer = referer).text
-        val script = Regex("sources\\s*:\\s*(\\[.*?\\])").find(response)?.groupValues?.get(1)
-        if (script != null) {
-            JsonParser.parseString(script).asJsonArray.forEach { it.asJsonObject ->
-                val m3u8 = it["file"]?.asString ?: return@forEach
-                val quality = FixQuality(it["label"]?.asString ?: "")
-                callback.invoke(ExtractorLink(name, name, m3u8, url, quality.value, ExtractorLinkType.M3U8))
-            }
-        }
-    }
-}
-
-open class VidHideComIva : ExtractorApi() {
-    override var name = "VidHideComIva"
-    override var mainUrl = "https://vidhide.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = WebViewResolver(Regex("""master\.m3u8""")).resolveUsingWebView(app.get(url, referer = referer).url)
-        if (response.url.contains("m3u8")) {
-            callback.invoke(newExtractorLink(source = name, name = name, url = response.url, ExtractorLinkType.M3U8) {
-                this.referer = referer ?: mainUrl
-                this.quality = Qualities.Unknown.value
-            })
-        }
-    }
-}
-
-open class FilePressIva : ExtractorApi() {
-    override var name = "FilePressIva"
-    override var mainUrl = "https://filepress.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = app.get(url, referer = referer)
-        val doc = response.document
-        val form = doc.selectFirst("form")
-        if (form != null) {
-            val action = form.attr("action")?.fixUrl()
-            val data = form.select("input").associate { it.attr("name") to it.attr("value") }
-            val postResponse = app.post(action ?: "", data = data, referer = url)
-            val downloadLink = Regex("href=\"([^\"]*)\">[Download]").find(postResponse.text)?.groupValues?.get(1)
-            if (downloadLink != null) {
-                callback.invoke(ExtractorLink(name, name, downloadLink, url, Qualities.Unknown.value))
-            }
-        }
-    }
-}
-
-open class GofileIva : ExtractorApi() {
-    override var name = "GofileIva"
-    override var mainUrl = "https://gofile.io"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = app.get(url, referer = referer)
-        val doc = response.document
-        val downloadBtn = doc.selectFirst("#btnDownload")
-        if (downloadBtn != null) {
-            val downloadUrl = downloadBtn.attr("href")
-            if (downloadUrl.isNotBlank()) {
-                val downloadResponse = app.get(downloadUrl.fixUrl(), referer = url)
-                val doc2 = downloadResponse.document
-                val finalDownloadBtn = doc2.selectFirst("#downloadBtn")
-                if (finalDownloadBtn != null) {
-                    val finalUrl = finalDownloadBtn.attr("href")
-                    callback.invoke(ExtractorLink(name, name, finalUrl, url, Qualities.Unknown.value))
-                }
-            }
-        }
-    }
-}
-
-open class GDTotIva : ExtractorApi() {
-    override var name = "GDTotIva"
-    override var mainUrl = "https://gdtot.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = app.get(url, referer = referer)
-        val doc = response.document
-        val form = doc.selectFirst("#signin-form")
-        if (form != null) {
-            val action = form.attr("action")?.fixUrl()
-            val data = form.select("input").associate { it.attr("name") to it.attr("value") }
-            val postResponse = app.post(action ?: "", data = data, referer = url, headers = mapOf("Cookie" to ""))
-            val doc2 = app.get(url, referer = referer, cookies = postResponse.cookies).document
-            val downloadBtn = doc2.selectFirst("a[href*=/download/]")
-            if (downloadBtn != null) {
-                val downloadUrl = downloadBtn.attr("href").fixUrl()
-                callback.invoke(ExtractorLink(name, name, downloadUrl, url, Qualities.Unknown.value))
-            }
-        }
-    }
-}
-
-open class BuzzheavierIva : ExtractorApi() {
-    override var name = "BuzzheavierIva"
-    override var mainUrl = "https://buzzheavier.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val response = app.get(url, referer = referer)
-        val doc = response.document
-        val downloadBtn = doc.selectFirst("#download-btn") ?: doc.selectFirst(".download-button")
-        if (downloadBtn != null) {
-            val downloadUrl = downloadBtn.attr("href")
-            callback.invoke(ExtractorLink(name, name, downloadUrl.fixUrl(), url, Qualities.Unknown.value))
+            Log.e("TechInMind", "Error: ${e.message}")
         }
     }
 }

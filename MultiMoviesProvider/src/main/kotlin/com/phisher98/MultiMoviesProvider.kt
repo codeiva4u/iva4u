@@ -26,7 +26,6 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.toRatingInt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
@@ -174,7 +173,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             fixUrlNull(iframeSrc)
         }
         trailer = trailer?.let { trailerRegex.find(it)?.value?.trim('"') }
-        val rating = doc.select("span.dt_rating_vgs").text().toRatingInt()
+        val ratingText = doc.select("span.dt_rating_vgs").text()
+        val score = try { 
+            ratingText.toDoubleOrNull()?.times(1000.0)?.toInt()
+        } catch (e: Exception) { 
+            null 
+        }
         val duration =
             doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
                 ?.toInt()
@@ -218,7 +222,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                // this.score = score // Temporarily disabled
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
@@ -230,7 +234,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 this.year = year
                 this.plot = description
                 this.tags = tags
-                this.rating = rating
+                // this.score = score // Temporarily disabled
                 this.duration = duration
                 this.actors = actors
                 this.recommendations = recommendations
@@ -245,73 +249,50 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
-            if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                // Skip YouTube trailers
-                if (link.contains("youtube")) return@amap
-                
-                // ✨ Special handling for GDMirrorbot gateway (multiple domains)
-                if (link.contains("gdmirrorbot") || link.contains("stream.techinmind.space")) {
-                    GDMirrorbot().getUrl(link, mainUrl, subtitleCallback, callback)
-                    return@amap
+        val doc = app.get(data).document
+        
+        // Get embed iframe URL from GD MIRROR player
+        val embedUrl = doc.selectFirst("#source-player-1 iframe.metaframe")?.attr("src")
+            ?: doc.selectFirst(".dooplay_player iframe")?.attr("src")
+        
+        if (embedUrl != null) {
+            // GDMirrorBot first loads the mirror page
+            if (embedUrl.contains("gdmirrorbot.nl") || embedUrl.contains("techinmind.space")) {
+                loadExtractor(embedUrl, data, subtitleCallback, callback)
+            }
+            
+            // For direct hoster links
+            when {
+                embedUrl.contains("multimoviesshg.com") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
                 }
-                
-                // DeadDrive - multiple servers
-                if (link.contains("deaddrive.xyz")) {
-                    app.get(link).document.select("ul.list-server-items > li").amap {
-                        val server = it.attr("data-video")
-                        if (server.isNotBlank() && !server.contains("youtube")) {
-                            loadExtractor(server, mainUrl, subtitleCallback, callback)
-                        }
-                    }
-                    return@amap
+                embedUrl.contains("p2pplay.pro") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
                 }
-                
-                // ✨ Automatic Detection for all other extractors
-                // Extractor.kt me registered extractors automatically kaam karenge:
-                // - VidStackIva (RpmShare, StreamP2p, UpnShare)
-                // - VidhideIva (StreamHG, EarnVids, SmoothPre)
-                // - CloudStream built-in extractors
-                loadExtractor(link, mainUrl, subtitleCallback, callback)
+                embedUrl.contains("rpmhub.site") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
+                }
+                embedUrl.contains("uns.bio") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
+                }
+                embedUrl.contains("smoothpre.com") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
+                }
+                embedUrl.contains("techinmind.space") -> {
+                    loadExtractor(embedUrl, data, subtitleCallback, callback)
+                }
             }
         }
+        
         return true
     }
 
-    data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("key") val key: String? = null,
-        @JsonProperty("type") val type: String? = null,
-    )
-
-
-    data class DomainsParser(
-        @JsonProperty("MultiMovies")
-        val multiMovies: String,
-    )
-
     private fun Element.getImageAttr(): String? {
-        return this.attr("data-src")
-            .takeIf { it.isNotBlank() && it.startsWith("http") }
-            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
+        return when {
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            else -> this.attr("abs:src")
+        }
     }
 }

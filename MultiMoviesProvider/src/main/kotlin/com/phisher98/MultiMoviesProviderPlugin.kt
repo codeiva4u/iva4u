@@ -9,16 +9,14 @@ class MultiMoviesProviderPlugin: BasePlugin() {
     override fun load() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(MultiMoviesProvider())
-        registerExtractorAPI(GDMirrorbot())
-        registerExtractorAPI(VidStackIva())
-        registerExtractorAPI(VidhideIva())
-        registerExtractorAPI(StreamWishIva())
-        registerExtractorAPI(VidHideComIva())
-        registerExtractorAPI(FilePressIva())
-        registerExtractorAPI(GofileIva())
-        registerExtractorAPI(GDTotIva())
-        registerExtractorAPI(BuzzheavierIva())
-
-
+        
+        // Register all video hosting extractors
+        registerExtractorAPI(StreamHG())
+        registerExtractorAPI(StreamP2P())
+        registerExtractorAPI(RpmShare())
+        registerExtractorAPI(UpnShare())
+        registerExtractorAPI(EarnVids())
+        registerExtractorAPI(GDMirrorBot())
+        registerExtractorAPI(TechInMind())
     }
 }
