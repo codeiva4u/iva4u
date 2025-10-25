@@ -331,58 +331,31 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ) {
         Log.d("MultiMovies", "loadExtractorLink called with URL: $url")
         
-        // StreamWish/StreamHG - multimoviesshg.com, streamwish.com, awish.pro
-        if (url.contains("multimoviesshg.com", ignoreCase = true) ||
-            url.contains("streamwish.com", ignoreCase = true) ||
-            url.contains("awish.pro", ignoreCase = true)) {
-            StreamWishExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // VidHide/EarnVids - vidhide.com, vidhidepro.com, smoothpre.com
-        if (url.contains("vidhide.com", ignoreCase = true) ||
-            url.contains("vidhidepro.com", ignoreCase = true) ||
-            url.contains("smoothpre.com", ignoreCase = true)) {
-            VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // StreamP2P - multimovies.p2pplay.pro, p2pplay.pro
-        if (url.contains("p2pplay.pro", ignoreCase = true)) {
-            StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // RpmShare - multimovies.rpmhub.site, rpmhub.site
-        if (url.contains("rpmhub.site", ignoreCase = true)) {
-            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // UpnShare - server1.uns.bio, uns.bio
-        if (url.contains("uns.bio", ignoreCase = true)) {
-            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // GDMirror - gdmirrorbot.nl (redirects to actual hosters)
+        // GDMirror - gdmirrorbot.nl (contains embedded iframes to actual hosters)
         if (url.contains("gdmirrorbot.nl", ignoreCase = true)) {
             try {
+                Log.d("MultiMovies", "Processing GDMirror URL: $url")
                 val doc = app.get(url, referer = referer).document
-                val iframes = doc.select("iframe[src]")
-                iframes.forEach { iframe ->
-                    val iframeSrc = iframe.attr("src")
-                    if (iframeSrc.isNotEmpty() && !iframeSrc.contains("youtube")) {
-                        loadExtractorLink(iframeSrc, referer, subtitleCallback, callback)
-                    }
+                
+                // Extract iframe sources
+                val iframe = doc.selectFirst("iframe#vidFrame[src]")
+                val iframeSrc = iframe?.attr("src")
+                
+                if (!iframeSrc.isNullOrEmpty() && !iframeSrc.contains("youtube")) {
+                    Log.d("MultiMovies", "Found iframe in GDMirror: $iframeSrc")
+                    loadExtractorLink(iframeSrc, url, subtitleCallback, callback)
+                } else {
+                    Log.e("MultiMovies", "No valid iframe found in GDMirror")
                 }
             } catch (e: Exception) {
                 Log.e("MultiMovies", "GDMirror extraction error: ${e.message}")
+                e.printStackTrace()
             }
             return
         }
         
-        // Fallback: Use CloudStream3 built-in extractors
+        // Use CloudStream3's built-in extractors for all video hosters
+        Log.d("MultiMovies", "Loading video from: $url")
         loadExtractor(url, referer, subtitleCallback, callback)
     }
 
