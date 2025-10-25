@@ -452,10 +452,10 @@ class TechInMindExtractor : ExtractorApi() {
     }
 }
 
-// GTXGamer Download Extractor  
-class GTXGamerExtractor : ExtractorApi() {
-    override val name = "GTXGamer Download"
-    override val mainUrl = "https://ddn.gtxgamer.site"
+// Gofile Extractor
+class GofileExtractor : ExtractorApi() {
+    override val name = "Gofile"
+    override val mainUrl = "https://gofile.io"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -465,21 +465,193 @@ class GTXGamerExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("GTXGamer", "Direct download link: $url")
-            // Direct download link
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    "$name [Direct]",
-                    url,
-                    ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = referer ?: mainUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+            Log.d("Gofile", "Processing Gofile link: $url")
+            // Gofile extraction logic
+            val response = app.get(url, referer = referer).document
+            val downloadLinks = response.select("a[href*='gofile.io/d/']").map { it.attr("href") }
+            
+            downloadLinks.forEach { link ->
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [Download]",
+                        link,
+                        ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
         } catch (e: Exception) {
-            Log.e("GTXGamer", "Extraction error: ${e.message}")
+            Log.e("Gofile", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// FilePress Extractor
+class FilePressExtractor : ExtractorApi() {
+    override val name = "FilePress"
+    override val mainUrl = "https://filepress.cloud"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("FilePress", "Processing FilePress link: $url")
+            val response = app.get(url, referer = referer).document
+            val downloadLink = response.select("a.btn-download, a[href*='/download/'], button[data-url]").attr("href")
+            
+            if (downloadLink.isNotEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [Download]",
+                        downloadLink,
+                        ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("FilePress", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// VidHide Extractor
+class VidHideExtractor : ExtractorApi() {
+    override val name = "VidHide"
+    override val mainUrl = "https://vidhide.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("VidHide", "Starting extraction for URL: $url")
+            val response = app.get(
+                url,
+                referer = referer ?: mainUrl,
+                interceptor = WebViewResolver(
+                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("VidHide", "M3U8 extraction successful: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [WebView]",
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("VidHide", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// StreamWish Extractor (StreamHG is actually StreamWish)
+class StreamWishExtractor : ExtractorApi() {
+    override val name = "StreamWish"
+    override val mainUrl = "https://streamwish.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("StreamWish", "Starting extraction for URL: $url")
+            val baseUrl = getBaseUrl(url)
+            
+            // Method 1: Try WebView extraction
+            try {
+                val response = app.get(
+                    url,
+                    referer = referer ?: mainUrl,
+                    interceptor = WebViewResolver(
+                        Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                    )
+                )
+                
+                if (response.url.contains("m3u8")) {
+                    Log.d("StreamWish", "M3U8 extraction successful: ${response.url}")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name [WebView]",
+                            response.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("StreamWish", "WebView extraction failed: ${e.message}")
+            }
+            
+            // Method 2: Try API extraction
+            try {
+                val videoId = url.substringAfter("/e/").substringBefore("?")
+                if (videoId.isNotEmpty()) {
+                    val apiUrl = "$baseUrl/api/source/$videoId"
+                    val apiResponse = app.get(apiUrl, referer = url).text
+                    
+                    // Try parsing as JSON
+                    try {
+                        val jsonData = JsonParser.parseString(apiResponse).asJsonObject
+                        val source = jsonData.get("file")?.asString
+                        if (!source.isNullOrEmpty() && source.contains("m3u8")) {
+                            callback.invoke(
+                                newExtractorLink(
+                                    name,
+                                    "$name [API]",
+                                    source,
+                                    ExtractorLinkType.M3U8
+                                ) {
+                                    this.referer = url
+                                    this.quality = Qualities.P1080.value
+                                }
+                            )
+                            return
+                        }
+                    } catch (ignored: Exception) {}
+                }
+            } catch (e: Exception) {
+                Log.e("StreamWish", "API extraction failed: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e("StreamWish", "Extraction error: ${e.message}")
+        }
+    }
+    
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (e: Exception) {
+            mainUrl
         }
     }
 }

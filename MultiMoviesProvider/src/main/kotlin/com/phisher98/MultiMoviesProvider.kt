@@ -323,13 +323,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // StreamHG - multimoviesshg.com
-        val streamHGDomains = listOf(
-            "multimoviesshg.com"
+        // StreamWish (previously called StreamHG) - multimoviesshg.com, streamwish.com
+        val streamWishDomains = listOf(
+            "multimoviesshg.com",
+            "streamwish.com",
+            "awish.pro"
         )
         
-        if (streamHGDomains.any { url.contains(it, ignoreCase = true) }) {
-            StreamHGExtractor().getUrl(url, referer, subtitleCallback, callback)
+        if (streamWishDomains.any { url.contains(it, ignoreCase = true) }) {
+            StreamWishExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
@@ -363,13 +365,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
         
-        // GTXGamer Download - ddn.gtxgamer.site
-        val gtxGamerDomains = listOf(
-            "gtxgamer.site"
+        // Gofile - gofile.io
+        val gofileDomains = listOf(
+            "gofile.io"
         )
         
-        if (gtxGamerDomains.any { url.contains(it, ignoreCase = true) }) {
-            GTXGamerExtractor().getUrl(url, referer, subtitleCallback, callback)
+        if (gofileDomains.any { url.contains(it, ignoreCase = true) }) {
+            GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // FilePress - filepress.cloud
+        val filePressDomains = listOf(
+            "filepress.cloud",
+            "filepress.store"
+        )
+        
+        if (filePressDomains.any { url.contains(it, ignoreCase = true) }) {
+            FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // VidHide - vidhide.com
+        val vidHideDomains = listOf(
+            "vidhide.com",
+            "vidhidepro.com"
+        )
+        
+        if (vidHideDomains.any { url.contains(it, ignoreCase = true) }) {
+            VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
