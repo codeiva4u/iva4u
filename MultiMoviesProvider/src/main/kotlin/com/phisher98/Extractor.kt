@@ -10,8 +10,8 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.getQualityFromName
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -326,9 +326,135 @@ class SmoothPreExtractor : ExtractorApi() {
     }
 }
 
+// StreamP2P Extractor
+class StreamP2PExtractor : ExtractorApi() {
+    override val name = "StreamP2P"
+    override val mainUrl = "https://multimovies.p2pplay.pro"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("StreamP2P", "Starting extraction for URL: $url")
+            val response = app.get(
+                url,
+                referer = referer ?: mainUrl,
+                interceptor = WebViewResolver(
+                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("StreamP2P", "M3U8 extraction successful: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [WebView]",
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("StreamP2P", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// TechInMind Extractor - handles stream.techinmind.space & ssn.techinmind.space
+class TechInMindExtractor : ExtractorApi() {
+    override val name = "TechInMind"
+    override val mainUrl = "https://stream.techinmind.space"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMind", "Starting extraction for URL: $url")
+            
+            // Method 1: Try direct iframe extraction from page
+            try {
+                val doc = app.get(url, referer = referer).document
+                val playerIframe = doc.select("iframe#player[src]").attr("src")
+                
+                if (playerIframe.isNotEmpty()) {
+                    Log.d("TechInMind", "Found player iframe: $playerIframe")
+                    
+                    // Use WebView to extract m3u8 from iframe
+                    val response = app.get(
+                        playerIframe,
+                        referer = url,
+                        interceptor = WebViewResolver(
+                            Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                        )
+                    )
+                    
+                    if (response.url.contains("m3u8")) {
+                        Log.d("TechInMind", "M3U8 extraction successful: ${response.url}")
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name [WebView]",
+                                response.url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = playerIframe
+                                this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TechInMind", "Iframe extraction failed: ${e.message}")
+            }
+            
+            // Method 2: Fallback - direct WebView on main URL
+            try {
+                val response = app.get(
+                    url,
+                    referer = referer ?: mainUrl,
+                    interceptor = WebViewResolver(
+                        Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                    )
+                )
+                
+                if (response.url.contains("m3u8")) {
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name [Direct]",
+                            response.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("TechInMind", "Direct extraction failed: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e("TechInMind", "Extraction error: ${e.message}")
+        }
+    }
+}
+
 // GTXGamer Download Extractor  
 class GTXGamerExtractor : ExtractorApi() {
-    override val name = "GTXGamer"
+    override val name = "GTXGamer Download"
     override val mainUrl = "https://ddn.gtxgamer.site"
     override val requiresReferer = false
 
@@ -338,7 +464,22 @@ class GTXGamerExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // GTXGamer is a download link provider, use built-in CloudStream extractors
-        loadExtractor(url, referer ?: mainUrl, subtitleCallback, callback)
+        try {
+            Log.d("GTXGamer", "Direct download link: $url")
+            // Direct download link
+            callback.invoke(
+                newExtractorLink(
+                    name,
+                    "$name [Direct]",
+                    url,
+                    ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = referer ?: mainUrl
+                    this.quality = Qualities.Unknown.value
+                }
+            )
+        } catch (e: Exception) {
+            Log.e("GTXGamer", "Extraction error: ${e.message}")
+        }
     }
 }

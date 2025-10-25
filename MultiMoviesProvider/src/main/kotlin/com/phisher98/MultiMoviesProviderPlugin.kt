@@ -15,6 +15,8 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(RpmShareExtractor())
         registerExtractorAPI(UpnShareExtractor())
         registerExtractorAPI(SmoothPreExtractor())
+        registerExtractorAPI(StreamP2PExtractor())
+        registerExtractorAPI(TechInMindExtractor())
         registerExtractorAPI(GTXGamerExtractor())
     }
 }

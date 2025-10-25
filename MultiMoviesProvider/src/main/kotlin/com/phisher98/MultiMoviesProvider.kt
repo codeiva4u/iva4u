@@ -28,8 +28,8 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
+import com.lagradost.cloudstream3.utils.AppUtils
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 
@@ -239,50 +239,82 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
+    data class LinkData(
+        val name: String?,
+        val type: String,
+        val post: String,
+        val nume: String,
+        val url: String
+    )
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
-            if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractorLink(server, data, subtitleCallback, callback)
-                            }
-                        } else {
-                            loadExtractorLink(link, data, subtitleCallback, callback)
-                        }
+        
+        // Check if data is a URL or LinkData JSON
+        val isUrl = data.startsWith("http")
+        
+        if (isUrl) {
+            // For movies, data is direct URL
+            val document = app.get(data).document
+            
+            // Extract player options
+            document.select("ul#playeroptionsul > li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .forEach { element ->
+                    val type = element.attr("data-type")
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    
+                    // Get iframe URL from player API
+                    val iframeUrl = getIframeUrl(type, post, nume)
+                    if (!iframeUrl.isNullOrEmpty()) {
+                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                     }
-
-                    else -> return@amap
                 }
+        } else {
+            // For episodes, data is LinkData JSON
+            try {
+                val linkData = AppUtils.parseJson<LinkData>(data)
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
+        
         return true
+    }
+    
+    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
+        return try {
+            // Call player API
+            val requestBody = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", post)
+                .addEncoded("nume", nume)
+                .addEncoded("type", type)
+                .build()
+            
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = requestBody,
+                headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to mainUrl
+                )
+            ).parsedSafe<ResponseHash>()
+            
+            response?.embed_url
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
     
     private suspend fun loadExtractorLink(
@@ -341,8 +373,47 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
         
-        // Use built-in CloudStream extractors for all other video hosters
-        loadExtractor(url, referer, subtitleCallback, callback)
+        // StreamP2P - multimovies.p2pplay.pro
+        val streamP2PDomains = listOf(
+            "p2pplay.pro"
+        )
+        
+        if (streamP2PDomains.any { url.contains(it, ignoreCase = true) }) {
+            StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // GDMirror - gdmirrorbot.nl (redirects to other hosters)
+        val gdMirrorDomains = listOf(
+            "gdmirrorbot.nl"
+        )
+        
+        if (gdMirrorDomains.any { url.contains(it, ignoreCase = true) }) {
+            // GDMirror redirects to actual hosters, extract iframe and process
+            try {
+                val doc = app.get(url, referer = referer).document
+                val iframes = doc.select("iframe[src]")
+                iframes.forEach { iframe ->
+                    val iframeSrc = iframe.attr("src")
+                    if (iframeSrc.isNotEmpty() && !iframeSrc.contains("youtube")) {
+                        loadExtractorLink(iframeSrc, referer, subtitleCallback, callback)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return
+        }
+        
+        // TechInMind - stream.techinmind.space, ssn.techinmind.space
+        val techInMindDomains = listOf(
+            "techinmind.space"
+        )
+        
+        if (techInMindDomains.any { url.contains(it, ignoreCase = true) }) {
+            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
     }
 
     data class ResponseHash(
