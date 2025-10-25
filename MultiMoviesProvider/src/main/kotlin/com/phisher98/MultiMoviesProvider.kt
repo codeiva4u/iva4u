@@ -333,88 +333,29 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ) {
         Log.d("MultiMovies", "loadExtractorLink called with URL: $url")
         
-        // StreamWish (previously called StreamHG) - multimoviesshg.com, streamwish.com
-        val streamWishDomains = listOf(
-            "multimoviesshg.com",
-            "streamwish.com",
-            "awish.pro"
-        )
-        
-        if (streamWishDomains.any { url.contains(it, ignoreCase = true) }) {
+        // StreamWish - multimoviesshg.com, streamwish.com, awish.pro
+        if (url.contains("multimoviesshg.com", ignoreCase = true) ||
+            url.contains("streamwish.com", ignoreCase = true) ||
+            url.contains("awish.pro", ignoreCase = true)) {
             StreamWishExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
-        // RpmShare/UpnShare - Same hoster with different domains
-        val rpmShareDomains = listOf(
-            "rpmhub.site",
-            "uns.bio"
-        )
-        
-        if (rpmShareDomains.any { url.contains(it, ignoreCase = true) }) {
-            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // SmoothPre/EarnVids - smoothpre.com
-        val smoothPreDomains = listOf(
-            "smoothpre.com"
-        )
-        
-        if (smoothPreDomains.any { url.contains(it, ignoreCase = true) }) {
-            SmoothPreExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // Gofile - gofile.io
-        val gofileDomains = listOf(
-            "gofile.io"
-        )
-        
-        if (gofileDomains.any { url.contains(it, ignoreCase = true) }) {
-            GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // FilePress - filepress.cloud
-        val filePressDomains = listOf(
-            "filepress.cloud",
-            "filepress.store"
-        )
-        
-        if (filePressDomains.any { url.contains(it, ignoreCase = true) }) {
-            FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // VidHide - vidhide.com
-        val vidHideDomains = listOf(
-            "vidhide.com",
-            "vidhidepro.com"
-        )
-        
-        if (vidHideDomains.any { url.contains(it, ignoreCase = true) }) {
+        // VidHide - vidhide.com, vidhidepro.com
+        if (url.contains("vidhide.com", ignoreCase = true) ||
+            url.contains("vidhidepro.com", ignoreCase = true)) {
             VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
-        // StreamP2P - multimovies.p2pplay.pro
-        val streamP2PDomains = listOf(
-            "p2pplay.pro"
-        )
-        
-        if (streamP2PDomains.any { url.contains(it, ignoreCase = true) }) {
+        // StreamP2P - p2pplay.pro
+        if (url.contains("p2pplay.pro", ignoreCase = true)) {
             StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
-        // GDMirror - gdmirrorbot.nl (redirects to other hosters)
-        val gdMirrorDomains = listOf(
-            "gdmirrorbot.nl"
-        )
-        
-        if (gdMirrorDomains.any { url.contains(it, ignoreCase = true) }) {
-            // GDMirror redirects to actual hosters, extract iframe and process
+        // GDMirror - gdmirrorbot.nl (redirects to actual hosters)
+        if (url.contains("gdmirrorbot.nl", ignoreCase = true)) {
             try {
                 val doc = app.get(url, referer = referer).document
                 val iframes = doc.select("iframe[src]")
@@ -425,22 +366,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("MultiMovies", "GDMirror extraction error: ${e.message}")
             }
             return
         }
         
-        // TechInMind - stream.techinmind.space, ssn.techinmind.space
-        val techInMindDomains = listOf(
-            "techinmind.space"
-        )
-        
-        if (techInMindDomains.any { url.contains(it, ignoreCase = true) }) {
-            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // Fallback: Use CloudStream3 built-in extractors for any unhandled domains
+        // Fallback: Use CloudStream3 built-in extractors
         loadExtractor(url, referer, subtitleCallback, callback)
     }
 

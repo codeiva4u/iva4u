@@ -10,14 +10,9 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         // All providers should be added in this manner. Please don't edit the providers list directly.
         registerMainAPI(MultiMoviesProvider())
         
-        // Register all video hosting extractors
+        // Register only working video hosting extractors
         registerExtractorAPI(StreamWishExtractor())
-        registerExtractorAPI(RpmShareExtractor())  // Also handles UpnShare (same hoster)
-        registerExtractorAPI(SmoothPreExtractor())
-        registerExtractorAPI(StreamP2PExtractor())
-        registerExtractorAPI(TechInMindExtractor())
-        registerExtractorAPI(GofileExtractor())
-        registerExtractorAPI(FilePressExtractor())
         registerExtractorAPI(VidHideExtractor())
+        registerExtractorAPI(StreamP2PExtractor())
     }
 }
