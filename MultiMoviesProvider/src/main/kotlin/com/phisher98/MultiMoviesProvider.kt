@@ -431,6 +431,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
+        
+        // Fallback: Use CloudStream3 built-in extractors for any unhandled domains
+        loadExtractor(url, referer, subtitleCallback, callback)
     }
 
     data class ResponseHash(
