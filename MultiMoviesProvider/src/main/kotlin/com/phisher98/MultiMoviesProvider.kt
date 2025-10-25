@@ -2,7 +2,6 @@ package com.phisher98
 
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.api.Log
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.Episode
@@ -362,7 +361,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 // Handle download links
                 val downloadLink = embedDoc.selectFirst("a.dlvideoLinks")?.attr("href")
                 if (!downloadLink.isNullOrEmpty()) {
-                    processDownloadLinks(downloadLink, referer, subtitleCallback, callback)
+                    extractFromVideoUrl(downloadLink, referer, subtitleCallback, callback)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -379,57 +378,47 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Note: Most video hosters are already supported by CloudStream's built-in extractors
-        // Only add custom extractors if CloudStream doesn't support them
+        // Custom extractors for MultiMovies-specific video hosters
+        val hosters = listOf(
+            "multimoviesshg.com",
+            "multimovies.p2pplay.pro",
+            "multimovies.rpmhub.site",
+            "server1.uns.bio",
+            "smoothpre.com",
+            "ddn.gtxgamer.site"
+        )
         
-        // For now, just use CloudStream's built-in loadExtractor for all video hosters
-        // It already supports: StreamWish, StreamTape, Doodstream, Filemoon, and many more
-        loadExtractor(url, referer, subtitleCallback, callback)
-    }
-    
-    private suspend fun processDownloadLinks(
-        downloadPageUrl: String,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            // Get the LoadMyFile page
-            val doc = app.get(downloadPageUrl, referer = referer).document
-            
-            // Extract all download server links
-            val downloadLinks = doc.select("a[href*='igx.gtxgamer.site']")
-            
-            downloadLinks.forEach { link ->
-                val redirectUrl = link.attr("href")
-                try {
-                    // Follow redirect to get actual hoster
-                    val redirectDoc = app.get(redirectUrl, referer = downloadPageUrl).document
-                    
-                    // Look for final download button
-                    val finalUrl = redirectDoc.selectFirst("a[href*='gofile'], a[href*='filepress']")
-                        ?.attr("href")
-                    
-                    finalUrl?.let { url ->
-                        when {
-                            url.contains("gofile", ignoreCase = true) -> {
-                                GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
-                            }
-                            url.contains("filepress", ignoreCase = true) -> {
-                                FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
-                            }
-                            else -> {
-                                loadExtractor(url, referer, subtitleCallback, callback)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Continue to next link if one fails
+        if (hosters.any { url.contains(it, ignoreCase = true) }) {
+            when {
+                url.contains("multimoviesshg.com", ignoreCase = true) -> {
+                    StreamHGExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
+                }
+                url.contains("multimovies.p2pplay.pro", ignoreCase = true) -> {
+                    StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
+                }
+                url.contains("multimovies.rpmhub.site", ignoreCase = true) -> {
+                    RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
+                }
+                url.contains("server1.uns.bio", ignoreCase = true) -> {
+                    UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
+                }
+                url.contains("smoothpre.com", ignoreCase = true) -> {
+                    EarnVidsExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
+                }
+                url.contains("ddn.gtxgamer.site", ignoreCase = true) -> {
+                    DDNDownloadExtractor().getUrl(url, referer, subtitleCallback, callback)
+                    return
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
+        
+        // Use built-in CloudStream extractors for all other video hosters
+        loadExtractor(url, referer, subtitleCallback, callback)
     }
 
     private fun Element.getImageAttr(): String? {
