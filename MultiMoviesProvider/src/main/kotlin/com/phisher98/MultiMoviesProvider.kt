@@ -31,6 +31,7 @@ import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
+import com.lagradost.api.Log
 import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
@@ -295,6 +296,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
         return try {
+            Log.d("MultiMovies", "Getting iframe URL - Type: $type, Post: $post, Nume: $nume")
+            
             // Call player API
             val requestBody = FormBody.Builder()
                 .addEncoded("action", "doo_player_ajax")
@@ -312,8 +315,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 )
             ).parsedSafe<ResponseHash>()
             
-            response?.embed_url
+            val iframeUrl = response?.embed_url
+            Log.d("MultiMovies", "Retrieved iframe URL: $iframeUrl")
+            iframeUrl
         } catch (e: Exception) {
+            Log.e("MultiMovies", "Error getting iframe URL: ${e.message}")
             e.printStackTrace()
             null
         }
@@ -325,6 +331,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        Log.d("MultiMovies", "loadExtractorLink called with URL: $url")
+        
         // StreamWish (previously called StreamHG) - multimoviesshg.com, streamwish.com
         val streamWishDomains = listOf(
             "multimoviesshg.com",
