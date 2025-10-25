@@ -353,21 +353,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val videoLinks = embedDoc.select("li.server-item[data-link]")
                 videoLinks.forEach { item ->
                     val videoUrl = item.attr("data-link")
-                    val serverName = item.selectFirst("div.server-name")?.text() ?: "Unknown"
-                    
-                    when {
-                        serverName.contains("SMWH", ignoreCase = true) -> {
-                            StreamWishExtractor().getUrl(videoUrl, referer, subtitleCallback, callback)
-                        }
-                        serverName.contains("STRMP2", ignoreCase = true) -> {
-                            StreamP2PExtractor().getUrl(videoUrl, referer, subtitleCallback, callback)
-                        }
-                        serverName.contains("FLLS", ignoreCase = true) -> {
-                            VidHideExtractor().getUrl(videoUrl, referer, subtitleCallback, callback)
-                        }
-                        else -> {
-                            loadExtractor(videoUrl, referer, subtitleCallback, callback)
-                        }
+                    if (videoUrl.isNotBlank()) {
+                        // Try custom extractors first, then fallback to loadExtractor
+                        extractFromVideoUrl(videoUrl, referer, subtitleCallback, callback)
                     }
                 }
                 
@@ -380,8 +368,64 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 e.printStackTrace()
             }
         } else {
-            // Use built-in CloudStream extractors for all other video hosters
-            loadExtractor(url, referer, subtitleCallback, callback)
+            // Direct URL - try to extract
+            extractFromVideoUrl(url, referer, subtitleCallback, callback)
+        }
+    }
+    
+    private suspend fun extractFromVideoUrl(
+        url: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            // Check URL patterns and use appropriate extractors
+            when {
+                // StreamWish/StreamHG domains
+                url.contains("streamwish", ignoreCase = true) ||
+                url.contains("streamhg", ignoreCase = true) ||
+                url.contains("multimoviesshg.com", ignoreCase = true) -> {
+                    StreamWishExtractor().getUrl(url, referer, subtitleCallback, callback)
+                }
+                // StreamP2P domains
+                url.contains("p2pplay.pro", ignoreCase = true) ||
+                url.contains("streamp2p", ignoreCase = true) -> {
+                    StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
+                }
+                // VidHide/ErnVids domains  
+                url.contains("vidhide", ignoreCase = true) ||
+                url.contains("ernvids", ignoreCase = true) ||
+                url.contains("smoothpre.com", ignoreCase = true) -> {
+                    VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
+                }
+                // RpmShare
+                url.contains("rpmhub.site", ignoreCase = true) ||
+                url.contains("rpmshare", ignoreCase = true) -> {
+                    // Try loadExtractor or add custom RpmShare extractor
+                    loadExtractor(url, referer, subtitleCallback, callback)
+                }
+                // UpnShare
+                url.contains("uns.bio", ignoreCase = true) ||
+                url.contains("upnshare", ignoreCase = true) -> {
+                    // Try loadExtractor or add custom UpnShare extractor
+                    loadExtractor(url, referer, subtitleCallback, callback)
+                }
+                // Gofile
+                url.contains("gofile", ignoreCase = true) -> {
+                    GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
+                }
+                // FilePress
+                url.contains("filepress", ignoreCase = true) -> {
+                    FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
+                }
+                // Default: try CloudStream's built-in extractors
+                else -> {
+                    loadExtractor(url, referer, subtitleCallback, callback)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
     
