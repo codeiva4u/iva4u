@@ -16,6 +16,5 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(StreamP2PExtractor())
         registerExtractorAPI(VidHideExtractor())
         registerExtractorAPI(GDMirrorBotExtractor())
-        registerExtractorAPI(LoadMyFileExtractor())
     }
 }

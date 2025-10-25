@@ -1,20 +1,13 @@
 package com.phisher98
 
-import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
-import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import java.net.URI
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 // Gofile Extractor
 class GofileExtractor : ExtractorApi() {
@@ -254,35 +247,6 @@ class GDMirrorBotExtractor : ExtractorApi() {
             }
         } catch (e: Exception) {
             Log.d("GDMirrorBotExtractor", "Error: ${e.message}")
-        }
-    }
-}
-
-// LoadMyFile Extractor (download page)
-class LoadMyFileExtractor : ExtractorApi() {
-    override val name = "LoadMyFile"
-    override val mainUrl = "https://loadmyfile.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val response = app.get(url, referer = referer)
-            val doc = response.document
-            
-            // Extract all download server links
-            val links = doc.select("a[href*='igx.gtxgamer.site']")
-            
-            links.forEach { link ->
-                val downloadUrl = link.attr("href")
-                Log.d("LoadMyFileExtractor", "Found download link: $downloadUrl")
-            }
-        } catch (e: Exception) {
-            Log.d("LoadMyFileExtractor", "Error: ${e.message}")
         }
     }
 }
