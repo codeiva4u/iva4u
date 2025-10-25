@@ -267,20 +267,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             // For movies, data is direct URL
             val document = app.get(data).document
             
-            // Extract player options using player API (like Movierulzhd)
-            document.select("ul#playeroptionsul > li")
-                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                .forEach { element ->
-                    val type = element.attr("data-type")
-                    val post = element.attr("data-post")
-                    val nume = element.attr("data-nume")
-                    
-                    // Get iframe URL from player API
-                    val iframeUrl = getIframeUrl(type, post, nume)
-                    if (!iframeUrl.isNullOrEmpty()) {
-                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
-                    }
+            // Check if player uses AJAX or direct iframe embedding
+            val playerUl = document.selectFirst("ul#playeroptionsul")
+            val isNoAjax = playerUl?.hasClass("no_ajax") == true
+            
+            if (isNoAjax) {
+                // Direct iframe extraction (no AJAX)
+                val iframeSrc = document.selectFirst("div.playex iframe")?.attr("src")
+                    ?: document.selectFirst("iframe[src*='gdmirrorbot']")?.attr("src")
+                    ?: document.selectFirst("iframe[src*='embed']")?.attr("src")
+                
+                if (!iframeSrc.isNullOrEmpty()) {
+                    loadExtractorLink(iframeSrc, data, subtitleCallback, callback)
                 }
+            } else {
+                // Use player API (AJAX enabled)
+                document.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                    .forEach { element ->
+                        val type = element.attr("data-type")
+                        val post = element.attr("data-post")
+                        val nume = element.attr("data-nume")
+                        
+                        // Get iframe URL from player API
+                        val iframeUrl = getIframeUrl(type, post, nume)
+                        if (!iframeUrl.isNullOrEmpty()) {
+                            loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                        }
+                    }
+            }
         } else {
             // For episodes, data is LinkData JSON
             try {
