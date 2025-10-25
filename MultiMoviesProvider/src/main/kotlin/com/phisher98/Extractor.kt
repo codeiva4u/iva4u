@@ -1,4 +1,3 @@
-@file:Suppress("unused")
 package com.phisher98
 
 import com.google.gson.JsonParser
@@ -11,14 +10,13 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.M3u8Helper
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-// StreamWish Extractor - Handles multimoviesshg.com, streamwish.com, awish.pro
+// StreamWish/StreamHG Extractor - Handles multimoviesshg.com, streamwish.com, awish.pro
 open class StreamWishExtractor : ExtractorApi() {
     override val name = "StreamWish"
     override val mainUrl = "https://streamwish.com"
@@ -57,7 +55,7 @@ open class StreamWishExtractor : ExtractorApi() {
     }
 }
 
-// VidHide Extractor - Handles vidhide.com, vidhidepro.com
+// VidHide/EarnVids Extractor - Handles vidhide.com, vidhidepro.com, smoothpre.com
 open class VidHideExtractor : ExtractorApi() {
     override val name = "VidHide"
     override val mainUrl = "https://vidhide.com"
@@ -96,7 +94,7 @@ open class VidHideExtractor : ExtractorApi() {
     }
 }
 
-// StreamP2P Extractor - Handles multimovies.p2pplay.pro
+// StreamP2P Extractor - Handles multimovies.p2pplay.pro, p2pplay.pro
 open class StreamP2PExtractor : ExtractorApi() {
     override val name = "StreamP2P"
     override val mainUrl = "https://multimovies.p2pplay.pro"
@@ -131,6 +129,84 @@ open class StreamP2PExtractor : ExtractorApi() {
             }
         } catch (e: Exception) {
             Log.e("StreamP2P", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// RpmShare Extractor - Handles multimovies.rpmhub.site
+open class RpmShareExtractor : ExtractorApi() {
+    override val name = "RpmShare"
+    override val mainUrl = "https://multimovies.rpmhub.site"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("RpmShare", "Starting extraction for: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer ?: mainUrl,
+                interceptor = WebViewResolver(
+                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("RpmShare", "M3U8 found: ${response.url}")
+                M3u8Helper.generateM3u8(
+                    name,
+                    response.url,
+                    referer ?: url
+                ).forEach(callback)
+            } else {
+                Log.e("RpmShare", "No M3U8 URL found")
+            }
+        } catch (e: Exception) {
+            Log.e("RpmShare", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// UpnShare Extractor - Handles server1.uns.bio
+open class UpnShareExtractor : ExtractorApi() {
+    override val name = "UpnShare"
+    override val mainUrl = "https://server1.uns.bio"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("UpnShare", "Starting extraction for: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer ?: mainUrl,
+                interceptor = WebViewResolver(
+                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("UpnShare", "M3U8 found: ${response.url}")
+                M3u8Helper.generateM3u8(
+                    name,
+                    response.url,
+                    referer ?: url
+                ).forEach(callback)
+            } else {
+                Log.e("UpnShare", "No M3U8 URL found")
+            }
+        } catch (e: Exception) {
+            Log.e("UpnShare", "Extraction error: ${e.message}")
         }
     }
 }

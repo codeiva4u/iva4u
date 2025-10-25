@@ -331,7 +331,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ) {
         Log.d("MultiMovies", "loadExtractorLink called with URL: $url")
         
-        // StreamWish - multimoviesshg.com, streamwish.com, awish.pro
+        // StreamWish/StreamHG - multimoviesshg.com, streamwish.com, awish.pro
         if (url.contains("multimoviesshg.com", ignoreCase = true) ||
             url.contains("streamwish.com", ignoreCase = true) ||
             url.contains("awish.pro", ignoreCase = true)) {
@@ -339,16 +339,29 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
         
-        // VidHide - vidhide.com, vidhidepro.com
+        // VidHide/EarnVids - vidhide.com, vidhidepro.com, smoothpre.com
         if (url.contains("vidhide.com", ignoreCase = true) ||
-            url.contains("vidhidepro.com", ignoreCase = true)) {
+            url.contains("vidhidepro.com", ignoreCase = true) ||
+            url.contains("smoothpre.com", ignoreCase = true)) {
             VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
-        // StreamP2P - p2pplay.pro
+        // StreamP2P - multimovies.p2pplay.pro, p2pplay.pro
         if (url.contains("p2pplay.pro", ignoreCase = true)) {
             StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // RpmShare - multimovies.rpmhub.site, rpmhub.site
+        if (url.contains("rpmhub.site", ignoreCase = true)) {
+            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // UpnShare - server1.uns.bio, uns.bio
+        if (url.contains("uns.bio", ignoreCase = true)) {
+            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
