@@ -262,27 +262,80 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             // For movies, data is direct URL
             val document = app.get(data).document
             
-            // Extract player options
-            document.select("ul#playeroptionsul > li")
-                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                .forEach { element ->
-                    val type = element.attr("data-type")
-                    val post = element.attr("data-post")
-                    val nume = element.attr("data-nume")
+            // Extract player options from embedded iframe
+            val iframeSrc = document.selectFirst("iframe[src*='gdmirrorbot.nl']")?.attr("src")
+            if (!iframeSrc.isNullOrEmpty()) {
+                val embedDoc = app.get(iframeSrc, referer = data).document
+                
+                // Extract video links from the embed page
+                val videoLinks = embedDoc.select("li.server-item[data-link]")
+                videoLinks.forEach { item ->
+                    val videoUrl = item.attr("data-link")
+                    val serverName = item.selectFirst("div.server-name")?.text() ?: "Unknown"
                     
-                    // Get iframe URL from player API
-                    val iframeUrl = getIframeUrl(type, post, nume)
-                    if (!iframeUrl.isNullOrEmpty()) {
-                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                    when {
+                        serverName.contains("SMWH", ignoreCase = true) -> {
+                            // StreamHG/StreamWish
+                            StreamWishExtractor().getUrl(videoUrl, data, subtitleCallback, callback)
+                        }
+                        serverName.contains("STRMP2", ignoreCase = true) -> {
+                            // StreamP2P
+                            StreamP2PExtractor().getUrl(videoUrl, data, subtitleCallback, callback)
+                        }
+                        serverName.contains("FLLS", ignoreCase = true) -> {
+                            // ErnVids/VidHide
+                            VidHideExtractor().getUrl(videoUrl, data, subtitleCallback, callback)
+                        }
+                        else -> {
+                            // Try loadExtractor for other sources
+                            loadExtractor(videoUrl, data, subtitleCallback, callback)
+                        }
                     }
                 }
+                
+                // Handle download links
+                val downloadLink = embedDoc.selectFirst("a.dlvideoLinks")?.attr("href")
+                if (!downloadLink.isNullOrEmpty()) {
+                    processDownloadLinks(downloadLink, data, subtitleCallback, callback)
+                }
+            }
         } else {
             // For episodes, data is LinkData JSON
             try {
                 val linkData = AppUtils.parseJson<LinkData>(data)
-                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
-                if (!iframeUrl.isNullOrEmpty()) {
-                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
+                // Similar processing for episodes
+                val episodeUrl = linkData.url
+                val document = app.get(episodeUrl).document
+                
+                val iframeSrc = document.selectFirst("iframe[src*='gdmirrorbot.nl']")?.attr("src")
+                if (!iframeSrc.isNullOrEmpty()) {
+                    val embedDoc = app.get(iframeSrc, referer = episodeUrl).document
+                    
+                    val videoLinks = embedDoc.select("li.server-item[data-link]")
+                    videoLinks.forEach { item ->
+                        val videoUrl = item.attr("data-link")
+                        val serverName = item.selectFirst("div.server-name")?.text() ?: "Unknown"
+                        
+                        when {
+                            serverName.contains("SMWH", ignoreCase = true) -> {
+                                StreamWishExtractor().getUrl(videoUrl, episodeUrl, subtitleCallback, callback)
+                            }
+                            serverName.contains("STRMP2", ignoreCase = true) -> {
+                                StreamP2PExtractor().getUrl(videoUrl, episodeUrl, subtitleCallback, callback)
+                            }
+                            serverName.contains("FLLS", ignoreCase = true) -> {
+                                VidHideExtractor().getUrl(videoUrl, episodeUrl, subtitleCallback, callback)
+                            }
+                            else -> {
+                                loadExtractor(videoUrl, episodeUrl, subtitleCallback, callback)
+                            }
+                        }
+                    }
+                    
+                    val downloadLink = embedDoc.selectFirst("a.dlvideoLinks")?.attr("href")
+                    if (!downloadLink.isNullOrEmpty()) {
+                        processDownloadLinks(downloadLink, episodeUrl, subtitleCallback, callback)
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -292,83 +345,57 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         return true
     }
     
-    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
-        return try {
-            Log.d("MultiMovies", "Getting iframe URL - Type: $type, Post: $post, Nume: $nume")
-            
-            // Call player API
-            val requestBody = FormBody.Builder()
-                .addEncoded("action", "doo_player_ajax")
-                .addEncoded("post", post)
-                .addEncoded("nume", nume)
-                .addEncoded("type", type)
-                .build()
-            
-            val response = app.post(
-                "$mainUrl/wp-admin/admin-ajax.php",
-                requestBody = requestBody,
-                headers = mapOf(
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to mainUrl
-                )
-            ).parsedSafe<ResponseHash>()
-            
-            val iframeUrl = response?.embed_url
-            Log.d("MultiMovies", "Retrieved iframe URL: $iframeUrl")
-            iframeUrl
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Error getting iframe URL: ${e.message}")
-            e.printStackTrace()
-            null
-        }
-    }
-    
-    private suspend fun loadExtractorLink(
-        url: String,
+    private suspend fun processDownloadLinks(
+        downloadPageUrl: String,
         referer: String,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("MultiMovies", "loadExtractorLink called with URL: $url")
-        
-        // GDMirror - gdmirrorbot.nl (contains embedded iframes to actual hosters)
-        if (url.contains("gdmirrorbot.nl", ignoreCase = true)) {
-            try {
-                Log.d("MultiMovies", "Processing GDMirror URL: $url")
-                val doc = app.get(url, referer = referer).document
-                
-                // Extract iframe sources
-                val iframe = doc.selectFirst("iframe#vidFrame[src]")
-                val iframeSrc = iframe?.attr("src")
-                
-                if (!iframeSrc.isNullOrEmpty() && !iframeSrc.contains("youtube")) {
-                    Log.d("MultiMovies", "Found iframe in GDMirror: $iframeSrc")
-                    loadExtractorLink(iframeSrc, url, subtitleCallback, callback)
-                } else {
-                    Log.e("MultiMovies", "No valid iframe found in GDMirror")
+        try {
+            // Get the LoadMyFile page
+            val doc = app.get(downloadPageUrl, referer = referer).document
+            
+            // Extract all download server links
+            val downloadLinks = doc.select("a[href*='igx.gtxgamer.site']")
+            
+            downloadLinks.forEach { link ->
+                val redirectUrl = link.attr("href")
+                try {
+                    // Follow redirect to get actual hoster
+                    val redirectDoc = app.get(redirectUrl, referer = downloadPageUrl).document
+                    
+                    // Look for final download button
+                    val finalUrl = redirectDoc.selectFirst("a[href*='gofile'], a[href*='filepress']")
+                        ?.attr("href")
+                    
+                    finalUrl?.let { url ->
+                        when {
+                            url.contains("gofile", ignoreCase = true) -> {
+                                GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
+                            }
+                            url.contains("filepress", ignoreCase = true) -> {
+                                FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
+                            }
+                            else -> {
+                                loadExtractor(url, referer, subtitleCallback, callback)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continue to next link if one fails
                 }
-            } catch (e: Exception) {
-                Log.e("MultiMovies", "GDMirror extraction error: ${e.message}")
-                e.printStackTrace()
             }
-            return
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        
-        // Use CloudStream3's built-in extractors for all video hosters
-        Log.d("MultiMovies", "Loading video from: $url")
-        loadExtractor(url, referer, subtitleCallback, callback)
     }
 
-    data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("key") val key: String? = null,
-        @JsonProperty("type") val type: String? = null,
-    )
-
-
     private fun Element.getImageAttr(): String? {
-        return this.attr("data-src")
-            .takeIf { it.isNotBlank() && it.startsWith("http") }
-            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
+        return when {
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            else -> this.attr("abs:src")
+        }
     }
 }
