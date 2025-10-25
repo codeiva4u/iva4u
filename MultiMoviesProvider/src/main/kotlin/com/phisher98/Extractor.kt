@@ -1,3 +1,4 @@
+@file:Suppress("unused")
 package com.phisher98
 
 import com.google.gson.JsonParser
