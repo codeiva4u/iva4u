@@ -379,54 +379,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            // Check URL patterns and use appropriate extractors
-            when {
-                // StreamWish/StreamHG domains
-                url.contains("streamwish", ignoreCase = true) ||
-                url.contains("streamhg", ignoreCase = true) ||
-                url.contains("multimoviesshg.com", ignoreCase = true) -> {
-                    StreamWishExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                // StreamP2P domains
-                url.contains("p2pplay.pro", ignoreCase = true) ||
-                url.contains("streamp2p", ignoreCase = true) -> {
-                    StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                // VidHide/ErnVids domains  
-                url.contains("vidhide", ignoreCase = true) ||
-                url.contains("ernvids", ignoreCase = true) ||
-                url.contains("smoothpre.com", ignoreCase = true) -> {
-                    VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                // RpmShare
-                url.contains("rpmhub.site", ignoreCase = true) ||
-                url.contains("rpmshare", ignoreCase = true) -> {
-                    // Try loadExtractor or add custom RpmShare extractor
-                    loadExtractor(url, referer, subtitleCallback, callback)
-                }
-                // UpnShare
-                url.contains("uns.bio", ignoreCase = true) ||
-                url.contains("upnshare", ignoreCase = true) -> {
-                    // Try loadExtractor or add custom UpnShare extractor
-                    loadExtractor(url, referer, subtitleCallback, callback)
-                }
-                // Gofile
-                url.contains("gofile", ignoreCase = true) -> {
-                    GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                // FilePress
-                url.contains("filepress", ignoreCase = true) -> {
-                    FilePressExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                // Default: try CloudStream's built-in extractors
-                else -> {
-                    loadExtractor(url, referer, subtitleCallback, callback)
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Note: Most video hosters are already supported by CloudStream's built-in extractors
+        // Only add custom extractors if CloudStream doesn't support them
+        
+        // For now, just use CloudStream's built-in loadExtractor for all video hosters
+        // It already supports: StreamWish, StreamTape, Doodstream, Filemoon, and many more
+        loadExtractor(url, referer, subtitleCallback, callback)
     }
     
     private suspend fun processDownloadLinks(
