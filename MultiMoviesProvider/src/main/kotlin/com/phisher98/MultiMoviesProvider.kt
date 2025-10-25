@@ -27,9 +27,11 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.nicehttp.NiceResponse
 import com.lagradost.cloudstream3.utils.AppUtils
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.nicehttp.NiceResponse
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 
@@ -335,23 +337,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
         
-        // RpmShare - multimovies.rpmhub.site
+        // RpmShare/UpnShare - Same hoster with different domains
         val rpmShareDomains = listOf(
-            "rpmhub.site"
+            "rpmhub.site",
+            "uns.bio"
         )
         
         if (rpmShareDomains.any { url.contains(it, ignoreCase = true) }) {
             RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // UpnShare - server1.uns.bio
-        val upnShareDomains = listOf(
-            "uns.bio"
-        )
-        
-        if (upnShareDomains.any { url.contains(it, ignoreCase = true) }) {
-            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         

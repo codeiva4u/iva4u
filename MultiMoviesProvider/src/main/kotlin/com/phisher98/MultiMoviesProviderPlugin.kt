@@ -12,8 +12,7 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         
         // Register all video hosting extractors
         registerExtractorAPI(StreamWishExtractor())
-        registerExtractorAPI(RpmShareExtractor())
-        registerExtractorAPI(UpnShareExtractor())
+        registerExtractorAPI(RpmShareExtractor())  // Also handles UpnShare (same hoster)
         registerExtractorAPI(SmoothPreExtractor())
         registerExtractorAPI(StreamP2PExtractor())
         registerExtractorAPI(TechInMindExtractor())
