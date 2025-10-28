@@ -277,20 +277,33 @@ class HDhub4uProvider : MainAPI() {
             List(jsonArray.length()) { index -> jsonArray.getString(index) }
                 .filter { it.isNotBlank() }
         } catch (e: Exception) {
-            Log.e("Phisher", "Failed to parse link JSON: ${e.message}")
+            Log.e("HDHub4u", "Failed to parse link JSON: ${e.message}")
             return false
         }
 
         for (link in links) {
             try {
+                // Skip invalid/problematic URLs
+                if (link.contains("viralkhabarbull", ignoreCase = true) || 
+                    !link.startsWith("http")) {
+                    Log.d("HDHub4u", "Skipping invalid URL: $link")
+                    continue
+                }
+                
                 val finalLink = if ("?id=" in link) {
-                    getRedirectLinks(link)
+                    val resolved = getRedirectLinks(link)
+                    if (resolved.isEmpty() || !resolved.startsWith("http")) {
+                        Log.e("HDHub4u", "Invalid resolved URL from: $link")
+                        continue
+                    }
+                    resolved
                 } else {
                     link
                 }
+                
                 loadExtractor(finalLink, subtitleCallback, callback)
             } catch (e: Exception) {
-                Log.e("Phisher", "Failed to process $link: ${e.message}")
+                Log.e("HDHub4u", "Failed to process $link: ${e.message}")
             }
         }
         return true
