@@ -493,3 +493,215 @@ class GofileExtractor : ExtractorApi() {
         val link: String?
     )
 }
+
+// Buzzheavier Extractor
+class BuzzheavierExtractor : ExtractorApi() {
+    override val name = "Buzzheavier"
+    override val mainUrl = "https://buzzheavier.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("Buzzheavier", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("Buzzheavier", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("Buzzheavier", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// GDtot Extractor
+class GDtotExtractor : ExtractorApi() {
+    override val name = "GDtot"
+    override val mainUrl = "https://gdtot.pro"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("GDtot", "Fetching: $url")
+            
+            val doc = app.get(url, referer = referer).document
+            
+            // Look for download button or direct link
+            val downloadLink = doc.select("a[href*='drive.google.com'], a.btn[href]").attr("href")
+            
+            if (downloadLink.isNotBlank()) {
+                Log.d("GDtot", "Found download link: $downloadLink")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        downloadLink,
+                        ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("GDtot", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// RpmShare Extractor
+class RpmShareExtractor : ExtractorApi() {
+    override val name = "RpmShare"
+    override val mainUrl = "https://rpmshare.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("RpmShare", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("RpmShare", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("RpmShare", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// StreamP2P Extractor
+class StreamP2PExtractor : ExtractorApi() {
+    override val name = "StreamP2P"
+    override val mainUrl = "https://streamp2p.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("StreamP2P", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("StreamP2P", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("StreamP2P", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// UpnShare Extractor
+class UpnShareExtractor : ExtractorApi() {
+    override val name = "UpnShare"
+    override val mainUrl = "https://upnshare.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("UpnShare", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("UpnShare", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("UpnShare", "Extraction error: ${e.message}")
+        }
+    }
+}

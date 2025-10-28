@@ -371,6 +371,73 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
         
+        // Streamwish
+        if (url.contains("streamwish", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using StreamwishExtractor")
+            StreamwishExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // VidHide
+        if (url.contains("vidhide", ignoreCase = true) ||
+            url.contains("filelion", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using VidHideExtractor")
+            VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // Filepress
+        if (url.contains("filepress", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using FilepressExtractor")
+            FilepressExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // Gofile
+        if (url.contains("gofile", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using GofileExtractor")
+            GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // Buzzheavier
+        if (url.contains("buzzheavier", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using BuzzheavierExtractor")
+            BuzzheavierExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // GDtot
+        if (url.contains("gdtot", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using GDtotExtractor")
+            GDtotExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // RpmShare
+        if (url.contains("rpmshare", ignoreCase = true) ||
+            url.contains("rpmhub", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using RpmShareExtractor")
+            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // StreamP2P
+        if (url.contains("streamp2p", ignoreCase = true) ||
+            url.contains("p2pplay", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using StreamP2PExtractor")
+            StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // UpnShare
+        if (url.contains("upnshare", ignoreCase = true) ||
+            url.contains("uns.bio", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using UpnShareExtractor")
+            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
         // Use built-in CloudStream extractors for all other hosters
         Log.d("MultiMovies", "Using built-in loadExtractor")
         loadExtractor(url, referer, subtitleCallback, callback)

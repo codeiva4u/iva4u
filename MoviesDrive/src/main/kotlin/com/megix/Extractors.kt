@@ -21,8 +21,8 @@ fun getIndexQuality(str: String?): Int {
 
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
-    override val mainUrl = "https://pixeldrain.dev"
-    override val requiresReferer = true
+    override val mainUrl = "https://pixeldrain.com"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -30,15 +30,39 @@ class PixelDrain : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val mId = Regex("/(?:u|file)/([\\w-]+)").find(url)?.groupValues?.getOrNull(1)
-        val finalUrl = if (mId.isNullOrEmpty()) url else "$mainUrl/api/file/$mId?download"
-
-        callback.invoke(
-            newExtractorLink(this.name, this.name, finalUrl) {
-                this.referer = url
-                this.quality = Qualities.Unknown.value
+        try {
+            // Extract file ID from various Pixeldrain URL formats
+            val mId = Regex("/(?:u|file|l)/([\\w-]+)").find(url)?.groupValues?.getOrNull(1)
+            
+            if (mId.isNullOrEmpty()) {
+                Log.d("PixelDrain", "Could not extract file ID from: $url")
+                return
             }
-        )
+            
+            // Use direct API endpoint for better compatibility
+            val finalUrl = "$mainUrl/api/file/$mId"
+            
+            // Get file info first to check if it's a valid video
+            val infoResponse = app.get("$mainUrl/api/file/$mId/info", allowRedirects = false)
+            if (infoResponse.isSuccessful) {
+                val infoText = infoResponse.text
+                val mimeType = Regex("\"mime_type\"\\s*:\\s*\"([^\"]+)\"").find(infoText)?.groupValues?.getOrNull(1)
+                
+                // Only process if it's a video file
+                if (mimeType != null && mimeType.startsWith("video/")) {
+                    callback.invoke(
+                        newExtractorLink(this.name, this.name, finalUrl) {
+                            this.referer = "$mainUrl/"
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                } else {
+                    Log.d("PixelDrain", "File is not a video. MIME type: $mimeType")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PixelDrain", "Error extracting: ${e.message}")
+        }
     }
 }
 
@@ -75,8 +99,9 @@ open class HubCloud : ExtractorApi() {
     ) {
         val newBaseUrl = "https://hubcloud.one"
         // Validate URL before processing
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return // Invalid URL, skip processing
+        if (!url.startsWith("http://") && !url.startsWith("https://") || url.contains("null", ignoreCase = true)) {
+            Log.d("HubCloud", "Invalid URL skipped: $url")
+            return // Invalid URL or null source, skip processing
         }
         val newUrl = url.replace(mainUrl, newBaseUrl)
         val doc = app.get(newUrl).document
@@ -135,21 +160,45 @@ open class HubCloud : ExtractorApi() {
                 }
 
                 btnLink.contains("pixeldra") -> {
-                    callback.invoke(
-                        newExtractorLink("Pixeldrain", "Pixeldrain $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
+                    try {
+                        // Extract and use Pixeldrain properly
+                        PixelDrain().getUrl(btnLink, url, subtitleCallback, callback)
+                    } catch (e: Exception) {
+                        Log.e("HubCloud", "Pixeldrain extraction failed: ${e.message}")
+                    }
                 }
 
                 text.contains("Download [Server : 10Gbps]") -> {
-                    val dlink = app.get(btnLink, allowRedirects = false).headers["location"]?.substringAfter("link=")
-                        ?: return@forEach
-                    callback.invoke(
-                        newExtractorLink("$name[Download]", "$name[Download] $header[$size]", dlink) {
-                            quality = getIndexQuality(header)
+                    try {
+                        // Follow the redirect chain to get final download link
+                        val redirectResponse = app.get(btnLink, allowRedirects = false)
+                        val locationHeader = redirectResponse.headers["location"] ?: return@forEach
+                        
+                        val dlink = if (locationHeader.contains("link=")) {
+                            locationHeader.substringAfter("link=")
+                        } else {
+                            locationHeader
                         }
-                    )
+                        
+                        // Validate final link
+                        if (dlink.isBlank() || dlink.contains("null", ignoreCase = true)) {
+                            Log.d("HubCloud", "Invalid 10Gbps link: $dlink")
+                            return@forEach
+                        }
+                        
+                        // Check if link is a valid video file or stream
+                        if (dlink.matches(Regex(".*(mkv|mp4|avi|webm|m3u8).*", RegexOption.IGNORE_CASE))) {
+                            callback.invoke(
+                                newExtractorLink("$name[10Gbps]", "$name[10Gbps] $header[$size]", dlink) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                        } else {
+                            Log.d("HubCloud", "10Gbps link not a valid video file: $dlink")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("HubCloud", "Error processing 10Gbps link: ${e.message}")
+                    }
                 }
 
                 else -> {
@@ -258,16 +307,13 @@ open class GDFlix : ExtractorApi() {
                 }
 
                 text.contains("PixelDrain DL") -> {
-                    val link = anchor.attr("href")
-                    callback.invoke(
-                        newExtractorLink(
-                            "Pixeldrain",
-                            "Pixeldrain $fileName[$fileSize]",
-                            link
-                        ) {
-                            this.quality = getIndexQuality(fileName)
-                        }
-                    )
+                    try {
+                        val link = anchor.attr("href")
+                        // Use PixelDrain extractor for proper handling
+                        PixelDrain().getUrl(link, latestUrl, subtitleCallback, callback)
+                    } catch (e: Exception) {
+                        Log.e("GDFlix", "PixelDrain extraction failed: ${e.message}")
+                    }
                 }
 
                 text.contains("Index Links") -> {
@@ -359,15 +405,33 @@ open class GDFlix : ExtractorApi() {
                 }
                 text.contains("GoFile") -> {
                     try {
-                        app.get(anchor.attr("href")).document
-                            .select(".row .row a").amap { gofileAnchor ->
+                        val gofileMirrorUrl = anchor.attr("href")
+                        
+                        // Handle goflix.sbs mirror and direct gofile links
+                        if (gofileMirrorUrl.contains("goflix.sbs", ignoreCase = true)) {
+                            // Extract from goflix.sbs mirror page
+                            val mirrorDoc = app.get(gofileMirrorUrl).document
+                            mirrorDoc.select(".row .row a, a[href*='gofile']").amap { gofileAnchor ->
                                 val link = gofileAnchor.attr("href")
-                                if (link.contains("gofile")) {
-                                    Gofile().getUrl(link, "", subtitleCallback, callback)
+                                if (link.contains("gofile", ignoreCase = true)) {
+                                    Gofile().getUrl(link, latestUrl, subtitleCallback, callback)
                                 }
                             }
+                        } else if (gofileMirrorUrl.contains("gofile", ignoreCase = true)) {
+                            // Direct gofile link
+                            Gofile().getUrl(gofileMirrorUrl, latestUrl, subtitleCallback, callback)
+                        } else {
+                            // Try to find gofile links in the page
+                            app.get(gofileMirrorUrl).document
+                                .select(".row .row a, a[href*='gofile']").amap { gofileAnchor ->
+                                    val link = gofileAnchor.attr("href")
+                                    if (link.contains("gofile", ignoreCase = true)) {
+                                        Gofile().getUrl(link, latestUrl, subtitleCallback, callback)
+                                    }
+                                }
+                        }
                     } catch (e: Exception) {
-                        Log.d("Gofile", e.toString())
+                        Log.e("Gofile", "Error extracting GoFile: ${e.message}")
                     }
                 }
 

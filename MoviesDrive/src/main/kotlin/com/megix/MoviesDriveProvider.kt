@@ -349,14 +349,18 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
         sources.amap {
             val source = it.source
-            // Validate URL before extracting
-            if (source.startsWith("http://") || source.startsWith("https://")) {
+            // Validate URL before extracting - skip null or invalid URLs
+            if ((source.startsWith("http://") || source.startsWith("https://")) && 
+                !source.contains("null", ignoreCase = true) &&
+                source.isNotBlank()) {
                 try {
                     loadExtractor(source, subtitleCallback, callback)
                 } catch (e: Exception) {
                     // Log error but continue with other sources
                     println("Error loading source $source: ${e.message}")
                 }
+            } else {
+                println("Skipping invalid or null source: $source")
             }
         }
         return true   
