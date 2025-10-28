@@ -6,13 +6,12 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
-import com.lagradost.cloudstream3.Score
 import com.google.gson.Gson
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.lat/"
+    override var mainUrl = "https://moviesdrive.lat"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -27,7 +26,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     init {
         // Use direct domain instead of fetching from GitHub
-        mainUrl = "https://moviesdrive.lat"
+        mainUrl = "https://moviesdrive.mom"
     }
 
     // Helper function to ensure URL is properly formatted
@@ -152,7 +151,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
+            title.contains("Episode", ignoreCase = true) == true ||
+            seasonRegex.containsMatchIn(title) ||
+            title.contains("series", ignoreCase = true) == true
         ) {
             "series"
         } else {
@@ -196,7 +197,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 if (checkSeason == null) {
                     val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
-                        title = "$title $seasonText"
+                        title = title + " " + seasonText.toString()
                     }
                 }
             }
@@ -225,7 +226,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                             
                             var elements = doc.select("span:matches((?i)(Ep))")
                             if(elements.isEmpty()) {
-                                elements = doc.select("a:matches((?i)(HubCloud|GDFlix|hubcloud))")
+                                elements = doc.select("a:matches((?i)(HubCloud|GDFlix))")
                             }
                             
                             var episodeNum = 1
@@ -236,7 +237,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                         var hTag = titleTag?.nextElementSibling()
                                         episodeNum = Regex("""Ep(\d{2})""").find(element.toString())?.groups?.get(1)?.value?.toIntOrNull() ?: (index + 1)
                                         
-                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|gdflix|gdlink|hubcloud|pixeldrain", RegexOption.IGNORE_CASE))) {
+                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
                                             val aTag = hTag.selectFirst("a")
                                             val epUrl = aTag?.attr("href")?.takeIf { it.isNotEmpty() }
                                             if (epUrl != null) {
@@ -291,11 +292,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
-                this.score = try { 
-                    imdbRating.toDoubleOrNull()?.let { Score.from10(it) }
-                } catch (e: Exception) { 
-                    null 
-                }
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background
                 addActors(cast)
@@ -310,7 +306,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     val validLink = getValidUrl(link)
                     val doc = app.get(validLink, timeout = 8L).document
                     val innerButtons = doc.select("a").filter { element ->
-                        element.attr("href").contains(Regex("hubcloud|gdflix|gdlink|pixeldrain", RegexOption.IGNORE_CASE))
+                        element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
                     }
                     innerButtons.mapNotNull { innerButton ->
                         val source = innerButton.attr("href")
@@ -327,11 +323,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
-                this.score = try { 
-                    imdbRating.toDoubleOrNull()?.let { Score.from10(it) }
-                } catch (e: Exception) { 
-                    null 
-                }
                 this.year = year.toIntOrNull()
                 this.backgroundPosterUrl = background
                 addActors(cast)
@@ -349,18 +340,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
         sources.amap {
             val source = it.source
-            // Validate URL before extracting - skip null or invalid URLs
-            if ((source.startsWith("http://") || source.startsWith("https://")) && 
-                !source.contains("null", ignoreCase = true) &&
-                source.isNotBlank()) {
+            // Validate URL before extracting
+            if (source.startsWith("http://") || source.startsWith("https://")) {
                 try {
                     loadExtractor(source, subtitleCallback, callback)
                 } catch (e: Exception) {
                     // Log error but continue with other sources
                     println("Error loading source $source: ${e.message}")
                 }
-            } else {
-                println("Skipping invalid or null source: $source")
             }
         }
         return true   

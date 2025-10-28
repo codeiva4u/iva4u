@@ -1,4 +1,4 @@
-version = 6
+version = 4
 
 cloudstream {
     language = "hi"
@@ -22,5 +22,5 @@ cloudstream {
         "Anime"
     )
 
-    iconUrl = "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/MoviesDrive/icon.png"
+    iconUrl = "https://raw.githubusercontent.com/codeiva4u/iva4u/master/MoviesDrive/icon.png"
 }
