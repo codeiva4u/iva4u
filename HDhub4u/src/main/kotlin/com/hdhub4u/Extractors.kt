@@ -99,7 +99,7 @@ class Hubcdnn : ExtractorApi() {
 
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
-    override val mainUrl = "https://hubdrive.fit"
+    override val mainUrl = "https://hubdrive.space"
     override val requiresReferer = false
 
     @SuppressLint("SuspiciousIndentation")
@@ -111,12 +111,18 @@ class Hubdrive : ExtractorApi() {
     ) {
         try {
             val document = app.get(url).document
-            val href = document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
+            
+            // Try multiple selectors for download button
+            val href = document.select("a.btn:contains(HubCloud), a.btn:contains(Server), a.btn[href*='hubcloud']").attr("href")
+                .ifEmpty { document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href") }
+                .ifEmpty { document.select("a.btn-primary[href]").attr("href") }
             
             if (href.isEmpty()) {
-                Log.e("Hubdrive", "No download link found")
+                Log.e("Hubdrive", "No download link found on page: $url")
                 return
             }
+            
+            Log.d("Hubdrive", "Found link: $href")
             
             if (href.contains("hubcloud", ignoreCase = true)) {
                 HubCloud().getUrl(href, "HubDrive", subtitleCallback, callback)
@@ -124,7 +130,7 @@ class Hubdrive : ExtractorApi() {
                 loadExtractor(href, "HubDrive", subtitleCallback, callback)
             }
         } catch (e: Exception) {
-            Log.e("Hubdrive", "Error extracting: ${e.message}")
+            Log.e("Hubdrive", "Error extracting from $url: ${e.message}")
         }
     }
 }
@@ -132,7 +138,7 @@ class Hubdrive : ExtractorApi() {
 
 class HubCloud : ExtractorApi() {
     override val name = "Hub-Cloud"
-    override val mainUrl = "https://hubcloud.ink"
+    override val mainUrl = "https://hubcloud.fit"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -145,6 +151,8 @@ class HubCloud : ExtractorApi() {
         val realUrl = url.takeIf {
             try { URL(it); true } catch (e: Exception) { Log.e("HubCloud", "Invalid URL: ${e.message}"); false }
         } ?: return
+        
+        Log.d("HubCloud", "Processing URL: $realUrl")
 
         val baseUrl=getBaseUrl(realUrl)
 
