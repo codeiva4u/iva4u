@@ -163,6 +163,19 @@ open class HubCloud : ExtractorApi() {
                 val text = it.text()
 
                 when {
+                    // FSLv2 Server - cdn.fsl-buckets.xyz
+                    text.contains("FSLv2", ignoreCase = true) -> {
+                        try {
+                            callback.invoke(
+                                newExtractorLink("$name[FSLv2]", "$name FSLv2 $header[$size]", btnLink) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "FSLv2 error: ${e.message}")
+                        }
+                    }
+                    
                     // Prioritize 10Gbps server - FASTEST
                     text.contains("Download [Server : 10Gbps]", ignoreCase = true) || 
                     text.contains("10Gbps", ignoreCase = true) -> {
@@ -190,12 +203,38 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
                     
-                    text.contains("Download [FSL Server]", ignoreCase = true) -> {
+                    text.contains("Download [FSL Server]", ignoreCase = true) || text.contains("FSL Server") -> {
                         callback.invoke(
                             newExtractorLink("$name[FSL]", "$name FSL $header[$size]", btnLink) {
                                 quality = getIndexQuality(header)
                             }
                         )
+                    }
+                    
+                    // S3 Server - Google Cloud Storage
+                    text.contains("S3 Server", ignoreCase = true) -> {
+                        try {
+                            callback.invoke(
+                                newExtractorLink("$name[S3]", "$name S3 $header[$size]", btnLink) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "S3 Server error: ${e.message}")
+                        }
+                    }
+                    
+                    // ZipDisk Server - Cloudflare Workers
+                    text.contains("ZipDisk", ignoreCase = true) -> {
+                        try {
+                            callback.invoke(
+                                newExtractorLink("$name[ZipDisk]", "$name ZipDisk $header[$size] [ZIP]", btnLink) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "ZipDisk error: ${e.message}")
+                        }
                     }
 
                     text.contains("Download File", ignoreCase = true) -> {
@@ -226,11 +265,25 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
 
-                    btnLink.contains("pixeldra", ignoreCase = true) -> {
+                    btnLink.contains("pixeldra", ignoreCase = true) || 
+                    text.contains("PixelServer", ignoreCase = true) -> {
                         try {
                             PixelDrain().getUrl(btnLink, url, subtitleCallback, callback)
                         } catch (e: Exception) {
                             Log.e("HubCloud", "Pixeldrain extraction failed: ${e.message}")
+                        }
+                    }
+                    
+                    // MegaServer - if present
+                    text.contains("MegaServer", ignoreCase = true) || text.contains("MEGA", ignoreCase = true) -> {
+                        try {
+                            callback.invoke(
+                                newExtractorLink("$name[MEGA]", "$name MEGA $header[$size]", btnLink) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "MEGA Server error: ${e.message}")
                         }
                     }
 
