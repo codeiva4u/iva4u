@@ -122,43 +122,99 @@ open class HubCloud : ExtractorApi() {
             val header = doc.selectFirst("div.card-header")?.text() ?: "Video"
             val size = doc.selectFirst("i#size")?.text() ?: ""
 
-            var link = if (url.contains("drive")) {
-                // Extract direct download link from button
-                val downloadBtn = doc.selectFirst("a#download[href*=gamerxyt]") 
-                    ?: doc.selectFirst("a[href*=download]")
-                downloadBtn?.attr("href") ?: ""
-            } else {
-                doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-            }
-
-            // If link is relative, make it absolute
-            if (link.isNotEmpty() && link.startsWith("/")) {
-                link = getBaseUrl(url) + link
-            }
+            // Check if this is hubcloud page with gamerxyt redirect
+            val downloadBtn = doc.selectFirst("a#download[href*=gamerxyt], a[href*=gamerxyt]")
             
-            // If we found intermediate link (gamerxyt), DON'T follow - it's handled by fastdlserver
-            // Instead, look for direct video links on the page
-            if (link.isNotEmpty() && !link.contains("gamerxyt")) {
+            if (downloadBtn != null) {
+                // This is initial HubCloud page - follow gamerxyt to get actual servers
                 try {
-                    // This is a direct link, add it
-                    callback.invoke(
-                        newExtractorLink(
-                            "$name[Direct]",
-                            "$name Direct $header [$size]",
-                            link
-                        ) {
-                            this.referer = getBaseUrl(url)
-                            this.quality = getIndexQuality(header)
+                    val gamerxytLink = downloadBtn.attr("href")
+                    Log.d("HubCloud", "Following gamerxyt redirect: $gamerxytLink")
+                    
+                    // Get the redirect page with all servers
+                    val redirectDoc = app.get(gamerxytLink).document
+                    val redirectHeader = redirectDoc.selectFirst("div.card-header")?.text() ?: header
+                    val redirectSize = redirectDoc.selectFirst("i#size")?.text() ?: size
+                    
+                    // Extract S3 Server URL from JavaScript
+                    val s3Link = redirectDoc.select("script").firstOrNull { 
+                        it.html().contains("window.location.href") && it.html().contains("s3.blockxpiracy.net")
+                    }?.let { script ->
+                        Regex("window\\.location\\.href\\s*=\\s*['\"](https://s3\\.blockxpiracy\\.net[^'\"]+)['\"]").find(script.html())?.groupValues?.getOrNull(1)
+                    }
+                    
+                    // Extract ALL server buttons from redirect page
+                    redirectDoc.select("a.btn").forEach { serverBtn ->
+                        val serverLink = serverBtn.attr("href")
+                        val serverText = serverBtn.text()
+                        
+                        when {
+                            // FSLv2 Server
+                            serverText.contains("FSLv2", ignoreCase = true) && serverLink.isNotBlank() -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[FSLv2]", "$name FSLv2 $redirectHeader [$redirectSize]", serverLink) {
+                                        this.quality = getIndexQuality(redirectHeader)
+                                    }
+                                )
+                            }
+                            
+                            // 10Gbps Server
+                            serverText.contains("10Gbps", ignoreCase = true) && serverLink.isNotBlank() -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[10Gbps⚡]", "$name 10Gbps $redirectHeader [$redirectSize]", serverLink) {
+                                        this.quality = getIndexQuality(redirectHeader)
+                                    }
+                                )
+                            }
+                            
+                            // FSL Server
+                            serverText.contains("FSL Server", ignoreCase = true) && serverLink.isNotBlank() -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[FSL]", "$name FSL $redirectHeader [$redirectSize]", serverLink) {
+                                        this.quality = getIndexQuality(redirectHeader)
+                                    }
+                                )
+                            }
+                            
+                            // S3 Server - get from JavaScript
+                            serverText.contains("S3 Server", ignoreCase = true) && s3Link != null -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[S3]", "$name S3 $redirectHeader [$redirectSize]", s3Link) {
+                                        this.quality = getIndexQuality(redirectHeader)
+                                    }
+                                )
+                            }
+                            
+                            // ZipDisk Server
+                            serverText.contains("ZipDisk", ignoreCase = true) && serverLink.isNotBlank() -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[ZipDisk]", "$name ZipDisk $redirectHeader [$redirectSize]", serverLink) {
+                                        this.quality = getIndexQuality(redirectHeader)
+                                    }
+                                )
+                            }
+                            
+                            // PixelServer
+                            serverText.contains("PixelServer", ignoreCase = true) && serverLink.isNotBlank() -> {
+                                try {
+                                    PixelDrain().getUrl(serverLink, url, subtitleCallback, callback)
+                                } catch (e: Exception) {
+                                    Log.e("HubCloud", "PixelDrain error: ${e.message}")
+                                }
+                            }
                         }
-                    )
+                    }
+                    
+                    // Return after processing gamerxyt page
+                    return
                 } catch (e: Exception) {
-                    Log.e("HubCloud", "Error adding direct link: ${e.message}")
+                    Log.e("HubCloud", "Error processing gamerxyt redirect: ${e.message}")
                 }
             }
 
-            // Also check for alternative download buttons on same page
+            // Also check for alternative download buttons on current page (fallback)
             val div = doc.selectFirst("div.card-body")
-            div?.select("h2 a.btn, a.btn")?.forEach {
+            div?.select("h2 a.btn, a.btn")?.filter { !it.attr("href").contains("gamerxyt") }?.forEach {
                 val btnLink = it.attr("href")
                 val text = it.text()
 
