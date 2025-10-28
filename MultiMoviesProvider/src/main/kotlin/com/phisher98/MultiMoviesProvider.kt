@@ -250,30 +250,57 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         
-        Log.d("MultiMovies", "loadLinks called for: $data")
+        Log.d("MultiMovies", "========== loadLinks START ==========")
+        Log.d("MultiMovies", "URL: $data")
         
-        // Get the document from the data URL
-        val document = app.get(data).document
-        
-        // Extract player options
-        document.select("ul#playeroptionsul > li")
-            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-            .forEach { element ->
+        try {
+            // Get the document from the data URL
+            val document = app.get(data).document
+            Log.d("MultiMovies", "Page fetched successfully")
+            
+            // Extract player options
+            val allOptions = document.select("ul#playeroptionsul > li")
+            Log.d("MultiMovies", "Total options found (including trailer): ${allOptions.size}")
+            
+            val playerOptions = allOptions.filterNot { it.attr("data-nume").equals("trailer", ignoreCase = true) }
+            Log.d("MultiMovies", "Player options (excluding trailer): ${playerOptions.size}")
+            
+            if (playerOptions.isEmpty()) {
+                Log.e("MultiMovies", "ERROR: No player options found!")
+                Log.d("MultiMovies", "HTML snippet: ${document.select("ul#playeroptionsul").html().take(500)}")
+                return false
+            }
+            
+            playerOptions.forEachIndexed { index, element ->
+                Log.d("MultiMovies", "--- Processing option ${index + 1} ---")
+                
                 val type = element.attr("data-type")
                 val post = element.attr("data-post")
                 val nume = element.attr("data-nume")
+                val title = element.select("span.title").text()
                 
-                Log.d("MultiMovies", "Player option found - type: $type, post: $post, nume: $nume")
+                Log.d("MultiMovies", "Title: $title")
+                Log.d("MultiMovies", "Type: '$type', Post: '$post', Nume: '$nume'")
                 
                 // Get iframe URL from player API
                 val iframeUrl = getIframeUrl(type, post, nume)
-                if (!iframeUrl.isNullOrEmpty()) {
-                    Log.d("MultiMovies", "Loading iframe: $iframeUrl")
+                
+                if (iframeUrl.isNullOrEmpty()) {
+                    Log.e("MultiMovies", "ERROR: getIframeUrl returned null/empty")
+                } else {
+                    Log.d("MultiMovies", "Success! Iframe URL: $iframeUrl")
                     loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                 }
             }
-        
-        return true
+            
+            Log.d("MultiMovies", "========== loadLinks END ==========")
+            return true
+            
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "FATAL ERROR in loadLinks: ${e.message}")
+            e.printStackTrace()
+            return false
+        }
     }
     
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
