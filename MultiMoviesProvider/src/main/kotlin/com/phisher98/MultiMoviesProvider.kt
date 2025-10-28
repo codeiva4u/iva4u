@@ -245,43 +245,26 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
-                Triple(
-                    it.attr("data-post"),
-                    it.attr("data-nume"),
-                    it.attr("data-type")
-                )
-            }.amap { (id, nume, type) ->
-            if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).document.select("ul.list-server-items > li").map {
-                                val server = it.attr("data-video")
-                                loadExtractorLink(server, data, subtitleCallback, callback)
-                            }
-                        } else {
-                            loadExtractorLink(link, data, subtitleCallback, callback)
-                        }
-                    }
-
-                    else -> return@amap
+        // Get the document from the data URL
+        val document = app.get(data).document
+        
+        // Extract player options
+        document.select("ul#playeroptionsul > li")
+            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+            .forEach { element ->
+                val type = element.attr("data-type")
+                val post = element.attr("data-post")
+                val nume = element.attr("data-nume")
+                
+                // Get iframe URL from player API
+                val embedResponse = getEmbed(post, nume, data)
+                val iframeUrl = embedResponse.parsed<TrailerUrl>()?.embedUrl
+                
+                if (!iframeUrl.isNullOrEmpty()) {
+                    loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                 }
             }
-        }
+        
         return true
     }
     
@@ -291,70 +274,57 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // StreamHG - multimoviesshg.com
-        val streamHGDomains = listOf(
-            "multimoviesshg.com"
-        )
-        
-        if (streamHGDomains.any { url.contains(it, ignoreCase = true) }) {
-            StreamHGExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
+        // Handle specific extractors based on URL patterns
+        when {
+            // GdMirror domains
+            url.contains("gdmirrorbot", ignoreCase = true) || 
+            url.contains("gtxgamer", ignoreCase = true) -> {
+                GdMirrorExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // TechInMind domains (for TV shows)
+            url.contains("techinmind.space", ignoreCase = true) -> {
+                TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // MultiMoviesShg - main video hoster
+            url.contains("multimoviesshg", ignoreCase = true) -> {
+                MultiMoviesShgExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Streamwish
+            url.contains("streamwish", ignoreCase = true) -> {
+                StreamwishExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // VidHide
+            url.contains("vidhide", ignoreCase = true) -> {
+                VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Filepress
+            url.contains("filepress", ignoreCase = true) -> {
+                FilepressExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Gofile
+            url.contains("gofile", ignoreCase = true) -> {
+                GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Use built-in CloudStream extractors for all other video hosters
+            else -> {
+                loadExtractor(url, referer, subtitleCallback, callback)
+            }
         }
-        
-        // RpmShare - multimovies.rpmhub.site
-        val rpmShareDomains = listOf(
-            "rpmhub.site"
-        )
-        
-        if (rpmShareDomains.any { url.contains(it, ignoreCase = true) }) {
-            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // UpnShare - server1.uns.bio
-        val upnShareDomains = listOf(
-            "uns.bio"
-        )
-        
-        if (upnShareDomains.any { url.contains(it, ignoreCase = true) }) {
-            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // SmoothPre/EarnVids - smoothpre.com
-        val smoothPreDomains = listOf(
-            "smoothpre.com"
-        )
-        
-        if (smoothPreDomains.any { url.contains(it, ignoreCase = true) }) {
-            SmoothPreExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // GTXGamer Download - ddn.gtxgamer.site
-        val gtxGamerDomains = listOf(
-            "gtxgamer.site"
-        )
-        
-        if (gtxGamerDomains.any { url.contains(it, ignoreCase = true) }) {
-            GTXGamerExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
-        // Use built-in CloudStream extractors for all other video hosters
-        loadExtractor(url, referer, subtitleCallback, callback)
     }
-
-    data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("key") val key: String? = null,
-        @JsonProperty("type") val type: String? = null,
-    )
-
-
+    
     private fun Element.getImageAttr(): String? {
-        return this.attr("data-src")
-            .takeIf { it.isNotBlank() && it.startsWith("http") }
-            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
+        return when {
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            else -> this.attr("abs:src")
+        }
     }
 }
