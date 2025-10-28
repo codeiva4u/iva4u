@@ -207,15 +207,33 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
 
         Log.d("MultiMovies", "Type detected: $type")
+        
+        // Extract player options for movies
+        val moviePlayerOptions = if (type == TvType.Movie) {
+            doc.select("ul#playeroptionsul > li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .map { option ->
+                    LinkData(
+                        type = option.attr("data-type"),
+                        post = option.attr("data-post"),
+                        nume = option.attr("data-nume")
+                    )
+                }
+        } else {
+            emptyList()
+        }
+        
+        Log.d("MultiMovies", "Movie player options count: ${moviePlayerOptions.size}")
         Log.d("MultiMovies", "========== LOAD END ==========")
         
         return if (type == TvType.Movie) {
-            Log.d("MultiMovies", "Returning Movie LoadResponse with data: $url")
+            val movieData = moviePlayerOptions.toJson()
+            Log.d("MultiMovies", "Returning Movie LoadResponse with data: $movieData")
             newMovieLoadResponse(
                 title,
                 url,
                 TvType.Movie,
-                url
+                movieData
             ) {
                 this.posterUrl = poster?.trim()
                 this.year = year
