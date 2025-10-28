@@ -125,7 +125,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
-
         val body = FormBody.Builder()
             .addEncoded("action", "doo_player_ajax")
             .addEncoded("post", postid.toString())
@@ -143,6 +142,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     data class TrailerUrl(
         @JsonProperty("embed_url") var embedUrl: String?,
         @JsonProperty("type") var type: String?
+    )
+    
+    data class ResponseHash(
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("type") val type: String? = null,
     )
 
     override suspend fun load(url: String): LoadResponse? {
@@ -279,8 +283,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     }
                     
                     // Get iframe URL from player API
-                    val embedResponse = getEmbed(post, nume, data)
-                    val iframeUrl = embedResponse.parsed<TrailerUrl>()?.embedUrl
+                    val iframeUrl = getIframeUrl(type, post, nume)
                     
                     if (iframeUrl.isNullOrEmpty()) {
                         Log.e("MultiMovies", "No iframe URL received from API")
@@ -302,6 +305,38 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             Log.e("MultiMovies", "Fatal error in loadLinks: ${e.message}")
             e.printStackTrace()
             return false
+        }
+    }
+    
+    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
+        return try {
+            Log.d("MultiMovies", "Calling player API with type=$type, post=$post, nume=$nume")
+            
+            // Call player API
+            val requestBody = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", post)
+                .addEncoded("nume", nume)
+                .addEncoded("type", type)
+                .build()
+            
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = requestBody,
+                headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to mainUrl
+                )
+            ).parsedSafe<ResponseHash>()
+            
+            val embedUrl = response?.embed_url
+            Log.d("MultiMovies", "Got embed URL from API: $embedUrl")
+            
+            embedUrl
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "Error getting iframe URL: ${e.message}")
+            e.printStackTrace()
+            null
         }
     }
     
