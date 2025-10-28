@@ -135,44 +135,74 @@ class GdMirrorExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("GdMirror", "Fetching: $url")
+            Log.d("GdMirror", "Starting extraction for: $url")
             
-            // Follow redirects to get final URL (usually gtxgamer)
-            val response = app.get(url, allowRedirects = true)
-            val finalUrl = response.url
+            // Method 1: Use WebView to load dynamic content and capture redirects
+            try {
+                Log.d("GdMirror", "Method 1: Using WebView to capture dynamic redirects...")
+                val webViewResponse = app.get(
+                    url,
+                    referer = referer,
+                    interceptor = WebViewResolver(
+                        Regex("""multimoviesshg\.com/e/[a-zA-Z0-9]+""")
+                    )
+                )
+                
+                val capturedUrl = webViewResponse.url
+                Log.d("GdMirror", "WebView captured URL: $capturedUrl")
+                
+                if (capturedUrl.contains("multimoviesshg", ignoreCase = true)) {
+                    Log.d("GdMirror", "Found MultiMoviesShg URL via WebView: $capturedUrl")
+                    MultiMoviesShgExtractor().getUrl(
+                        capturedUrl,
+                        url,
+                        subtitleCallback,
+                        callback
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("GdMirror", "WebView method failed: ${e.message}")
+            }
             
-            Log.d("GdMirror", "Final URL after redirects: $finalUrl")
-            
-            // Check if it redirects to gtxgamer
-            if (finalUrl.contains("gtxgamer", ignoreCase = true)) {
+            // Method 2: Follow redirects manually
+            try {
+                Log.d("GdMirror", "Method 2: Following redirects manually...")
+                val response = app.get(url, allowRedirects = true)
+                val finalUrl = response.url
                 val doc = response.document
                 
-                // Look for script that makes request to embedhelper.php
-                val scripts = doc.select("script")
-                scripts.forEach { script ->
-                    val scriptContent = script.html()
-                    
-                    // Extract sid parameter from the page
-                    if (scriptContent.contains("embedhelper")) {
-                        val sidRegex = Regex("""sid[=:\s]+["']([^"']+)["']""")
-                        val sidMatch = sidRegex.find(scriptContent)
-                        if (sidMatch != null) {
-                            val sid = sidMatch.groupValues[1]
-                            Log.d("GdMirror", "Found SID: $sid")
+                Log.d("GdMirror", "Landed on: $finalUrl")
+                
+                // If landed on gtxgamer, wait and check for iframes
+                if (finalUrl.contains("gtxgamer", ignoreCase = true)) {
+                    // Check for iframes
+                    val iframes = doc.select("iframe[src]")
+                    iframes.forEach { iframe ->
+                        val iframeSrc = iframe.attr("abs:src")
+                        Log.d("GdMirror", "Found iframe: $iframeSrc")
+                        
+                        if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
+                            Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
+                            MultiMoviesShgExtractor().getUrl(
+                                iframeSrc,
+                                finalUrl,
+                                subtitleCallback,
+                                callback
+                            )
+                            return
                         }
                     }
-                }
-                
-                // Look for iframe with multimoviesshg directly
-                val iframes = doc.select("iframe[src]")
-                iframes.forEach { iframe ->
-                    val iframeSrc = iframe.attr("abs:src")
-                    Log.d("GdMirror", "Found iframe: $iframeSrc")
                     
-                    if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
-                        Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
+                    // Check body for multimoviesshg URLs
+                    val bodyText = doc.body().html()
+                    val multiMoviesRegex = Regex("""(https?://multimoviesshg\.com/e/[a-zA-Z0-9]+)""")
+                    val multiMoviesMatch = multiMoviesRegex.find(bodyText)
+                    if (multiMoviesMatch != null) {
+                        val multiMoviesUrl = multiMoviesMatch.groupValues[1]
+                        Log.d("GdMirror", "Found MultiMoviesShg URL in HTML: $multiMoviesUrl")
                         MultiMoviesShgExtractor().getUrl(
-                            iframeSrc,
+                            multiMoviesUrl,
                             finalUrl,
                             subtitleCallback,
                             callback
@@ -181,26 +211,24 @@ class GdMirrorExtractor : ExtractorApi() {
                     }
                 }
                 
-                // Try to find multimoviesshg URL in page source
-                val bodyText = doc.body().html()
-                val multiMoviesRegex = Regex("""(https?://[^\"'\\s]*multimoviesshg[^\"'\\s]*/e/[^\"'\\s]+)""")
-                val multiMoviesMatch = multiMoviesRegex.find(bodyText)
-                if (multiMoviesMatch != null) {
-                    val multiMoviesUrl = multiMoviesMatch.groupValues[1]
-                    Log.d("GdMirror", "Found MultiMoviesShg URL in source: $multiMoviesUrl")
+                // If directly landed on multimoviesshg
+                if (finalUrl.contains("multimoviesshg", ignoreCase = true)) {
+                    Log.d("GdMirror", "Directly landed on MultiMoviesShg: $finalUrl")
                     MultiMoviesShgExtractor().getUrl(
-                        multiMoviesUrl,
                         finalUrl,
+                        url,
                         subtitleCallback,
                         callback
                     )
                     return
                 }
+            } catch (e: Exception) {
+                Log.e("GdMirror", "Manual redirect method failed: ${e.message}")
             }
             
-            Log.e("GdMirror", "No video source found")
+            Log.e("GdMirror", "All extraction methods failed for: $url")
         } catch (e: Exception) {
-            Log.e("GdMirror", "Extraction error: ${e.message}")
+            Log.e("GdMirror", "Fatal extraction error: ${e.message}")
             e.printStackTrace()
         }
     }
