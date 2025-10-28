@@ -198,6 +198,10 @@ class GDFlix7 : GDFlix() {
     override var mainUrl = "https://gdflix.dad"
 }
 
+class GDFlixDev : GDFlix() {
+    override var mainUrl = "https://gdflix.dev"
+}
+
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
     override val mainUrl = "https://new6.gdflix.dad"
