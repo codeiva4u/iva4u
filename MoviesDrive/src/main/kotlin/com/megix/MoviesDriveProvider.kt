@@ -225,7 +225,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                             
                             var elements = doc.select("span:matches((?i)(Ep))")
                             if(elements.isEmpty()) {
-                                elements = doc.select("a:matches((?i)(HubCloud|GDFlix))")
+                                elements = doc.select("a:matches((?i)(HubCloud|GDFlix|hubcloud))")
                             }
                             
                             var episodeNum = 1
@@ -236,7 +236,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                         var hTag = titleTag?.nextElementSibling()
                                         episodeNum = Regex("""Ep(\d{2})""").find(element.toString())?.groups?.get(1)?.value?.toIntOrNull() ?: (index + 1)
                                         
-                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
+                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|gdflix|gdlink|hubcloud|pixeldrain", RegexOption.IGNORE_CASE))) {
                                             val aTag = hTag.selectFirst("a")
                                             val epUrl = aTag?.attr("href")?.takeIf { it.isNotEmpty() }
                                             if (epUrl != null) {
@@ -310,7 +310,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     val validLink = getValidUrl(link)
                     val doc = app.get(validLink, timeout = 8L).document
                     val innerButtons = doc.select("a").filter { element ->
-                        element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                        element.attr("href").contains(Regex("hubcloud|gdflix|gdlink|pixeldrain", RegexOption.IGNORE_CASE))
                     }
                     innerButtons.mapNotNull { innerButton ->
                         val source = innerButton.attr("href")

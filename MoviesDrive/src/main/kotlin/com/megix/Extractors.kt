@@ -2,15 +2,12 @@ package com.megix
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.USER_AGENT
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import okhttp3.FormBody
 import org.json.JSONObject
 import java.net.URI
 
@@ -83,7 +80,7 @@ class PixelDrain : ExtractorApi() {
 
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
-    override val mainUrl: String = "https://hubcloud.fit"
+    override val mainUrl: String = "https://hubcloud.one"
     override val requiresReferer = false
 
     fun getBaseUrl(url: String): String {
@@ -229,123 +226,6 @@ open class fastdlserver : ExtractorApi() {
     }
 }
 
-
-open class GDFlix : ExtractorApi() {
-    override val name: String = "GDFlix"
-    override val mainUrl: String = "https://gdflix.dev"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val doc = app.get(url).document
-            val downloadButton = doc.selectFirst("a[href*='/download/']") ?: doc.selectFirst("a:contains(Download)")
-            val downloadLink = downloadButton?.attr("href") ?: return
-            
-            val finalUrl = if (downloadLink.startsWith("/")) {
-                "$mainUrl$downloadLink"
-            } else {
-                downloadLink
-            }
-            
-            // Get file info
-            val title = doc.select("h1, h2, .file-name").text()
-            val size = doc.select(".file-size, i:contains(MB), i:contains(GB)").text()
-            
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    "$name $title[$size]",
-                    finalUrl
-                ) {
-                    this.quality = getIndexQuality(title)
-                }
-            )
-        } catch (e: Exception) {
-            Log.e("GDFlix", "Error extracting: ${e.message}")
-        }
-    }
-}
-
-open class GDFlix2 : GDFlix() {
-    override val name: String = "GDFlix2"
-    override val mainUrl: String = "https://new2.gdflix.cfd"
-}
-
-open class GDFlix3 : GDFlix() {
-    override val name: String = "GDFlix3"
-    override val mainUrl: String = "https://new3.gdflix.bar"
-}
-
-open class GDFlix7 : GDFlix() {
-    override val name: String = "GDFlix7"
-    override val mainUrl: String = "https://new7.gdflix.net"
-}
-
-open class GDLink : ExtractorApi() {
-    override val name: String = "GDLink"
-    override val mainUrl: String = "https://gdlink.site"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val doc = app.get(url).document
-            val downloadButton = doc.selectFirst("a[href*='/download/'], a:contains(Download)")
-            val downloadLink = downloadButton?.attr("href") ?: return
-            
-            val finalUrl = if (downloadLink.startsWith("/")) {
-                "$mainUrl$downloadLink"
-            } else {
-                downloadLink
-            }
-            
-            val title = doc.select("h1, h2, .file-name").text()
-            val size = doc.select(".file-size, i:contains(MB), i:contains(GB)").text()
-            
-            callback.invoke(
-                newExtractorLink(
-                    name,
-                    "$name $title[$size]",
-                    finalUrl
-                ) {
-                    this.quality = getIndexQuality(title)
-                }
-            )
-        } catch (e: Exception) {
-            Log.e("GDLink", "Error extracting: ${e.message}")
-        }
-    }
-}
-
-open class HubCloudBz : HubCloud() {
-    override val name: String = "Hub-Cloud[.bz]"
-    override val mainUrl: String = "https://hubcloud.bz"
-}
-
-open class HubCloudInk : HubCloud() {
-    override val name: String = "Hub-Cloud[.ink]"
-    override val mainUrl: String = "https://hubcloud.ink"
-}
-
-open class HubCloudArt : HubCloud() {
-    override val name: String = "Hub-Cloud[.art]"
-    override val mainUrl: String = "https://hubcloud.art"
-}
-
-open class HubCloudDad : HubCloud() {
-    override val name: String = "Hub-Cloud[.dad]"
-    override val mainUrl: String = "https://hubcloud.dad"
-}
-
 open class Gofile : ExtractorApi() {
     override val name: String = "Gofile"
     override val mainUrl: String = "https://gofile.io"
@@ -394,4 +274,77 @@ open class Gofile : ExtractorApi() {
         val mimetype: String?,
         val link: String?
     )
+}
+
+open class GDFlix : ExtractorApi() {
+    override val name: String = "GDFlix"
+    override val mainUrl: String = "https://gdflix.dev"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            // Validate URL before processing
+            if (!url.startsWith("http://") && !url.startsWith("https://") || url.contains("null", ignoreCase = true)) {
+                Log.d("GDFlix", "Invalid URL skipped: $url")
+                return
+            }
+            
+            val document = app.get(url).document
+            
+            // Extract video title and size from page
+            val title = document.selectFirst("div.card-header")?.text() ?: "Video"
+            val size = document.selectFirst("i#size")?.text() ?: ""
+            
+            // Find download buttons
+            val downloadButtons = document.select("div.card-body h2 a.btn")
+            
+            downloadButtons.forEach { button ->
+                val btnText = button.text()
+                val btnLink = button.attr("href")
+                
+                when {
+                    btnText.contains("Download", ignoreCase = true) && btnLink.isNotBlank() -> {
+                        // Follow redirect to get actual download link
+                        try {
+                            val finalLink = if (btnLink.contains("gdflix", ignoreCase = true)) {
+                                // Direct GDFlix link
+                                val redirectResponse = app.get(btnLink, allowRedirects = false)
+                                redirectResponse.headers["location"] ?: btnLink
+                            } else {
+                                btnLink
+                            }
+                            
+                            if (finalLink.isNotBlank() && !finalLink.contains("null", ignoreCase = true)) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        name,
+                                        "$name $title[$size]",
+                                        finalLink
+                                    ) {
+                                        this.quality = getIndexQuality(title)
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "Error processing download link: ${e.message}")
+                        }
+                    }
+                    btnLink.contains("pixeldra", ignoreCase = true) -> {
+                        try {
+                            PixelDrain().getUrl(btnLink, url, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "Pixeldrain extraction failed: ${e.message}")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("GDFlix", "Error extracting: ${e.message}")
+        }
+    }
 }
