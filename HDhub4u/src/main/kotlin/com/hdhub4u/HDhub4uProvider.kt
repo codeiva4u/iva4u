@@ -165,7 +165,18 @@ class HDhub4uProvider : MainAPI() {
 
             movieList.addAll(
                 doc.select("h3 a:matches(480|720|1080|2160|4K), h4 a:matches(480|720|1080|2160|4K), h5 a:matches(480|720|1080|2160|4K)")
-                    .map { it.attr("href") }
+                    .mapNotNull { 
+                        val href = it.attr("href")
+                        // Filter out invalid URLs
+                        if (href.isNotBlank() && 
+                            !href.contains("viralkhabarbull", ignoreCase = true) &&
+                            href.startsWith("http")) {
+                            href
+                        } else {
+                            Log.d("HDHub4u", "Filtered invalid movie link: $href")
+                            null
+                        }
+                    }
             )
 
             return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
