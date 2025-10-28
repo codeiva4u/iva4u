@@ -32,7 +32,7 @@ import org.jsoup.select.Elements
 
 class HDhub4uProvider : MainAPI() {
     override var mainUrl: String = runBlocking {
-        HDhub4uPlugin.getDomains()?.HDHUB4u ?: "https://hdhub4u.menu"
+        HDhub4uPlugin.getDomains()?.HDHUB4u ?: "https://hdhub4u.pictures/"
     }
     override var name = "HDHub4U"
     override var lang = "hi"
@@ -50,7 +50,6 @@ class HDhub4uProvider : MainAPI() {
         "category/hindi-dubbed/" to "Hindi Dubbed",
         "category/south-hindi-movies/" to "South Hindi Dubbed",
         "category/category/web-series/" to "Web Series",
-        "category/adult/" to "Adult",
     )
     private val headers =
         mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0","Cookie" to "xla=s4t")

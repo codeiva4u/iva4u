@@ -65,26 +65,34 @@ class Hubcdnn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        app.get(url).document.toString().let {
-            val encoded = Regex("r=([A-Za-z0-9+/=]+)").find(it)?.groups?.get(1)?.value
+        try {
+            val docString = app.get(url).document.toString()
+            val encoded = Regex("r=([A-Za-z0-9+/=]+)").find(docString)?.groups?.get(1)?.value
+            
             if (!encoded.isNullOrEmpty()) {
-                val m3u8 = base64Decode(encoded).substringAfterLast("link=")
-                callback.invoke(
-                    newExtractorLink(
-                        this.name,
-                        this.name,
-                        url = m3u8,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+                val decoded = base64Decode(encoded)
+                val m3u8 = decoded.substringAfterLast("link=")
+                
+                if (m3u8.isNotEmpty() && (m3u8.startsWith("http") || m3u8.contains(".m3u8"))) {
+                    callback.invoke(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = m3u8,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                } else {
+                    Log.e("Hubcdnn", "Invalid m3u8 URL: $m3u8")
+                }
             } else {
-                Log.e("Error", "Encoded URL not found")
+                Log.e("Hubcdnn", "Encoded URL not found in response")
             }
-
-
+        } catch (e: Exception) {
+            Log.e("Hubcdnn", "Error extracting: ${e.message}")
         }
     }
 }
@@ -101,13 +109,23 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url).document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
-        if (href.contains("hubcloud"))
-        {
-            HubCloud().getUrl(href,"HubDrive",subtitleCallback, callback)
+        try {
+            val document = app.get(url).document
+            val href = document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
+            
+            if (href.isEmpty()) {
+                Log.e("Hubdrive", "No download link found")
+                return
+            }
+            
+            if (href.contains("hubcloud", ignoreCase = true)) {
+                HubCloud().getUrl(href, "HubDrive", subtitleCallback, callback)
+            } else {
+                loadExtractor(href, "HubDrive", subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            Log.e("Hubdrive", "Error extracting: ${e.message}")
         }
-        else
-        loadExtractor(href,"HubDrive",subtitleCallback, callback)
     }
 }
 
@@ -279,29 +297,43 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = app.get(url).document
-        val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
+        try {
+            val doc = app.get(url).document
+            val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
-        val encodedUrl = Regex("reurl\\s*=\\s*\"([^\"]+)\"")
-            .find(scriptText ?: "")
-            ?.groupValues?.get(1)
-            ?.substringAfter("?r=")
+            if (scriptText.isNullOrEmpty()) {
+                Log.e("HUBCDN", "Script with reurl not found")
+                return
+            }
 
-        val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
+            val encodedUrl = Regex("reurl\\\\s*=\\\\s*\\\"([^\\\"]+)\\\"")
+                .find(scriptText)
+                ?.groupValues?.get(1)
+                ?.substringAfter("?r=")
 
+            if (encodedUrl.isNullOrEmpty()) {
+                Log.e("HUBCDN", "Encoded URL not found in script")
+                return
+            }
 
-        if (decodedUrl != null) {
-            callback(
-                newExtractorLink(
-                    this.name,
-                    this.name,
-                    decodedUrl,
-                    INFER_TYPE,
+            val decodedUrl = base64Decode(encodedUrl).substringAfterLast("link=")
+
+            if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
+                callback(
+                    newExtractorLink(
+                        this.name,
+                        this.name,
+                        decodedUrl,
+                        INFER_TYPE,
+                    ) {
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
-                {
-                    this.quality=Qualities.Unknown.value
-                }
-            )
+            } else {
+                Log.e("HUBCDN", "Invalid decoded URL: $decodedUrl")
+            }
+        } catch (e: Exception) {
+            Log.e("HUBCDN", "Error extracting: ${e.message}")
         }
     }
 }
