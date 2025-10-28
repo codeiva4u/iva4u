@@ -27,12 +27,15 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.utils.AppUtils
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.nicehttp.NiceResponse
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
-
+import kotlin.math.abs
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
     override var mainUrl: String = "https://multimovies.cheap"
     override var name = "MultiMovies"
@@ -124,29 +127,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
-    private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
-        val body = FormBody.Builder()
-            .addEncoded("action", "doo_player_ajax")
-            .addEncoded("post", postid.toString())
-            .addEncoded("nume", nume)
-            .addEncoded("type", "movie")
-            .build()
-
-        return app.post(
-            "$mainUrl/wp-admin/admin-ajax.php",
-            requestBody = body,
-            referer = referUrl
-        )
-    }
-
-    data class TrailerUrl(
-        @JsonProperty("embed_url") var embedUrl: String?,
-        @JsonProperty("type") var type: String?
-    )
-    
     data class ResponseHash(
         @JsonProperty("embed_url") val embed_url: String,
         @JsonProperty("type") val type: String? = null,
+    )
+    
+    data class LinkData(
+        val type: String,
+        val post: String,
+        val nume: String
     )
 
     override suspend fun load(url: String): LoadResponse? {
@@ -168,22 +157,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
         val type = if (url.contains("tvshows")) TvType.TvSeries else TvType.Movie
-        val trailerRegex = Regex("\"http.*\"")
-
-        var trailer: String? = if (type == TvType.Movie) {
-            try {
-                val postId = doc.select("#player-option-trailer").attr("data-post")
-                val embedResponse = getEmbed(postId, "trailer", url)
-                val parsed = embedResponse.parsed<TrailerUrl>()
-                parsed.embedUrl?.let { fixUrlNull(it) }
-            } catch (_: Exception) {
-                null
-            }
-        } else {
-            val iframeSrc = doc.select("iframe.rptss").attr("src")
-            fixUrlNull(iframeSrc)
-        }
-        trailer = trailer?.let { trailerRegex.find(it)?.value?.trim('"') }
+        val trailer = doc.selectFirst("iframe.rptss")?.attr("src")
         val rating = doc.select("span.dt_rating_vgs").text()
         val duration =
             doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
@@ -203,15 +177,30 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
 
         val episodes = ArrayList<Episode>()
-        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
-            me.select("li").mapIndexed { epNum, it ->
+        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, season ->
+            season.select("li").mapIndexed { epNum, it ->
+                val epUrl = it.select("div.episodiotitle > a").attr("href")
+                val epDoc = app.get(epUrl).document
+                val epName = it.select("div.episodiotitle > a").text()
+                val epPoster = it.selectFirst("div.imagen > img")?.getImageAttr()
+                
+                // Extract player options for this episode
+                val playerOptions = epDoc.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                    .map { option ->
+                        LinkData(
+                            type = option.attr("data-type"),
+                            post = option.attr("data-post"),
+                            nume = option.attr("data-nume")
+                        )
+                    }
+                
                 episodes.add(
-                    newEpisode(it.select("div.episodiotitle > a").attr("href"))
-                    {
-                        this.name = it.select("div.episodiotitle > a").text()
+                    newEpisode(playerOptions.toJson()) {
+                        this.name = epName
                         this.season = seasonNum + 1
                         this.episode = epNum + 1
-                        this.posterUrl = it.selectFirst("div.imagen > img")?.getImageAttr()
+                        this.posterUrl = epPoster
                     }
                 )
             }
@@ -260,57 +249,44 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         
-        Log.d("MultiMovies", "========== loadLinks START ==========")
-        Log.d("MultiMovies", "URL: $data")
+        Log.d("MultiMovies", "loadLinks called with data: $data")
         
-        try {
-            // Get the document from the data URL
-            val document = app.get(data).document
-            Log.d("MultiMovies", "Page fetched successfully")
-            
-            // Extract player options
-            val allOptions = document.select("ul#playeroptionsul > li")
-            Log.d("MultiMovies", "Total options found (including trailer): ${allOptions.size}")
-            
-            val playerOptions = allOptions.filterNot { it.attr("data-nume").equals("trailer", ignoreCase = true) }
-            Log.d("MultiMovies", "Player options (excluding trailer): ${playerOptions.size}")
-            
-            if (playerOptions.isEmpty()) {
-                Log.e("MultiMovies", "ERROR: No player options found!")
-                Log.d("MultiMovies", "HTML snippet: ${document.select("ul#playeroptionsul").html().take(500)}")
-                return false
-            }
-            
-            playerOptions.forEachIndexed { index, element ->
-                Log.d("MultiMovies", "--- Processing option ${index + 1} ---")
-                
-                val type = element.attr("data-type")
-                val post = element.attr("data-post")
-                val nume = element.attr("data-nume")
-                val title = element.select("span.title").text()
-                
-                Log.d("MultiMovies", "Title: $title")
-                Log.d("MultiMovies", "Type: '$type', Post: '$post', Nume: '$nume'")
-                
-                // Get iframe URL from player API
-                val iframeUrl = getIframeUrl(type, post, nume)
-                
-                if (iframeUrl.isNullOrEmpty()) {
-                    Log.e("MultiMovies", "ERROR: getIframeUrl returned null/empty")
-                } else {
-                    Log.d("MultiMovies", "Success! Iframe URL: $iframeUrl")
+        // Check if data is JSON (for episodes) or URL (for movies)
+        val linkDataList = try {
+            parseJson<List<LinkData>>(data)
+        } catch (e: Exception) {
+            null
+        }
+        
+        if (linkDataList != null) {
+            // Handle episodes - data is JSON list of LinkData
+            linkDataList.forEach { linkData ->
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                if (!iframeUrl.isNullOrEmpty()) {
                     loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                 }
             }
+        } else {
+            // Handle movies - data is URL
+            val document = app.get(data).document
             
-            Log.d("MultiMovies", "========== loadLinks END ==========")
-            return true
-            
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "FATAL ERROR in loadLinks: ${e.message}")
-            e.printStackTrace()
-            return false
+            // Extract player options (excluding trailer)
+            document.select("ul#playeroptionsul > li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .forEach { element ->
+                    val type = element.attr("data-type")
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    
+                    // Get iframe URL from player API
+                    val iframeUrl = getIframeUrl(type, post, nume)
+                    if (!iframeUrl.isNullOrEmpty()) {
+                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                    }
+                }
         }
+        
+        return true
     }
     
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
