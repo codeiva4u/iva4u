@@ -41,14 +41,24 @@ open class Hblinks : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        app.get(url).document.select("h3 a,h5 a,div.entry-content p a").map {
+        app.get(url).document.select("h3 a,h5 a,div.entry-content p a").mapNotNull {
             val lower = it.absUrl("href").ifBlank { it.attr("href") }
+            
+            // Filter out invalid/problematic domains
+            if (lower.contains("viralkhabarbull", ignoreCase = true) || 
+                lower.contains("?id=") || 
+                !lower.startsWith("http")) {
+                Log.d("Hblinks", "Skipping invalid/redirect URL: $lower")
+                return@mapNotNull
+            }
+            
             val href = lower.lowercase()
             when {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
                 "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
                 "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                else -> loadSourceNameExtractor(name, href, "", subtitleCallback, callback)
+                "pixeldrain" in lower || "pixeldra" in lower -> loadSourceNameExtractor(name, lower, "", subtitleCallback, callback)
+                else -> {}
             }
         }
     }
