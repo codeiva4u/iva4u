@@ -14,7 +14,6 @@ class MoviesDrive: Plugin() {
         //registerExtractorAPI(Hubdrive())
         registerExtractorAPI( PixelDrain())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(fastdlserver())
 
     }
 }

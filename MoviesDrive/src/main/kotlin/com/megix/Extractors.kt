@@ -1,23 +1,17 @@
 package com.megix
 
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
-import org.json.JSONObject
-import okhttp3.FormBody
-import okhttp3.*
-import java.net.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
 import com.lagradost.api.Log
-import com.lagradost.cloudstream3.extractors.StreamTape
-import com.lagradost.cloudstream3.extractors.VidHidePro
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
+import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
-fun getIndexQuality(str: String?): Int {
-    return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
-        ?: Qualities.Unknown.value
-}
 
 class PixelDrain : ExtractorApi() {
     override val name = "PixelDrain"
@@ -77,9 +71,9 @@ class PixelDrain : ExtractorApi() {
                                     finalUrl
                                 ) {
                                     this.referer = "$apiBase/"
-                                    this.quality = getIndexQuality(fileName)
                                 }
                             )
+                            Log.d("PixelDrain", "Successfully extracted: $fileName")
                             return // Success, exit
                         } else {
                             Log.d("PixelDrain", "File is not a video. MIME type: $mimeType")
@@ -96,7 +90,6 @@ class PixelDrain : ExtractorApi() {
         }
     }
 }
-
 
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
@@ -129,13 +122,14 @@ open class HubCloud : ExtractorApi() {
             val header = doc.selectFirst("div.card-header")?.text() ?: "Video"
             val size = doc.selectFirst("i#size")?.text() ?: ""
 
+            Log.d("HubCloud", "Processing: $header [$size]")
+
             // Check if this is hubcloud page with gamerxyt redirect
-            val downloadBtn = doc.selectFirst("a#download[href*=gamerxyt], a[href*=gamerxyt]")
+            val gamerxytLink = doc.selectFirst("a#download[href*=gamerxyt], a[href*=gamerxyt]")?.attr("href")
             
-            if (downloadBtn != null) {
+            if (gamerxytLink != null && gamerxytLink.isNotBlank()) {
                 // This is initial HubCloud page - follow gamerxyt to get actual servers
                 try {
-                    val gamerxytLink = downloadBtn.attr("href")
                     Log.d("HubCloud", "Following gamerxyt redirect: $gamerxytLink")
                     
                     // Get the redirect page with all servers
@@ -143,75 +137,81 @@ open class HubCloud : ExtractorApi() {
                     val redirectHeader = redirectDoc.selectFirst("div.card-header")?.text() ?: header
                     val redirectSize = redirectDoc.selectFirst("i#size")?.text() ?: size
                     
-                    // Extract S3 Server URL from JavaScript
+                    // Extract S3 Server URL from JavaScript  
                     val s3Link = redirectDoc.select("script").firstOrNull { 
                         it.html().contains("window.location.href") && it.html().contains("s3.blockxpiracy.net")
                     }?.let { script ->
-                        Regex("window\\.location\\.href\\s*=\\s*['\"](https://s3\\.blockxpiracy\\.net[^'\"]+)['\"]").find(script.html())?.groupValues?.getOrNull(1)
+                        Regex("window\\.location\\.href\\s*=\\s*['\"]((https://s3\\.blockxpiracy\\.net[^'\"]+)['\"])").find(script.html())?.groupValues?.getOrNull(1)
                     }
                     
+                    Log.d("HubCloud", "S3 Link extracted: ${s3Link?.take(80) ?: "None"}")
+                    
                     // Extract ALL server buttons from redirect page
-                    redirectDoc.select("a.btn").forEach { serverBtn ->
+                    var serverCount = 0
+                    redirectDoc.select("a.btn, button.btn").forEach { serverBtn ->
                         val serverLink = serverBtn.attr("href")
                         val serverText = serverBtn.text()
                         
+                        // Skip empty links or javascript actions
+                        if (serverLink.isBlank() || serverLink.startsWith("#") || serverLink.startsWith("javascript:")) {
+                            return@forEach
+                        }
+                        
                         when {
-                            // FSLv2 Server
-                            serverText.contains("FSLv2", ignoreCase = true) && serverLink.isNotBlank() -> {
-                                callback.invoke(
-                                    newExtractorLink("$name[FSLv2]", "$name FSLv2 $redirectHeader [$redirectSize]", serverLink) {
-                                        this.quality = getIndexQuality(redirectHeader)
-                                    }
-                                )
-                            }
-                            
-                            // 10Gbps Server
-                            serverText.contains("10Gbps", ignoreCase = true) && serverLink.isNotBlank() -> {
-                                callback.invoke(
-                                    newExtractorLink("$name[10Gbps⚡]", "$name 10Gbps $redirectHeader [$redirectSize]", serverLink) {
-                                        this.quality = getIndexQuality(redirectHeader)
-                                    }
-                                )
-                            }
-                            
-                            // FSL Server
-                            serverText.contains("FSL Server", ignoreCase = true) && serverLink.isNotBlank() -> {
-                                callback.invoke(
-                                    newExtractorLink("$name[FSL]", "$name FSL $redirectHeader [$redirectSize]", serverLink) {
-                                        this.quality = getIndexQuality(redirectHeader)
-                                    }
-                                )
-                            }
-                            
-                            // S3 Server - get from JavaScript
-                            serverText.contains("S3 Server", ignoreCase = true) && s3Link != null -> {
-                                callback.invoke(
-                                    newExtractorLink("$name[S3]", "$name S3 $redirectHeader [$redirectSize]", s3Link) {
-                                        this.quality = getIndexQuality(redirectHeader)
-                                    }
-                                )
-                            }
-                            
-                            // ZipDisk Server
-                            serverText.contains("ZipDisk", ignoreCase = true) && serverLink.isNotBlank() -> {
-                                callback.invoke(
-                                    newExtractorLink("$name[ZipDisk]", "$name ZipDisk $redirectHeader [$redirectSize]", serverLink) {
-                                        this.quality = getIndexQuality(redirectHeader)
-                                    }
-                                )
-                            }
-                            
-                            // PixelServer
-                            serverText.contains("PixelServer", ignoreCase = true) && serverLink.isNotBlank() -> {
+                            // PixelServer - PixelDrain direct link
+                            serverText.contains("PixelServer", ignoreCase = true) || serverLink.contains("pixeldrain", ignoreCase = true) -> {
                                 try {
                                     PixelDrain().getUrl(serverLink, url, subtitleCallback, callback)
+                                    serverCount++
+                                    Log.d("HubCloud", "[$serverCount] Processing PixelDrain: $serverLink")
                                 } catch (e: Exception) {
                                     Log.e("HubCloud", "PixelDrain error: ${e.message}")
                                 }
                             }
+                            
+                            // 10Gbps Server - pixel.hubcdn.fans
+                            serverText.contains("10Gbps", ignoreCase = true) || serverText.contains("10 Gbps", ignoreCase = true) -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[10Gbps⚡]", "$name 10Gbps $redirectHeader [$redirectSize]", serverLink)
+                                )
+                                serverCount++
+                                Log.d("HubCloud", "[$serverCount] Added 10Gbps: ${serverLink.take(60)}...")
+                            }
+                            
+                            // FSL Server - fsl.anime4u.co
+                            serverText.contains("FSL Server", ignoreCase = true) -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[FSL]", "$name FSL $redirectHeader [$redirectSize]", serverLink)
+                                )
+                                serverCount++
+                                Log.d("HubCloud", "[$serverCount] Added FSL: ${serverLink.take(60)}...")
+                            }
+                            
+                            // S3 Server - from JavaScript redirect (s3.blockxpiracy.net)
+                            serverText.contains("S3 Server", ignoreCase = true) -> {
+                                if (s3Link != null) {
+                                    callback.invoke(
+                                        newExtractorLink("$name[S3]", "$name S3 $redirectHeader [$redirectSize]", s3Link)
+                                    )
+                                    serverCount++
+                                    Log.d("HubCloud", "[$serverCount] Added S3: ${s3Link.take(60)}...")
+                                } else {
+                                    Log.d("HubCloud", "S3 button found but URL not extracted from JS")
+                                }
+                            }
+                            
+                            // ZipDisk Server - Cloudflare Workers with .zip
+                            serverText.contains("ZipDisk", ignoreCase = true) -> {
+                                callback.invoke(
+                                    newExtractorLink("$name[ZipDisk]", "$name ZipDisk $redirectHeader [$redirectSize] [ZIP]", serverLink)
+                                )
+                                serverCount++
+                                Log.d("HubCloud", "[$serverCount] Added ZipDisk: ${serverLink.take(60)}...")
+                            }
                         }
                     }
                     
+                    Log.d("HubCloud", "Total servers extracted: $serverCount")
                     // Return after processing gamerxyt page
                     return
                 } catch (e: Exception) {
@@ -219,117 +219,14 @@ open class HubCloud : ExtractorApi() {
                 }
             }
 
-            // Also check for alternative download buttons on current page (fallback)
+            // Fallback: Also check for alternative download buttons on current page
             val div = doc.selectFirst("div.card-body")
             div?.select("h2 a.btn, a.btn")?.filter { !it.attr("href").contains("gamerxyt") }?.forEach {
                 val btnLink = it.attr("href")
                 val text = it.text()
 
                 when {
-                    // FSLv2 Server - cdn.fsl-buckets.xyz
-                    text.contains("FSLv2", ignoreCase = true) -> {
-                        try {
-                            callback.invoke(
-                                newExtractorLink("$name[FSLv2]", "$name FSLv2 $header[$size]", btnLink) {
-                                    this.quality = getIndexQuality(header)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "FSLv2 error: ${e.message}")
-                        }
-                    }
-                    
-                    // Prioritize 10Gbps server - FASTEST
-                    text.contains("Download [Server : 10Gbps]", ignoreCase = true) || 
-                    text.contains("10Gbps", ignoreCase = true) -> {
-                        try {
-                            // Follow the redirect chain to get final download link
-                            val redirectResponse = app.get(btnLink, allowRedirects = false)
-                            val locationHeader = redirectResponse.headers["location"] ?: return@forEach
-                            
-                            val dlink = if (locationHeader.contains("link=")) {
-                                locationHeader.substringAfter("link=")
-                            } else {
-                                locationHeader
-                            }
-                            
-                            // Validate final link
-                            if (dlink.isNotBlank() && !dlink.contains("null", ignoreCase = true)) {
-                                callback.invoke(
-                                    newExtractorLink("$name[10Gbps⚡]", "$name 10Gbps Fast $header[$size]", dlink) {
-                                        this.quality = getIndexQuality(header)
-                                    }
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "Error processing 10Gbps link: ${e.message}")
-                        }
-                    }
-                    
-                    text.contains("Download [FSL Server]", ignoreCase = true) || text.contains("FSL Server") -> {
-                        callback.invoke(
-                            newExtractorLink("$name[FSL]", "$name FSL $header[$size]", btnLink) {
-                                quality = getIndexQuality(header)
-                            }
-                        )
-                    }
-                    
-                    // S3 Server - Google Cloud Storage
-                    text.contains("S3 Server", ignoreCase = true) -> {
-                        try {
-                            callback.invoke(
-                                newExtractorLink("$name[S3]", "$name S3 $header[$size]", btnLink) {
-                                    this.quality = getIndexQuality(header)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "S3 Server error: ${e.message}")
-                        }
-                    }
-                    
-                    // ZipDisk Server - Cloudflare Workers
-                    text.contains("ZipDisk", ignoreCase = true) -> {
-                        try {
-                            callback.invoke(
-                                newExtractorLink("$name[ZipDisk]", "$name ZipDisk $header[$size] [ZIP]", btnLink) {
-                                    this.quality = getIndexQuality(header)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "ZipDisk error: ${e.message}")
-                        }
-                    }
-
-                    text.contains("Download File", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(name, "$name $header[$size]", btnLink) {
-                                quality = getIndexQuality(header)
-                            }
-                        )
-                    }
-
-                    text.contains("BuzzServer", ignoreCase = true) -> {
-                        try {
-                            val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false)
-                                .headers["hx-redirect"].orEmpty()
-                            if (dlink.isNotBlank()) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "$name[Buzz]",
-                                        "$name Buzz $header[$size]",
-                                        getBaseUrl(btnLink) + dlink
-                                    ) {
-                                        quality = getIndexQuality(header)
-                                    }
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "BuzzServer error: ${e.message}")
-                        }
-                    }
-
-                    btnLink.contains("pixeldra", ignoreCase = true) || 
-                    text.contains("PixelServer", ignoreCase = true) -> {
+                    text.contains("PixelDrain", ignoreCase = true) || btnLink.contains("pixeldra", ignoreCase = true) -> {
                         try {
                             PixelDrain().getUrl(btnLink, url, subtitleCallback, callback)
                         } catch (e: Exception) {
@@ -337,17 +234,10 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
                     
-                    // MegaServer - if present
-                    text.contains("MegaServer", ignoreCase = true) || text.contains("MEGA", ignoreCase = true) -> {
-                        try {
-                            callback.invoke(
-                                newExtractorLink("$name[MEGA]", "$name MEGA $header[$size]", btnLink) {
-                                    this.quality = getIndexQuality(header)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "MEGA Server error: ${e.message}")
-                        }
+                    text.contains("Download File", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(name, "$name $header[$size]", btnLink)
+                        )
                     }
 
                     else -> {
@@ -363,74 +253,6 @@ open class HubCloud : ExtractorApi() {
             Log.e("HubCloud", "Main extraction error: ${e.message}")
         }
     }
-}
-
-open class fastdlserver : ExtractorApi() {
-    override val name: String = "fastdlserver"
-    override var mainUrl = "https://pixel.hubcdn.fans/"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val location = app.get(url, allowRedirects = false).headers["location"]
-        if (location != null) {
-            loadExtractor(location, "", subtitleCallback, callback)
-        }
-    }
-}
-
-open class Gofile : ExtractorApi() {
-    override val name: String = "Gofile"
-    override val mainUrl: String = "https://gofile.io"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val contentId = url.substringAfterLast("/")
-            val apiUrl = "$mainUrl/api/getContent?contentId=$contentId"
-            
-            val response = app.get(apiUrl).parsedSafe<GofileResponse>()
-            response?.data?.contents?.values?.forEach { file ->
-                if (file.mimetype?.startsWith("video/", ignoreCase = true) == true) {
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name ${file.name}",
-                            file.link ?: return@forEach
-                        ) {
-                            this.quality = getIndexQuality(file.name ?: "")
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("Gofile", "Error extracting: ${e.message}")
-        }
-    }
-
-    data class GofileResponse(
-        val status: String?,
-        val data: GofileData?
-    )
-
-    data class GofileData(
-        val contents: Map<String, GofileContent>?
-    )
-
-    data class GofileContent(
-        val name: String?,
-        val mimetype: String?,
-        val link: String?
-    )
 }
 
 open class GDFlix : ExtractorApi() {
@@ -463,9 +285,12 @@ open class GDFlix : ExtractorApi() {
                 ?: Regex("([\\d.]+\\s*[KMGT]B)").find(pageTitle)
             val size = sizeMatch?.groupValues?.get(1) ?: ""
             
+            Log.d("GDFlix", "Processing: $title [$size]")
+            
             // Find all download buttons  
             val downloadButtons = document.select("a.btn, a[class*=btn]")
             
+            var serverCount = 0
             downloadButtons.forEach { button ->
                 val btnText = button.text()
                 val btnLink = button.attr("href")
@@ -477,36 +302,91 @@ open class GDFlix : ExtractorApi() {
                     // Instant DL - Encrypted link from busycdn - needs redirect following
                     btnText.contains("Instant", ignoreCase = true) && btnLink.contains("busycdn") -> {
                         try {
-                            // Follow redirect to get actual video URL
-                            val finalResponse = app.get(btnLink, allowRedirects = true)
-                            val finalUrl = finalResponse.url
+                            // Follow entire redirect chain to get actual download URL
+                            // busycdn.cfd -> fastcdn-dl.pages.dev -> video URL (Google/R2)
+                            val redirectResponse = app.get(btnLink, allowRedirects = true)
+                            val redirectUrl = redirectResponse.url
                             
-                            if (finalUrl.isNotBlank() && !finalUrl.contains("busycdn")) {
+                            Log.d("GDFlix", "Instant DL redirected to: ${redirectUrl.take(80)}...")
+                            
+                            // Check if we landed on fastcdn-dl redirect page
+                            if (redirectUrl.contains("fastcdn-dl", ignoreCase = true)) {
+                                // Extract the actual video URL from query parameter
+                                val actualVideoUrl = Regex("[?&]url=([^&]+)").find(redirectUrl)?.groupValues?.getOrNull(1)
+                                    ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }
+                                
+                                if (actualVideoUrl != null && actualVideoUrl.isNotBlank()) {
+                                    callback.invoke(
+                                        newExtractorLink(
+                                            "$name[Instant⚡]",
+                                            "$name Instant DL $title [$size]",
+                                            actualVideoUrl
+                                        ) {
+                                            this.referer = "https://fastcdn-dl.pages.dev/"
+                                        }
+                                    )
+                                    serverCount++
+                                    Log.d("GDFlix", "[$serverCount] Successfully extracted Instant DL: ${actualVideoUrl.take(60)}...")
+                                } else {
+                                    Log.d("GDFlix", "Could not extract video URL from fastcdn redirect")
+                                }
+                            } else if (!redirectUrl.contains("busycdn", ignoreCase = true)) {
+                                // Direct video URL obtained
                                 callback.invoke(
                                     newExtractorLink(
-                                        "$name [Instant⚡]",
+                                        "$name[Instant⚡]",
                                         "$name Instant DL $title [$size]",
-                                        finalUrl
+                                        redirectUrl
                                     ) {
                                         this.referer = mainUrl
-                                        this.quality = getIndexQuality(title)
                                     }
                                 )
+                                serverCount++
+                                Log.d("GDFlix", "[$serverCount] Direct Instant DL extracted: ${redirectUrl.take(60)}...")
                             } else {
-                                Log.d("GDFlix", "Could not resolve instant link: $finalUrl")
+                                Log.d("GDFlix", "Instant link still on redirect page: $redirectUrl")
                             }
                         } catch (e: Exception) {
                             Log.e("GDFlix", "Instant DL error: ${e.message}")
                         }
                     }
+                    
+                    // CLOUD DOWNLOAD [R2] - Direct R2 link via fastcdn-dl
+                    btnText.contains("CLOUD DOWNLOAD", ignoreCase = true) && btnLink.contains("fastcdn-dl") -> {
+                        try {
+                            // Extract actual R2 URL from fastcdn-dl query parameter
+                            val r2Url = Regex("[?&]url=([^&]+)").find(btnLink)?.groupValues?.getOrNull(1)
+                                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }
+                            
+                            if (r2Url != null) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name[R2Cloud]",
+                                        "$name R2 Cloud $title [$size]",
+                                        r2Url
+                                    ) {
+                                        this.referer = "https://fastcdn-dl.pages.dev/"
+                                    }
+                                )
+                                serverCount++
+                                Log.d("GDFlix", "[$serverCount] Added R2 Cloud: ${r2Url.take(60)}...")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "R2 Cloud error: ${e.message}")
+                        }
+                    }
+                    
                     // PixelDrain - Already working extractor
                     btnLink.contains("pixeldra", ignoreCase = true) -> {
                         try {
                             PixelDrain().getUrl(btnLink, url, subtitleCallback, callback)
+                            serverCount++
+                            Log.d("GDFlix", "[$serverCount] Processing PixelDrain")
                         } catch (e: Exception) {
                             Log.e("GDFlix", "Pixeldrain extraction failed: ${e.message}")
                         }
                     }
+                    
                     // Fast Cloud/ZipDisk - GDFlix internal servers - follow redirects
                     btnText.contains("FAST CLOUD", ignoreCase = true) || 
                     btnText.contains("ZIPDISK", ignoreCase = true) ||
@@ -517,59 +397,59 @@ open class GDFlix : ExtractorApi() {
                             
                             callback.invoke(
                                 newExtractorLink(
-                                    "$name [Cloud]",
+                                    "$name[Cloud]",
                                     "$name Cloud DL $title [$size]",
                                     cloudUrl
                                 ) {
                                     this.referer = btnLink
-                                    this.quality = getIndexQuality(title)
                                 }
                             )
+                            serverCount++
+                            Log.d("GDFlix", "[$serverCount] Added Cloud/ZipDisk")
                         } catch (e: Exception) {
                             Log.e("GDFlix", "Cloud DL error: ${e.message}")
                         }
                     }
+                    
                     // GoFile Mirror
                     btnLink.contains("goflix", ignoreCase = true) || 
                     btnLink.contains("gofile", ignoreCase = true) -> {
                         try {
-                            // Use Gofile extractor if available, otherwise add direct link
-                            if (btnText.contains("GoFile", ignoreCase = true)) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "$name [GoFile]",
-                                        "$name GoFile $title [$size]",
-                                        btnLink
-                                    ) {
-                                        this.quality = getIndexQuality(title)
-                                    }
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name[GoFile]",
+                                    "$name GoFile $title [$size]",
+                                    btnLink
                                 )
-                            } else {
-                                loadExtractor(btnLink, url, subtitleCallback, callback)
-                            }
+                            )
+                            serverCount++
+                            Log.d("GDFlix", "[$serverCount] Added GoFile")
                         } catch (e: Exception) {
                             Log.e("GDFlix", "GoFile extraction failed: ${e.message}")
                         }
                     }
+                    
                     // Telegram File
-                    btnLink.contains("filesgram", ignoreCase = true) || 
+                    btnLink.contains("t.me", ignoreCase = true) || 
                     btnText.contains("Telegram", ignoreCase = true) -> {
                         try {
                             callback.invoke(
                                 newExtractorLink(
-                                    "$name [Telegram]",
+                                    "$name[Telegram]",
                                     "$name Telegram $title [$size]",
                                     btnLink
-                                ) {
-                                    this.quality = getIndexQuality(title)
-                                }
+                                )
                             )
+                            serverCount++
+                            Log.d("GDFlix", "[$serverCount] Added Telegram")
                         } catch (e: Exception) {
                             Log.e("GDFlix", "Telegram extraction failed: ${e.message}")
                         }
                     }
                 }
             }
+            
+            Log.d("GDFlix", "Total servers extracted: $serverCount")
         } catch (e: Exception) {
             Log.e("GDFlix", "Error extracting: ${e.message}")
         }
