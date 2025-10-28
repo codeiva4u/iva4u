@@ -3,11 +3,7 @@ package com.megix
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.utils.ExtractorApi
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.*
 import org.json.JSONObject
 import java.net.URI
 
@@ -64,17 +60,13 @@ class PixelDrain : ExtractorApi() {
                         
                         // Only process if it's a video file
                         if (mimeType.startsWith("video/", ignoreCase = true)) {
-                            // Add download link with proper API endpoint
-                            val finalUrl = if (url.contains("?download")) {
-                                url
-                            } else {
-                                "$apiBase/api/file/$mId?download"
-                            }
+                            // Use direct download URL without ?download parameter for better compatibility
+                            val finalUrl = "$apiBase/api/file/$mId"
                             
                             callback.invoke(
                                 newExtractorLink(
-                                    this.name, 
-                                    "${this.name} $fileName [$formattedSize]", 
+                                    this.name,
+                                    "${this.name} $fileName [$formattedSize]",
                                     finalUrl
                                 ) {
                                     this.referer = "$apiBase/"
@@ -144,24 +136,23 @@ open class HubCloud : ExtractorApi() {
                 link = getBaseUrl(url) + link
             }
             
-            // If we found intermediate link (gamerxyt), follow it
-            if (link.contains("gamerxyt")) {
+            // If we found intermediate link (gamerxyt), DON'T follow - it's handled by fastdlserver
+            // Instead, look for direct video links on the page
+            if (link.isNotEmpty() && !link.contains("gamerxyt")) {
                 try {
-                    val redirectResponse = app.get(link, allowRedirects = true)
-                    val finalLink = redirectResponse.url
-                    if (finalLink.isNotBlank()) {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[Direct]",
-                                "$name Direct $header[$size]",
-                                finalLink
-                            ) {
-                                this.quality = getIndexQuality(header)
-                            }
-                        )
-                    }
+                    // This is a direct link, add it
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[Direct]",
+                            "$name Direct $header [$size]",
+                            link
+                        ) {
+                            this.referer = getBaseUrl(url)
+                            this.quality = getIndexQuality(header)
+                        }
+                    )
                 } catch (e: Exception) {
-                    Log.e("HubCloud", "Error following gamerxyt link: ${e.message}")
+                    Log.e("HubCloud", "Error adding direct link: ${e.message}")
                 }
             }
 
@@ -367,36 +358,29 @@ open class GDFlix : ExtractorApi() {
                 if (btnLink.isBlank() || btnLink == "#") return@forEach
                 
                 when {
-                    // Instant DL - Direct fast link (busycdn/instant)
-                    btnText.contains("Instant", ignoreCase = true) -> {
+                    // Instant DL - Encrypted link from busycdn - needs redirect following
+                    btnText.contains("Instant", ignoreCase = true) && btnLink.contains("busycdn") -> {
                         try {
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name [Instant⚡]",
-                                    "$name Instant DL $title [$size]",
-                                    btnLink
-                                ) {
-                                    this.quality = getIndexQuality(title)
-                                }
-                            )
+                            // Follow redirect to get actual video URL
+                            val finalResponse = app.get(btnLink, allowRedirects = true)
+                            val finalUrl = finalResponse.url
+                            
+                            if (finalUrl.isNotBlank() && !finalUrl.contains("busycdn")) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name [Instant⚡]",
+                                        "$name Instant DL $title [$size]",
+                                        finalUrl
+                                    ) {
+                                        this.referer = mainUrl
+                                        this.quality = getIndexQuality(title)
+                                    }
+                                )
+                            } else {
+                                Log.d("GDFlix", "Could not resolve instant link: $finalUrl")
+                            }
                         } catch (e: Exception) {
                             Log.e("GDFlix", "Instant DL error: ${e.message}")
-                        }
-                    }
-                    // 10Gbps Login Server
-                    btnText.contains("Login To DL", ignoreCase = true) && btnText.contains("10GBPS", ignoreCase = true) -> {
-                        try {
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name [10Gbps]",
-                                    "$name 10Gbps DL $title [$size]",
-                                    btnLink
-                                ) {
-                                    this.quality = getIndexQuality(title)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("GDFlix", "10Gbps DL error: ${e.message}")
                         }
                     }
                     // PixelDrain - Already working extractor
@@ -407,17 +391,21 @@ open class GDFlix : ExtractorApi() {
                             Log.e("GDFlix", "Pixeldrain extraction failed: ${e.message}")
                         }
                     }
-                    // Fast Cloud/ZipDisk - GDFlix internal servers
+                    // Fast Cloud/ZipDisk - GDFlix internal servers - follow redirects
                     btnText.contains("FAST CLOUD", ignoreCase = true) || 
                     btnText.contains("ZIPDISK", ignoreCase = true) ||
                     btnLink.contains("/zfile/", ignoreCase = true) -> {
                         try {
+                            val cloudResponse = app.get(btnLink, allowRedirects = true)
+                            val cloudUrl = cloudResponse.url
+                            
                             callback.invoke(
                                 newExtractorLink(
                                     "$name [Cloud]",
                                     "$name Cloud DL $title [$size]",
-                                    btnLink
+                                    cloudUrl
                                 ) {
+                                    this.referer = btnLink
                                     this.quality = getIndexQuality(title)
                                 }
                             )
