@@ -150,8 +150,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     override suspend fun load(url: String): LoadResponse? {
+        Log.d("MultiMovies", "========== LOAD START ==========")
+        Log.d("MultiMovies", "Loading URL: $url")
+        
         val doc = app.get(url).document
-        val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: return null
+        val titleL = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: run {
+            Log.e("MultiMovies", "ERROR: Title not found!")
+            return null
+        }
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
@@ -211,7 +217,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         }
 
+        Log.d("MultiMovies", "Type detected: $type")
+        Log.d("MultiMovies", "========== LOAD END ==========")
+        
         return if (type == TvType.Movie) {
+            Log.d("MultiMovies", "Returning Movie LoadResponse with data: $url")
             newMovieLoadResponse(
                 title,
                 url,
