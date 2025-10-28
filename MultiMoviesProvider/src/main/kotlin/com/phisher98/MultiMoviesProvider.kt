@@ -249,63 +249,31 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        try {
-            Log.d("MultiMovies", "loadLinks called for: $data")
-            
-            // Get the document from the data URL
-            val document = app.get(data).document
-            
-            // Extract player options (excluding trailer)
-            val playerOptions = document.select("ul#playeroptionsul > li")
-                .filterNot { it.attr("data-nume").equals("trailer", ignoreCase = true) }
-            
-            Log.d("MultiMovies", "Found ${playerOptions.size} player options")
-            
-            if (playerOptions.isEmpty()) {
-                Log.e("MultiMovies", "No player options found!")
-                return false
-            }
-            
-            playerOptions.forEach { element ->
-                try {
-                    val type = element.attr("data-type").ifBlank { 
-                        if (data.contains("/episodes/") || data.contains("/tvshows/")) "tv" else "movie" 
-                    }
-                    val post = element.attr("data-post")
-                    val nume = element.attr("data-nume")
-                    val optionTitle = element.select("span.title").text()
-                    
-                    Log.d("MultiMovies", "Processing option: $optionTitle (type=$type, post=$post, nume=$nume)")
-                    
-                    if (post.isBlank() || nume.isBlank()) {
-                        Log.e("MultiMovies", "Missing post or nume data")
-                        return@forEach
-                    }
-                    
-                    // Get iframe URL from player API
-                    val iframeUrl = getIframeUrl(type, post, nume)
-                    
-                    if (iframeUrl.isNullOrEmpty()) {
-                        Log.e("MultiMovies", "No iframe URL received from API")
-                        return@forEach
-                    }
-                    
-                    Log.d("MultiMovies", "Got iframe URL: $iframeUrl")
+        
+        Log.d("MultiMovies", "loadLinks called for: $data")
+        
+        // Get the document from the data URL
+        val document = app.get(data).document
+        
+        // Extract player options
+        document.select("ul#playeroptionsul > li")
+            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+            .forEach { element ->
+                val type = element.attr("data-type")
+                val post = element.attr("data-post")
+                val nume = element.attr("data-nume")
+                
+                Log.d("MultiMovies", "Player option found - type: $type, post: $post, nume: $nume")
+                
+                // Get iframe URL from player API
+                val iframeUrl = getIframeUrl(type, post, nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    Log.d("MultiMovies", "Loading iframe: $iframeUrl")
                     loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
-                    
-                } catch (e: Exception) {
-                    Log.e("MultiMovies", "Error processing player option: ${e.message}")
-                    e.printStackTrace()
                 }
             }
-            
-            return true
-            
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Fatal error in loadLinks: ${e.message}")
-            e.printStackTrace()
-            return false
-        }
+        
+        return true
     }
     
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
@@ -346,74 +314,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            // Handle specific extractors based on URL patterns
-            when {
-                // GdMirror domains - redirects to other hosters
-                url.contains("gdmirrorbot", ignoreCase = true) || 
-                url.contains("gdmirror", ignoreCase = true) ||
-                url.contains("gtxgamer", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using GdMirrorExtractor for: $url")
-                    GdMirrorExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // TechInMind domains (for TV shows)
-                url.contains("techinmind.space", ignoreCase = true) ||
-                url.contains("ssn.techinmind", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using TechInMindExtractor for: $url")
-                    TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // MultiMoviesShg - main video hoster (HIGHEST PRIORITY)
-                url.contains("multimoviesshg", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using MultiMoviesShgExtractor for: $url")
-                    MultiMoviesShgExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // Streamwish domains
-                url.contains("streamwish", ignoreCase = true) ||
-                url.contains("streamwish.to", ignoreCase = true) ||
-                url.contains("streamwish.com", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using StreamwishExtractor for: $url")
-                    StreamwishExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // VidHide domains
-                url.contains("vidhide", ignoreCase = true) ||
-                url.contains("vidhide.com", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using VidHideExtractor for: $url")
-                    VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // Filepress domains
-                url.contains("filepress", ignoreCase = true) ||
-                url.contains("filepress.store", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using FilepressExtractor for: $url")
-                    FilepressExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // Gofile domains
-                url.contains("gofile", ignoreCase = true) ||
-                url.contains("gofile.io", ignoreCase = true) -> {
-                    Log.d("MultiMovies", "Using GofileExtractor for: $url")
-                    GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
-                }
-                
-                // If no custom extractor matches, try built-in CloudStream extractors
-                else -> {
-                    Log.d("MultiMovies", "Using built-in extractor for: $url")
-                    loadExtractor(url, referer, subtitleCallback, callback)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Error loading extractor for $url: ${e.message}")
-            // Fallback to built-in extractors
-            try {
-                loadExtractor(url, referer, subtitleCallback, callback)
-            } catch (e2: Exception) {
-                Log.e("MultiMovies", "Built-in extractor also failed: ${e2.message}")
-            }
+        Log.d("MultiMovies", "loadExtractorLink called for: $url")
+        
+        // GdMirror/GtxGamer domains
+        if (url.contains("gdmirrorbot", ignoreCase = true) || 
+            url.contains("gdmirror", ignoreCase = true) ||
+            url.contains("gtxgamer", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using GdMirrorExtractor")
+            GdMirrorExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
         }
+        
+        // TechInMind domains
+        if (url.contains("techinmind.space", ignoreCase = true) ||
+            url.contains("ssn.techinmind", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using TechInMindExtractor")
+            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // MultiMoviesShg - main video hoster
+        if (url.contains("multimoviesshg", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using MultiMoviesShgExtractor")
+            MultiMoviesShgExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+        
+        // Use built-in CloudStream extractors for all other hosters
+        Log.d("MultiMovies", "Using built-in loadExtractor")
+        loadExtractor(url, referer, subtitleCallback, callback)
     }
     
     private fun Element.getImageAttr(): String? {
