@@ -199,11 +199,27 @@ class HubCloud : ExtractorApi() {
         }
         val quality = getIndexQuality(header)
 
-        document.select("div.card-body h2 a.btn").amap { element ->
+        document.select("a.btn, a.btn-success, a.btn-danger, a.btn-primary").amap { element ->
             val link = element.attr("href")
             val text = element.text()
+            
+            // Skip empty links or non-download links
+            if (link.isBlank() || text.contains("Copy", ignoreCase = true) || 
+                text.contains("Logout", ignoreCase = true)) {
+                return@amap
+            }
 
             when {
+                text.contains("PixelServer", ignoreCase = true) || text.contains("Pixeldrain", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "Pixeldrain",
+                            "Pixeldrain $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+                
                 text.contains("FSL Server", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
@@ -240,21 +256,26 @@ class HubCloud : ExtractorApi() {
                     }
                 }
 
-                text.contains("pixeldra", ignoreCase = true) || text.contains("pixel", ignoreCase = true) -> {
-                    callback.invoke(
-                        newExtractorLink(
-                            "Pixeldrain",
-                            "Pixeldrain $labelExtras",
-                            link,
-                        ) { this.quality = quality }
-                    )
-                }
-
                 text.contains("S3 Server", ignoreCase = true) -> {
+                    // S3 Server uses JavaScript redirect, extract from script
+                    val s3Script = document.select("script:containsData(s3_redirect)").html()
+                    val s3Url = Regex("window\\.location\\.href\\s*=\\s*'([^']+)'").find(s3Script)?.groupValues?.get(1)
+                    if (!s3Url.isNullOrBlank()) {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$source S3 Server",
+                                "$source S3 Server $labelExtras",
+                                s3Url,
+                            ) { this.quality = quality }
+                        )
+                    }
+                }
+                
+                text.contains("ZipDisk", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
-                            "$source S3 Server",
-                            "$source S3 Server $labelExtras",
+                            "$source ZipDisk",
+                            "$source ZipDisk $labelExtras",
                             link,
                         ) { this.quality = quality }
                     )
@@ -284,7 +305,10 @@ class HubCloud : ExtractorApi() {
                         )
                 }
                 else -> {
-                    loadExtractor(link, "", subtitleCallback, callback)
+                    // Try to load with generic extractor
+                    if (link.startsWith("http")) {
+                        loadExtractor(link, "", subtitleCallback, callback)
+                    }
                 }
             }
         }
