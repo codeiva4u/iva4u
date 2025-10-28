@@ -46,14 +46,28 @@ class PixelDrain : ExtractorApi() {
             val infoResponse = app.get("$mainUrl/api/file/$mId/info", allowRedirects = false)
             if (infoResponse.isSuccessful) {
                 val infoText = infoResponse.text
-                val mimeType = Regex("\"mime_type\"\\s*:\\s*\"([^\"]+)\"").find(infoText)?.groupValues?.getOrNull(1)
+                val jsonInfo = JSONObject(infoText)
+                val mimeType = jsonInfo.optString("mime_type", "")
+                val fileName = jsonInfo.optString("name", "Video")
+                val fileSize = jsonInfo.optLong("size", 0L)
+                
+                // Format size
+                val formattedSize = if (fileSize < 1024L * 1024 * 1024) {
+                    "%.2f MB".format(fileSize.toDouble() / (1024 * 1024))
+                } else {
+                    "%.2f GB".format(fileSize.toDouble() / (1024 * 1024 * 1024))
+                }
                 
                 // Only process if it's a video file
-                if (mimeType != null && mimeType.startsWith("video/")) {
+                if (mimeType.startsWith("video/", ignoreCase = true)) {
                     callback.invoke(
-                        newExtractorLink(this.name, this.name, finalUrl) {
+                        newExtractorLink(
+                            this.name, 
+                            "${this.name} $fileName[$formattedSize]", 
+                            finalUrl
+                        ) {
                             this.referer = "$mainUrl/"
-                            this.quality = Qualities.Unknown.value
+                            this.quality = getIndexQuality(fileName)
                         }
                     )
                 } else {
@@ -276,9 +290,28 @@ open class GDFlix : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val latestUrl = getLatestUrl()
-        val newUrl = url.replace(mainUrl, latestUrl)
-        val document = app.get(newUrl).document
+        try {
+            val latestUrl = getLatestUrl()
+            // Better URL handling - replace all known GDFlix domains
+            val gdflixDomains = listOf(
+                "https://new6.gdflix.dad",
+                "https://new.gdflix.dad",
+                "https://new4.gdflix.dad",
+                "https://gdflix.dad",
+                "https://gdflix.dev",
+                "https://gdlink.dev"
+            )
+            
+            var newUrl = url
+            for (domain in gdflixDomains) {
+                if (url.startsWith(domain)) {
+                    newUrl = url.replace(domain, latestUrl)
+                    break
+                }
+            }
+            
+            Log.d("GDFlix", "Fetching: $newUrl")
+            val document = app.get(newUrl).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
             .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
@@ -394,53 +427,51 @@ open class GDFlix : ExtractorApi() {
                         val link = app.get(instantLink, allowRedirects = false)
                             .headers["location"]?.substringAfter("url=").orEmpty()
 
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
-                                this.quality = getIndexQuality(fileName)
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.d("Instant DL", e.toString())
-                    }
-                }
-                text.contains("GoFile") -> {
-                    try {
-                        val gofileMirrorUrl = anchor.attr("href")
-                        
-                        // Handle goflix.sbs mirror and direct gofile links
-                        if (gofileMirrorUrl.contains("goflix.sbs", ignoreCase = true)) {
-                            // Extract from goflix.sbs mirror page
-                            val mirrorDoc = app.get(gofileMirrorUrl).document
-                            mirrorDoc.select(".row .row a, a[href*='gofile']").amap { gofileAnchor ->
-                                val link = gofileAnchor.attr("href")
-                                if (link.contains("gofile", ignoreCase = true)) {
-                                    Gofile().getUrl(link, latestUrl, subtitleCallback, callback)
+                        if (link.isNotEmpty()) {
+                            callback.invoke(
+                                newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
+                                    this.quality = getIndexQuality(fileName)
                                 }
-                            }
-                        } else if (gofileMirrorUrl.contains("gofile", ignoreCase = true)) {
-                            // Direct gofile link
-                            Gofile().getUrl(gofileMirrorUrl, latestUrl, subtitleCallback, callback)
-                        } else {
-                            // Try to find gofile links in the page
-                            app.get(gofileMirrorUrl).document
-                                .select(".row .row a, a[href*='gofile']").amap { gofileAnchor ->
-                                    val link = gofileAnchor.attr("href")
-                                    if (link.contains("gofile", ignoreCase = true)) {
-                                        Gofile().getUrl(link, latestUrl, subtitleCallback, callback)
-                                    }
-                                }
+                            )
                         }
                     } catch (e: Exception) {
-                        Log.e("Gofile", "Error extracting GoFile: ${e.message}")
+                        Log.e("GDFlix", "Instant DL extraction failed: ${e.message}")
+                    }
+                }
+
+                text.contains("GoFile", ignoreCase = true) || text.contains("Mirror", ignoreCase = true) -> {
+                    try {
+                        val gofileLink = anchor.attr("href")
+                        Log.d("GDFlix", "GoFile link found: $gofileLink")
+                        
+                        if (gofileLink.contains("gofile.io", ignoreCase = true)) {
+                            // Direct gofile link
+                            Gofile().getUrl(gofileLink, latestUrl, subtitleCallback, callback)
+                        } else {
+                            // Mirror page - extract gofile link
+                            val mirrorDoc = app.get(gofileLink).document
+                            val gofileLinkFromMirror = mirrorDoc.select("a[href*='gofile.io']").attr("href")
+                            
+                            if (gofileLinkFromMirror.isNotEmpty()) {
+                                Log.d("GDFlix", "Extracted gofile link from mirror: $gofileLinkFromMirror")
+                                Gofile().getUrl(gofileLinkFromMirror, latestUrl, subtitleCallback, callback)
+                            } else {
+                                Log.d("GDFlix", "No gofile link found in mirror page")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("GDFlix", "GoFile extraction failed: ${e.message}")
                     }
                 }
 
                 else -> {
-                    Log.d("Error", "No Server matched")
+                    Log.d("GDFlix", "Unknown button text: $text")
                 }
             }
         }
-
+        } catch (e: Exception) {
+            Log.e("GDFlix", "Error in getUrl: ${e.message}")
+        }
     }
 }
 
