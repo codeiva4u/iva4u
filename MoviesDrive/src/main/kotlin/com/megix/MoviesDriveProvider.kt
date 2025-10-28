@@ -27,7 +27,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     init {
         // Use direct domain instead of fetching from GitHub
-        mainUrl = "https://moviesdrive.mom"
+        mainUrl = "https://moviesdrive.lat"
     }
 
     // Helper function to ensure URL is properly formatted
@@ -152,9 +152,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) == true ||
-            seasonRegex.containsMatchIn(title) ||
-            title.contains("series", ignoreCase = true) == true
+            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
         ) {
             "series"
         } else {
@@ -198,7 +196,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 if (checkSeason == null) {
                     val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
-                        title = title + " " + seasonText.toString()
+                        title = "$title $seasonText"
                     }
                 }
             }
