@@ -16,7 +16,6 @@ import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -246,27 +245,64 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Get the document from the data URL
-        val document = app.get(data).document
-        
-        // Extract player options
-        document.select("ul#playeroptionsul > li")
-            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-            .forEach { element ->
-                val type = element.attr("data-type")
-                val post = element.attr("data-post")
-                val nume = element.attr("data-nume")
-                
-                // Get iframe URL from player API
-                val embedResponse = getEmbed(post, nume, data)
-                val iframeUrl = embedResponse.parsed<TrailerUrl>()?.embedUrl
-                
-                if (!iframeUrl.isNullOrEmpty()) {
+        try {
+            Log.d("MultiMovies", "loadLinks called for: $data")
+            
+            // Get the document from the data URL
+            val document = app.get(data).document
+            
+            // Extract player options (excluding trailer)
+            val playerOptions = document.select("ul#playeroptionsul > li")
+                .filterNot { it.attr("data-nume").equals("trailer", ignoreCase = true) }
+            
+            Log.d("MultiMovies", "Found ${playerOptions.size} player options")
+            
+            if (playerOptions.isEmpty()) {
+                Log.e("MultiMovies", "No player options found!")
+                return false
+            }
+            
+            playerOptions.forEach { element ->
+                try {
+                    val type = element.attr("data-type").ifBlank { 
+                        if (data.contains("/episodes/") || data.contains("/tvshows/")) "tv" else "movie" 
+                    }
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    val optionTitle = element.select("span.title").text()
+                    
+                    Log.d("MultiMovies", "Processing option: $optionTitle (type=$type, post=$post, nume=$nume)")
+                    
+                    if (post.isBlank() || nume.isBlank()) {
+                        Log.e("MultiMovies", "Missing post or nume data")
+                        return@forEach
+                    }
+                    
+                    // Get iframe URL from player API
+                    val embedResponse = getEmbed(post, nume, data)
+                    val iframeUrl = embedResponse.parsed<TrailerUrl>()?.embedUrl
+                    
+                    if (iframeUrl.isNullOrEmpty()) {
+                        Log.e("MultiMovies", "No iframe URL received from API")
+                        return@forEach
+                    }
+                    
+                    Log.d("MultiMovies", "Got iframe URL: $iframeUrl")
                     loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                    
+                } catch (e: Exception) {
+                    Log.e("MultiMovies", "Error processing player option: ${e.message}")
+                    e.printStackTrace()
                 }
             }
-        
-        return true
+            
+            return true
+            
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "Fatal error in loadLinks: ${e.message}")
+            e.printStackTrace()
+            return false
+        }
     }
     
     private suspend fun loadExtractorLink(
