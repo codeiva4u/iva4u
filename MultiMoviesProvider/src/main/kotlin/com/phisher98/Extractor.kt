@@ -1,14 +1,20 @@
 package com.phisher98
 
+import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import java.net.URI
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 // MultiMoviesShg Extractor - Main video hoster
 class MultiMoviesShgExtractor : ExtractorApi() {
@@ -25,9 +31,62 @@ class MultiMoviesShgExtractor : ExtractorApi() {
         try {
             Log.d("MultiMoviesShg", "Starting extraction for URL: $url")
             
-            // Method 1: Try WebView extraction for m3u8
+            val doc = app.get(url, referer = referer ?: mainUrl).document
+            
+            // Method 1: Parse HTML/JavaScript for m3u8 URLs
             try {
-                Log.d("MultiMoviesShg", "Method 1: Trying WebView extraction...")
+                Log.d("MultiMoviesShg", "Method 1: Trying HTML/JS extraction...")
+                val scripts = doc.select("script")
+                val m3u8Regex = Regex("""(https?://[^\"'\\s]+\.m3u8[^\"'\\s]*)""")
+                
+                scripts.forEach { script ->
+                    val scriptContent = script.html()
+                    val match = m3u8Regex.find(scriptContent)
+                    if (match != null) {
+                        val m3u8Url = match.groupValues[1]
+                        Log.d("MultiMoviesShg", "HTML extraction successful: $m3u8Url")
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name [HTML]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = url
+                                this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
+                    }
+                }
+                Log.d("MultiMoviesShg", "No M3U8 found in scripts, trying body text...")
+                
+                // Try to find m3u8 in page body
+                val bodyText = doc.body().html()
+                val bodyMatch = m3u8Regex.find(bodyText)
+                if (bodyMatch != null) {
+                    val m3u8Url = bodyMatch.groupValues[1]
+                    Log.d("MultiMoviesShg", "Body extraction successful: $m3u8Url")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name [Body]",
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("MultiMoviesShg", "HTML extraction failed: ${e.message}")
+            }
+            
+            // Method 2: Try WebView extraction as fallback
+            try {
+                Log.d("MultiMoviesShg", "Method 2: Trying WebView extraction...")
                 val response = app.get(
                     url,
                     referer = referer ?: mainUrl,
@@ -45,7 +104,7 @@ class MultiMoviesShgExtractor : ExtractorApi() {
                             response.url,
                             ExtractorLinkType.M3U8
                         ) {
-                            this.referer = referer ?: url
+                            this.referer = url
                             this.quality = Qualities.P1080.value
                         }
                     )
@@ -55,42 +114,10 @@ class MultiMoviesShgExtractor : ExtractorApi() {
                 Log.e("MultiMoviesShg", "WebView extraction failed: ${e.message}")
             }
             
-            // Method 2: Parse HTML for m3u8 URLs
-            try {
-                Log.d("MultiMoviesShg", "Method 2: Trying HTML/JS extraction...")
-                val doc = app.get(url, referer = referer ?: mainUrl).document
-                
-                // Look for script tags with m3u8 URLs
-                val scripts = doc.select("script")
-                val m3u8Regex = Regex("""(https?://[^\"'\\s]+\.m3u8[^\"'\\s]*)""")
-                
-                scripts.forEach { script ->
-                    val scriptContent = script.html()
-                    val match = m3u8Regex.find(scriptContent)
-                    if (match != null) {
-                        val m3u8Url = match.groupValues[1]
-                        Log.d("MultiMoviesShg", "HTML extraction successful: $m3u8Url")
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [HTML]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = referer ?: url
-                                this.quality = Qualities.P1080.value
-                            }
-                        )
-                        return
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MultiMoviesShg", "HTML extraction failed: ${e.message}")
-            }
-            
             Log.e("MultiMoviesShg", "All extraction methods failed")
         } catch (e: Exception) {
             Log.e("MultiMoviesShg", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -110,24 +137,40 @@ class GdMirrorExtractor : ExtractorApi() {
         try {
             Log.d("GdMirror", "Fetching: $url")
             
-            // Follow redirects to get final URL
+            // Follow redirects to get final URL (usually gtxgamer)
             val response = app.get(url, allowRedirects = true)
             val finalUrl = response.url
             
             Log.d("GdMirror", "Final URL after redirects: $finalUrl")
             
-            // Check if it redirects to gtxgamer or similar
-            if (finalUrl.contains("gtxgamer") || finalUrl.contains("embed")) {
+            // Check if it redirects to gtxgamer
+            if (finalUrl.contains("gtxgamer", ignoreCase = true)) {
                 val doc = response.document
                 
-                // Look for iframe with video source
+                // Look for script that makes request to embedhelper.php
+                val scripts = doc.select("script")
+                scripts.forEach { script ->
+                    val scriptContent = script.html()
+                    
+                    // Extract sid parameter from the page
+                    if (scriptContent.contains("embedhelper")) {
+                        val sidRegex = Regex("""sid[=:\s]+["']([^"']+)["']""")
+                        val sidMatch = sidRegex.find(scriptContent)
+                        if (sidMatch != null) {
+                            val sid = sidMatch.groupValues[1]
+                            Log.d("GdMirror", "Found SID: $sid")
+                        }
+                    }
+                }
+                
+                // Look for iframe with multimoviesshg directly
                 val iframes = doc.select("iframe[src]")
                 iframes.forEach { iframe ->
-                    val iframeSrc = iframe.attr("src")
-                    if (iframeSrc.contains("multimoviesshg") || iframeSrc.contains("/e/")) {
-                        Log.d("GdMirror", "Found iframe source: $iframeSrc")
-                        
-                        // Extract using MultiMoviesShg extractor
+                    val iframeSrc = iframe.attr("abs:src")
+                    Log.d("GdMirror", "Found iframe: $iframeSrc")
+                    
+                    if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
+                        Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
                         MultiMoviesShgExtractor().getUrl(
                             iframeSrc,
                             finalUrl,
@@ -137,11 +180,28 @@ class GdMirrorExtractor : ExtractorApi() {
                         return
                     }
                 }
+                
+                // Try to find multimoviesshg URL in page source
+                val bodyText = doc.body().html()
+                val multiMoviesRegex = Regex("""(https?://[^\"'\\s]*multimoviesshg[^\"'\\s]*/e/[^\"'\\s]+)""")
+                val multiMoviesMatch = multiMoviesRegex.find(bodyText)
+                if (multiMoviesMatch != null) {
+                    val multiMoviesUrl = multiMoviesMatch.groupValues[1]
+                    Log.d("GdMirror", "Found MultiMoviesShg URL in source: $multiMoviesUrl")
+                    MultiMoviesShgExtractor().getUrl(
+                        multiMoviesUrl,
+                        finalUrl,
+                        subtitleCallback,
+                        callback
+                    )
+                    return
+                }
             }
             
             Log.e("GdMirror", "No video source found")
         } catch (e: Exception) {
             Log.e("GdMirror", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -167,32 +227,60 @@ class TechInMindExtractor : ExtractorApi() {
             // Look for iframe with ssn.techinmind.space or multimoviesshg
             val iframes = doc.select("iframe[src]")
             iframes.forEach { iframe ->
-                val iframeSrc = iframe.attr("src")
+                val iframeSrc = iframe.attr("abs:src")
                 Log.d("TechInMind", "Found iframe: $iframeSrc")
                 
-                if (iframeSrc.contains("ssn.techinmind.space") || 
-                    iframeSrc.contains("multimoviesshg")) {
-                    
-                    // Follow the iframe
-                    val iframeResponse = app.get(iframeSrc, allowRedirects = true)
-                    val iframeDoc = iframeResponse.document
-                    
-                    // Look for nested iframe with multimoviesshg
-                    val nestedIframes = iframeDoc.select("iframe[src]")
-                    nestedIframes.forEach { nested ->
-                        val nestedSrc = nested.attr("src")
-                        if (nestedSrc.contains("multimoviesshg") || nestedSrc.contains("/e/")) {
-                            Log.d("TechInMind", "Found nested iframe: $nestedSrc")
-                            
-                            // Extract using MultiMoviesShg extractor
+                // If iframe directly contains multimoviesshg, extract it
+                if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
+                    Log.d("TechInMind", "Found MultiMoviesShg iframe directly: $iframeSrc")
+                    MultiMoviesShgExtractor().getUrl(
+                        iframeSrc,
+                        url,
+                        subtitleCallback,
+                        callback
+                    )
+                    return
+                }
+                
+                // If iframe contains ssn.techinmind, follow it for nested iframe
+                if (iframeSrc.contains("ssn.techinmind.space", ignoreCase = true)) {
+                    try {
+                        val iframeResponse = app.get(iframeSrc, allowRedirects = true)
+                        val iframeDoc = iframeResponse.document
+                        
+                        // Look for nested iframe with multimoviesshg
+                        val nestedIframes = iframeDoc.select("iframe[src]")
+                        nestedIframes.forEach { nested ->
+                            val nestedSrc = nested.attr("abs:src")
+                            if (nestedSrc.contains("multimoviesshg", ignoreCase = true)) {
+                                Log.d("TechInMind", "Found nested MultiMoviesShg iframe: $nestedSrc")
+                                MultiMoviesShgExtractor().getUrl(
+                                    nestedSrc,
+                                    iframeSrc,
+                                    subtitleCallback,
+                                    callback
+                                )
+                                return
+                            }
+                        }
+                        
+                        // Also try to find multimoviesshg URL in iframe source
+                        val iframeBodyText = iframeDoc.body().html()
+                        val multiMoviesRegex = Regex("""(https?://[^\"'\\s]*multimoviesshg[^\"'\\s]*/e/[^\"'\\s]+)""")
+                        val multiMoviesMatch = multiMoviesRegex.find(iframeBodyText)
+                        if (multiMoviesMatch != null) {
+                            val multiMoviesUrl = multiMoviesMatch.groupValues[1]
+                            Log.d("TechInMind", "Found MultiMoviesShg URL in iframe source: $multiMoviesUrl")
                             MultiMoviesShgExtractor().getUrl(
-                                nestedSrc,
+                                multiMoviesUrl,
                                 iframeSrc,
                                 subtitleCallback,
                                 callback
                             )
                             return
                         }
+                    } catch (e: Exception) {
+                        Log.e("TechInMind", "Error following nested iframe: ${e.message}")
                     }
                 }
             }
@@ -200,6 +288,7 @@ class TechInMindExtractor : ExtractorApi() {
             Log.e("TechInMind", "No video source found")
         } catch (e: Exception) {
             Log.e("TechInMind", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
