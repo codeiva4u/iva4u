@@ -159,19 +159,6 @@ open class HubCloud : ExtractorApi() {
                             }
                         )
                     }
-
-                    // ZipDisk/Cloud Server (ddl2.cloudserver)
-                    btnUrl.contains("cloudserver", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [ZipDisk]",
-                                "$name [ZipDisk] $fileInfo [$fileSize]",
-                                btnUrl
-                            ) {
-                                quality = getIndexQuality(fileInfo)
-                            }
-                        )
-                    }
                 }
             }
 
