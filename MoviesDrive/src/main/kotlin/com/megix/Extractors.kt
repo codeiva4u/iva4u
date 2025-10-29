@@ -59,12 +59,16 @@ class HubCloudBz : HubCloud() {
 }
 
 open class HubCloud : ExtractorApi() {
-    override val name: String = "Hub-Cloud"
-    override val mainUrl: String = "https://hubcloud.one"
+    override val name = "Hub-Cloud"
+    override val mainUrl = "https://hubcloud.one"
     override val requiresReferer = false
 
-    fun getBaseUrl(url: String): String {
-        return URI(url).let { "${it.scheme}://${it.host}" }
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (e: Exception) {
+            mainUrl
+        }
     }
 
     override suspend fun getUrl(
@@ -73,127 +77,122 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val newBaseUrl = "https://hubcloud.one"
-        // Validate URL before processing
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return // Invalid URL, skip processing
+        if (!url.startsWith("http")) {
+            Log.d(name, "Invalid URL: $url")
+            return
         }
-        val newUrl = url.replace(mainUrl, newBaseUrl)
-        val doc = app.get(newUrl).document
-
-        var link = if (newUrl.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.getOrNull(1) ?: ""
-        } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-        }
-
-        if (link.startsWith("/")) {
-            link = newBaseUrl + link
-        }
-
-        val document = app.get(link).document
-        val header = document.select("div.card-header").text()
-        val size = document.select("i#size").text()
-        val div = document.selectFirst("div.card-body")
-
-        div?.select("h2 a.btn")?.forEach {
-            val btnLink = it.attr("href")
-            val text = it.text()
-
-            when {
-                // PixelServer - Working
-                text.contains("PixelServer") || btnLink.contains("pixeldra") -> {
-                    callback.invoke(
-                        newExtractorLink("$name[PixelServer]", "$name[PixelServer] $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
+        
+        try {
+            Log.d(name, "Processing: $url")
+            
+            // Check if it's the API redirect URL (gamerxyt.com/hubcloud.php)
+            if (url.contains("gamerxyt.com/hubcloud.php")) {
+                val doc = app.get(url, timeout = 10L).document
+                val header = doc.selectFirst("div.card-header")?.text() ?: "Video"
+                val size = doc.selectFirst("i#size")?.text() ?: ""
                 
-                // 10Gbps Server - Fixed
-                text.contains("10Gbps") || text.contains("10GBPS") -> {
-                    callback.invoke(
-                        newExtractorLink("$name[10Gbps]", "$name[10Gbps] $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
+                // Extract all server links
+                val links = doc.select("a[href]").mapNotNull { link ->
+                    val href = link.attr("href")
+                    val text = link.text()
+                    
+                    when {
+                        // PixelDrain direct API
+                        href.contains("pixeldrain.dev/api/file") -> {
+                            callback.invoke(
+                                newExtractorLink("HubCloud[PixelDrain]", "HubCloud[PixelDrain] $header[$size]", href) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                            null
                         }
-                    )
-                }
-
-                // FSL Server - Working
-                text.contains("FSL Server") -> {
-                    callback.invoke(
-                        newExtractorLink("$name[FSL Server]", "$name[FSL Server] $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
+                        // FSL Server direct link
+                        href.contains("fsl.anime4u.co") || text.contains("FSL", ignoreCase = true) -> {
+                            callback.invoke(
+                                newExtractorLink("HubCloud[FSL]", "HubCloud[FSL] $header[$size]", href) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                            null
                         }
-                    )
-                }
-                
-                // S3 Server - Fixed to extract from page script
-                text.contains("S3 Server") -> {
-                    try {
-                        // S3 link is set via JavaScript on button click
-                        // We need to extract it from the script tag
-                        val scripts = document.select("script:containsData(s3.blockxpiracy.net)")
-                        scripts.forEach { script ->
-                            val scriptContent = script.html()
-                            val s3Regex = Regex("""window\.location\.href\s*=\s*['\"]([^'\"]*s3\.blockxpiracy\.net[^'\"]*)['\"]""")
-                            val match = s3Regex.find(scriptContent)
-                            if (match != null) {
-                                val s3Link = match.groupValues[1]
-                                callback.invoke(
-                                    newExtractorLink("$name[S3 Server]", "$name[S3 Server] $header[$size]", s3Link) {
-                                        quality = getIndexQuality(header)
-                                    }
-                                )
-                            }
+                        // 10Gbps Server (pixel.hubcdn.fans)
+                        href.contains("pixel.hubcdn.fans") || text.contains("10Gbps", ignoreCase = true) -> {
+                            callback.invoke(
+                                newExtractorLink("HubCloud[10Gbps]", "HubCloud[10Gbps] $header[$size]", href) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                            null
                         }
-                    } catch (e: Exception) {
-                        Log.e("HubCloud", "S3 Server extraction error: ${e.message}")
+                        // ZipDisk CloudFlare Workers
+                        href.contains("cloudserver-") && href.contains(".workers.dev") -> {
+                            callback.invoke(
+                                newExtractorLink("HubCloud[ZipDisk]", "HubCloud[ZipDisk] $header[$size]", href) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                            null
+                        }
+                        // Mega Server
+                        href.contains("mega.co.nz") || text.contains("Mega", ignoreCase = true) -> {
+                            callback.invoke(
+                                newExtractorLink("HubCloud[Mega]", "HubCloud[Mega] $header[$size]", href) {
+                                    this.quality = getIndexQuality(header)
+                                }
+                            )
+                            null
+                        }
+                        else -> null
                     }
                 }
-
-                // ZipDisk Server - Fixed
-                text.contains("ZipDisk") || text.contains("ZipDisk Server") -> {
-                    callback.invoke(
-                        newExtractorLink("$name[ZipDisk]", "$name[ZipDisk] $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
+                return
+            }
+            
+            // Original HubCloud page processing
+            val doc = app.get(url, timeout = 10L).document
+            val header = doc.selectFirst("div.card-header")?.text() ?: "Video"
+            val size = doc.selectFirst("i#size")?.text() ?: ""
+            
+            Log.d(name, "File: $header [$size]")
+            
+            // Find download button that redirects to gamerxyt.com
+            val downloadBtn = doc.selectFirst("a#download[href*='gamerxyt.com']")
+            if (downloadBtn != null) {
+                val redirectUrl = downloadBtn.attr("href")
+                Log.d(name, "Found redirect URL: $redirectUrl")
+                // Recursively process the redirect URL
+                getUrl(redirectUrl, url, subtitleCallback, callback)
+                return
+            }
+            
+            // Fallback: Find all download links directly
+            val links = doc.select("a[href]").mapNotNull { link ->
+                val href = link.attr("href")
+                val text = link.text()
                 
-                text.contains("Download File") -> {
-                    callback.invoke(
-                        newExtractorLink(name, "$name $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
-
-                text.contains("BuzzServer") -> {
-                    val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false)
-                        .headers["hx-redirect"].orEmpty()
-                    if (dlink.isNotBlank()) {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[BuzzServer]",
-                                "$name[BuzzServer] $header[$size]",
-                                getBaseUrl(btnLink) + dlink
-                            ) {
-                                quality = getIndexQuality(header)
-                            }
-                        )
-                    }
-                }
-
-                else -> {
-                    try {
-                        loadExtractor(btnLink, "", subtitleCallback, callback)
-                    } catch (e: Exception) {
-                        Log.e("HubCloud", "LoadExtractor Error: ${e.localizedMessage}")
-                    }
+                when {
+                    href.contains("pixeldrain", ignoreCase = true) -> href to "PixelDrain"
+                    text.matches(Regex("(?i).*(server|download|gbps|fsl|zipdisk|instant|cloud).*")) && 
+                    href.matches(Regex("https?://[\\w.-]+/.*")) &&
+                    !href.contains("t.me") -> href to text
+                    else -> null
                 }
             }
+            
+            Log.d(name, "Found ${links.size} links")
+            
+            // Process links in parallel with amap
+            links.amap { (linkUrl, linkName) ->
+                try {
+                    Log.d(name, "Extracting: $linkName")
+                    loadExtractor(linkUrl, url, subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e(name, "Failed to extract $linkName: ${e.message}")
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
         }
     }
 }
@@ -254,37 +253,59 @@ open class GDFlix : ExtractorApi() {
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
             .substringAfter("Size : ")
 
-        document.select("div.text-center a").amap { anchor ->
+        document.select("div.text-center a, div.text-center button").amap { anchor ->
             val text = anchor.text()
             val link = anchor.attr("href")
 
             when {
-                // Instant DL - Fixed: Direct link, no redirect needed
-                text.contains("Instant DL", ignoreCase = true) || text.contains("INSTANT DL") -> {
-                    callback.invoke(
-                        newExtractorLink("GDFlix[Instant DL]", "GDFlix[Instant DL] $fileName[$fileSize]", link) {
-                            this.quality = getIndexQuality(fileName)
-                        }
-                    )
+                // Instant DL - Fixed: Now using instant.busycdn.cfd domain
+                text.contains("Instant DL", ignoreCase = true) || link.contains("instant.busycdn.cfd") -> {
+                    try {
+                        // This is a direct link from GDFlix page
+                        callback.invoke(
+                            newExtractorLink("GDFlix[Instant DL]", "GDFlix[Instant DL] $fileName[$fileSize]", link) {
+                                this.quality = getIndexQuality(fileName)
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.d("Instant DL", e.toString())
+                    }
                 }
                 
-                // Cloud Download R2 - Fixed: Direct link
-                text.contains("CLOUD DOWNLOAD", ignoreCase = true) || text.contains("R2") -> {
-                    callback.invoke(
-                        newExtractorLink("GDFlix[Cloud R2]", "GDFlix[Cloud R2] $fileName[$fileSize]", link) {
-                            this.quality = getIndexQuality(fileName)
-                        }
-                    )
+                // Cloud Download R2 / Login DL - Requires login, skip
+                text.contains("Login To DL", ignoreCase = true) || text.contains("10GBPS") -> {
+                    // Skip login-required servers
+                    Log.d("GDFlix", "Skipping login-required server: $text")
                 }
                 
-                // ZipDisk - Fixed: Need to get absolute URL
+                // ZipDisk / Fast Cloud - Fixed: Dynamic API-based link generation
                 text.contains("ZipDisk", ignoreCase = true) || text.contains("ZIPDISK") || text.contains("FAST CLOUD") -> {
-                    val zipLink = if (link.startsWith("http")) link else "$mainUrl$link"
-                    callback.invoke(
-                        newExtractorLink("GDFlix[ZipDisk]", "GDFlix[ZipDisk] $fileName[$fileSize]", zipLink) {
-                            this.quality = getIndexQuality(fileName)
+                    try {
+                        val zipUrl = if (link.startsWith("http")) link else "$mainUrl$link"
+                        
+                        // Visit the zfile page to get the actual download link
+                        val zipDoc = app.get(zipUrl, timeout = 10L).document
+                        
+                        // Look for the download link or button
+                        val downloadLink = zipDoc.selectFirst("a[href*='cloudserver']")?. attr("href")
+                            ?: zipDoc.selectFirst("button#cloud")?.let { button ->
+                                // This requires dynamic link generation, return the page URL
+                                // as CloudStream can't execute JavaScript to generate the link
+                                null
+                            }
+                        
+                        if (downloadLink != null) {
+                            callback.invoke(
+                                newExtractorLink("GDFlix[ZipDisk]", "GDFlix[ZipDisk] $fileName[$fileSize]", downloadLink) {
+                                    this.quality = getIndexQuality(fileName)
+                                }
+                            )
+                        } else {
+                            Log.d("GDFlix", "ZipDisk requires dynamic link generation, skipping")
                         }
-                    )
+                    } catch (e: Exception) {
+                        Log.d("ZipDisk", e.toString())
+                    }
                 }
                 
                 text.contains("DIRECT DL") -> {
@@ -380,21 +401,6 @@ open class GDFlix : ExtractorApi() {
                     }
                 }
 
-                text.contains("Instant DL") -> {
-                    try {
-                        val instantLink = anchor.attr("href")
-                        val link = app.get(instantLink, allowRedirects = false)
-                            .headers["location"]?.substringAfter("url=").orEmpty()
-
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
-                                this.quality = getIndexQuality(fileName)
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.d("Instant DL", e.toString())
-                    }
-                }
                 text.contains("GoFile") -> {
                     try {
                         app.get(anchor.attr("href")).document
