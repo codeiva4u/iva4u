@@ -249,32 +249,6 @@ open class GDFlix : ExtractorApi() {
                         )
                     }
 
-                    // Fast Cloud / ZipDisk (new7.gdflix.net/zfile)
-                    btnUrl.contains("/zfile/", ignoreCase = true) -> {
-                        try {
-                            val zipDoc = app.get(btnUrl, referer = url).document
-                            
-                            // Try multiple selectors for download link
-                            val zipDownloadLink = zipDoc.selectFirst(
-                                "a[href*='cloudserver'], a[href*='.workers.dev'], a.btn[href*='download']"
-                            )?.attr("abs:href")
-                            
-                            if (!zipDownloadLink.isNullOrBlank()) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "$name [ZipDisk]",
-                                        "$name [ZipDisk] $fileName",
-                                        zipDownloadLink
-                                    ) {
-                                        quality = getIndexQuality(fileName)
-                                    }
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e("GDFlix", "Error extracting ZipDisk link: ${e.message}")
-                        }
-                    }
-
                     // GoFile Mirror (goflix.sbs)
                     btnUrl.contains("goflix.sbs", ignoreCase = true) -> {
                         try {
