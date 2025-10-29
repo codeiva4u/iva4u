@@ -9,5 +9,15 @@ class MoviesDrive: Plugin() {
     override fun load(context: Context) {
         // Register main provider
         registerMainAPI(MoviesDriveProvider())
+        
+        // Register extractors
+        registerExtractorAPI(HubCloud())
+        registerExtractorAPI(HubCloudInk())
+        registerExtractorAPI(HubCloudArt())
+        registerExtractorAPI(HubCloudDad())
+        registerExtractorAPI(HubCloudBz())
+        registerExtractorAPI(PixelDrain())
+        registerExtractorAPI(Gofile())
+        registerExtractorAPI(fastdlserver())
     }
 }

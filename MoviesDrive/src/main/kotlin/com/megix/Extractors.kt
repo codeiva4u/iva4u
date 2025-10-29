@@ -2,27 +2,25 @@ package com.megix
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import org.jsoup.nodes.Document
+import org.json.JSONObject
 import java.net.URI
 
-/**
- * MoviesDrive specific extractors
- * - HubCloud: enumerates all available final servers and returns only final direct links
- * - GDFlix: extracts direct CDN / R2 and PixelDrain links, avoiding any redirector URLs
- */
+fun getIndexQuality(str: String?): Int {
+    return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+        ?: Qualities.Unknown.value
+}
 
-class HubCloudMd : ExtractorApi() {
-    override val name = "HubCloud"
-    override val mainUrl = "https://hubcloud.fit"
-    override val requiresReferer = false
+class PixelDrain : ExtractorApi() {
+    override val name = "PixelDrain"
+    override val mainUrl = "https://pixeldrain.dev"
+    override val requiresReferer = true
 
     override suspend fun getUrl(
         url: String,
@@ -30,150 +28,42 @@ class HubCloudMd : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            // Normalize to current hubcloud domain
-            val normalized = url.replace(Regex("https?://hubcloud\\.(one|club|fans)", RegexOption.IGNORE_CASE), mainUrl)
-            val firstDoc = app.get(normalized, referer = referer).document
+        val mId = Regex("/(?:u|file)/([\\w-]+)").find(url)?.groupValues?.getOrNull(1)
+        val finalUrl = if (mId.isNullOrEmpty()) url else "$mainUrl/api/file/$mId?download"
 
-            // If landing page has the big Generate Direct Download Link button, follow its target page
-            val genHref = firstDoc.selectFirst("#download")?.attr("href")
-            val targetDoc: Document = if (!genHref.isNullOrBlank()) {
-                app.get(genHref, referer = normalized).document
-            } else {
-                // Some hubcloud.php links are passed directly – load the page and work with buttons there
-                if (normalized.contains("hubcloud.php", true)) app.get(normalized).document else firstDoc
+        callback.invoke(
+            newExtractorLink(this.name, this.name, finalUrl) {
+                this.referer = url
+                this.quality = Qualities.Unknown.value
             }
-
-            val size = targetDoc.selectFirst("i#size")?.text().orEmpty()
-            val header = targetDoc.selectFirst("div.card-header")?.text().orEmpty()
-            val quality = getIndexQuality(header)
-            val extras = buildString {
-                if (header.isNotBlank()) append("[$header]")
-                if (size.isNotBlank()) append("[$size]")
-            }
-
-            // Enumerate all server buttons; only emit FINAL links (no intermediate redirectors)
-            targetDoc.select("a.btn, a.btn-success, a.btn-danger, a.btn-primary").amap { a ->
-                val link = a.attr("href").trim()
-                val text = a.text().trim()
-                if (link.isBlank()) return@amap
-
-                when {
-                    // PixelDrain direct
-                    text.contains("Pixel", true) || link.contains("pixeldrain", true) -> {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "Pixeldrain $extras",
-                                link,
-                                INFER_TYPE
-                            ) { this.quality = quality }
-                        )
-                    }
-
-                    // 10Gbps server: follow redirects until parameter `link=` appears and use only final link
-                    text.contains("10Gbps", true) || link.contains("pixel.hubcdn", true) -> {
-                        var current = link
-                        var final: String? = null
-                        repeat(5) {
-                            val resp = app.get(current, allowRedirects = false)
-                            val loc = resp.headers["location"]
-                            if (loc.isNullOrBlank()) return@repeat
-                            if (loc.contains("link=")) {
-                                final = loc.substringAfter("link=")
-                                return@repeat
-                            }
-                            current = loc
-                        }
-                        final?.let {
-                            callback(
-                                newExtractorLink(
-                                    "$name 10Gbps",
-                                    "$name 10Gbps $extras",
-                                    it,
-                                    INFER_TYPE
-                                ) { this.quality = quality }
-                            )
-                        }
-                    }
-
-                    // FSL Server direct link (tokenized) – already final
-                    text.contains("FSL", true) || link.contains("fsl.", true) -> {
-                        callback(
-                            newExtractorLink(
-                                "$name FSL",
-                                "$name FSL $extras",
-                                link,
-                                INFER_TYPE
-                            ) { this.quality = quality }
-                        )
-                    }
-
-                    // S3 Server: JS builds a signed URL; try to obtain it from script or onclick
-                    text.contains("S3", true) || link.contains("blockxpiracy", true) -> {
-                        // Some pages assign onClick to #s3_redirect; if link already points to s3 we use it
-                        val s3 = if (link.contains("googleapis.com") || link.contains("blockxpiracy") || link.contains("s3.")) link else null
-                        if (s3 != null) {
-                            callback(
-                                newExtractorLink(
-                                    "$name S3",
-                                    "$name S3 $extras",
-                                    s3,
-                                    INFER_TYPE
-                                ) { this.quality = quality }
-                            )
-                        } else {
-                            // Fallback: try to read inline script assignment
-                            targetDoc.select("script:containsData(s3_redirect)").firstOrNull()?.data()?.let { data ->
-                                Regex("window\\.location\\.href\\s*=\\s*'([^']+)'").find(data)?.groupValues?.getOrNull(1)?.let { s3Url ->
-                                    callback(
-                                        newExtractorLink(
-                                            "$name S3",
-                                            "$name S3 $extras",
-                                            s3Url,
-                                            INFER_TYPE
-                                        ) { this.quality = quality }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // ZipDisk or other direct mirrors
-                    text.contains("ZipDisk", true) -> {
-                        callback(
-                            newExtractorLink(
-                                "$name ZipDisk",
-                                "$name ZipDisk $extras",
-                                link,
-                                INFER_TYPE
-                            ) { this.quality = quality }
-                        )
-                    }
-
-                    // Generic safety: only load known direct hosts, avoid redirectors like hubcloud.php
-                    link.startsWith("http", true) && !link.contains("hubcloud.php", true) -> {
-                        loadExtractor(link, name, subtitleCallback, callback)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(name, "Extraction error: ${e.message}")
-        }
-    }
-
-    private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
+        )
     }
 }
 
-class GDFlixMd : ExtractorApi() {
-    override val name = "GDFlix"
-    override val mainUrl = "https://gdflix.dev"
+class HubCloudInk : HubCloud() {
+    override val mainUrl = "https://hubcloud.ink"
+}
+
+class HubCloudArt : HubCloud() {
+    override val mainUrl = "https://hubcloud.art"
+}
+
+class HubCloudDad : HubCloud() {
+    override val mainUrl = "https://hubcloud.dad"
+}
+
+class HubCloudBz : HubCloud() {
+    override val mainUrl = "https://hubcloud.bz"
+}
+
+open class HubCloud : ExtractorApi() {
+    override val name: String = "Hub-Cloud"
+    override val mainUrl: String = "https://hubcloud.one"
     override val requiresReferer = false
 
-    private fun sameHost(url: String) = try { URI(url).host ?: "" } catch (_: Exception) { "" }
+    fun getBaseUrl(url: String): String {
+        return URI(url).let { "${it.scheme}://${it.host}" }
+    }
 
     override suspend fun getUrl(
         url: String,
@@ -181,56 +71,181 @@ class GDFlixMd : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            // Normalize to any known GDFlix host
-            val doc = app.get(url, referer = referer).document
+        val newBaseUrl = "https://hubcloud.one"
+        // Validate URL before processing
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return // Invalid URL, skip processing
+        }
+        val newUrl = url.replace(mainUrl, newBaseUrl)
+        val doc = app.get(newUrl).document
 
-            // 1) Direct cloud download (R2 / fastcdn) button
-            doc.select("a.btn[href]").forEach { a ->
-                val href = a.attr("href").trim()
-                val text = a.text().trim()
-                when {
-                    // Fast CDN proxy -> final file URL already in query param url=
-                    href.contains("fastcdn-dl.pages.dev", true) || text.contains("CLOUD DOWNLOAD", true) -> {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "$name Cloud",
-                                href,
-                                INFER_TYPE
-                            ) { this.quality = Qualities.Unknown.value }
-                        )
-                    }
-                    // PixelDrain direct
-                    href.contains("pixeldrain", true) -> {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "$name PixelDrain",
-                                href,
-                                INFER_TYPE
-                            ) { this.quality = Qualities.Unknown.value }
-                        )
-                    }
-                }
-            }
+        var link = if (newUrl.contains("drive")) {
+            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.getOrNull(1) ?: ""
+        } else {
+            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+        }
 
-            // 2) Fallback: find any obvious direct file endpoints (r2.dev, googleapis, api/file?download)
-            doc.select("a[href]").forEach { a ->
-                val href = a.attr("href")
-                if (href.contains("r2.dev", true) || href.contains("googleapis.com", true) || href.contains("/api/file/", true)) {
-                    callback(
-                        newExtractorLink(
-                            name,
-                            name,
-                            href,
-                            INFER_TYPE
-                        ) { this.quality = Qualities.Unknown.value }
+        if (link.startsWith("/")) {
+            link = newBaseUrl + link
+        }
+
+        val document = app.get(link).document
+        val header = document.select("div.card-header").text()
+        val size = document.select("i#size").text()
+        val div = document.selectFirst("div.card-body")
+
+        div?.select("h2 a.btn")?.forEach {
+            val btnLink = it.attr("href")
+            val text = it.text()
+
+            when {
+                text.contains("Download [FSL Server]") -> {
+                    callback.invoke(
+                        newExtractorLink("$name[FSL Server]", "$name[FSL Server] $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
                     )
                 }
+
+                text.contains("Download File") -> {
+                    callback.invoke(
+                        newExtractorLink(name, "$name $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+
+                text.contains("BuzzServer") -> {
+                    val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false)
+                        .headers["hx-redirect"].orEmpty()
+                    if (dlink.isNotBlank()) {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name[BuzzServer]",
+                                "$name[BuzzServer] $header[$size]",
+                                getBaseUrl(btnLink) + dlink
+                            ) {
+                                quality = getIndexQuality(header)
+                            }
+                        )
+                    }
+                }
+
+                btnLink.contains("pixeldra") -> {
+                    callback.invoke(
+                        newExtractorLink("Pixeldrain", "Pixeldrain $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+
+                text.contains("Download [Server : 10Gbps]") -> {
+                    val dlink = app.get(btnLink, allowRedirects = false).headers["location"]?.substringAfter("link=")
+                        ?: return@forEach
+                    callback.invoke(
+                        newExtractorLink("$name[Download]", "$name[Download] $header[$size]", dlink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+
+                else -> {
+                    try {
+                        loadExtractor(btnLink, "", subtitleCallback, callback)
+                    } catch (e: Exception) {
+                        Log.e("HubCloud", "LoadExtractor Error: ${e.localizedMessage}")
+                    }
+                }
             }
-        } catch (e: Exception) {
-            Log.e(name, "Extraction error: ${e.message}")
         }
+    }
+}
+
+open class fastdlserver : ExtractorApi() {
+    override val name: String = "fastdlserver"
+    override var mainUrl = "https://fastdlserver.lol"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val location = app.get(url, allowRedirects = false).headers["location"]
+        if (location != null) {
+            loadExtractor(location, "", subtitleCallback, callback)
+        }
+    }
+}
+
+class Gofile : ExtractorApi() {
+    override val name = "Gofile"
+    override val mainUrl = "https://gofile.io"
+    override val requiresReferer = false
+    private val mainApi = "https://api.gofile.io"
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val headers = mapOf(
+            "User-Agent" to USER_AGENT,
+            "Origin" to mainUrl,
+            "Referer" to mainUrl,
+        )
+        //val res = app.get(url)
+        val id = Regex("/(?:\\?c=|d/)([\\da-zA-Z-]+)").find(url)?.groupValues?.get(1) ?: return
+        val genAccountRes = app.post("$mainApi/accounts", headers = headers).text
+        val jsonResp = JSONObject(genAccountRes)
+        val token = jsonResp.getJSONObject("data").getString("token") ?: return
+
+        val globalRes = app.get("$mainUrl/dist/js/global.js", headers = headers).text
+        val wt = Regex("""appdata\.wt\s*=\s*[\"']([^\"']+)[\"']""").find(globalRes)?.groupValues?.get(1) ?: return
+
+        val response = app.get("$mainApi/contents/$id?wt=$wt",
+            headers = mapOf(
+                "User-Agent" to USER_AGENT,
+                "Origin" to mainUrl,
+                "Referer" to mainUrl,
+                "Authorization" to "Bearer $token",
+            )
+        ).text
+
+        val jsonResponse = JSONObject(response)
+        val data = jsonResponse.getJSONObject("data")
+        val children = data.getJSONObject("children")
+        val oId = children.keys().next()
+        val link = children.getJSONObject(oId).getString("link")
+        val fileName = children.getJSONObject(oId).getString("name")
+        val size = children.getJSONObject(oId).getLong("size")
+        val formattedSize = if (size < 1024L * 1024 * 1024) {
+            val sizeInMB = size.toDouble() / (1024 * 1024)
+            "%.2f MB".format(sizeInMB)
+        } else {
+            val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
+            "%.2f GB".format(sizeInGB)
+        }
+
+        callback.invoke(
+            newExtractorLink(
+                "Gofile",
+                "Gofile $fileName[$formattedSize]",
+                link,
+            ) {
+                this.quality = getQuality(fileName)
+                this.headers = mapOf(
+                    "Cookie" to "accountToken=$token"
+                )
+            }
+        )
+    }
+
+    private fun getQuality(str: String?): Int {
+        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: Qualities.Unknown.value
     }
 }
