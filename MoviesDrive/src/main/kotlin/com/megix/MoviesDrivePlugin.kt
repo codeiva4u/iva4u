@@ -11,13 +11,13 @@ class MoviesDrive: Plugin() {
         registerMainAPI(MoviesDriveProvider())
         
         // Register HubCloud extractors
-        registerExtractorAPI(HubCloudExtractor())
-        registerExtractorAPI(PixelDrainExtractor())
-        registerExtractorAPI(InstantDLExtractor())
+        registerExtractorAPI(PixelDrainHubCloud())
+        registerExtractorAPI(HubCloud10Gbps())
+        registerExtractorAPI(FSLServer())
+        registerExtractorAPI(MegaServer())
         
         // Register GDFlix extractors
-        registerExtractorAPI(GDFlixExtractor())
-        registerExtractorAPI(FSLServerExtractor())
-        registerExtractorAPI(MegaServerExtractor())
+        registerExtractorAPI(InstantDL10GBPS())
+        registerExtractorAPI(PixelDrainGDFlix())
     }
 }

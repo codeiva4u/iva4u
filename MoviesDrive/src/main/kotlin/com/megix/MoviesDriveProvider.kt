@@ -3,10 +3,8 @@ package com.megix
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import org.jsoup.select.Elements
 import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
-import com.google.gson.Gson
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -108,7 +106,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 val searchUrl = getValidUrl("/page/$pageNum/?s=$query")
                 val document = app.get(searchUrl, timeout = 10L).document
                 document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 emptyList<SearchResponse>()
             }
         }.flatten()
@@ -116,14 +114,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         searchResponse.addAll(initialPages)
         
         // If we got results and need more, process remaining pages
-        if (initialPages.isNotEmpty() && maxPages > 3) {
+        if (initialPages.isNotEmpty()) {
             val remainingPages = (4..maxPages).toList().amap { pageNum ->
                 try {
                     val searchUrl = getValidUrl("/page/$pageNum/?s=$query")
                     val document = app.get(searchUrl, timeout = 8L).document
                     val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
-                    if (results.isEmpty()) null else results
-                } catch (e: Exception) {
+                    results.ifEmpty { null }
+                } catch (_: Exception) {
                     null
                 }
             }.filterNotNull().flatten()
@@ -169,13 +167,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             } else {
                 null
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null // Continue without IMDB data if API fails
         }
 
         var cast: List<String> = emptyList()
         var genre: List<String> = emptyList()
-        var imdbRating: String = ""
         var year: String = ""
         var background: String = posterUrl
 
@@ -184,7 +181,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             cast = responseData.meta.cast ?: emptyList()
             title = responseData.meta.name ?: title
             genre = responseData.meta.genre ?: emptyList()
-            imdbRating = responseData.meta.imdbRating ?: ""
             year = responseData.meta.year ?: ""
             posterUrl = responseData.meta.poster ?: posterUrl
             background = responseData.meta.background ?: background
@@ -216,7 +212,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         val mainTitle = titleElement?.text() ?: ""
                         val realSeasonRegex = Regex("""(?:Season |S)(\d+)""")
                         val realSeason = realSeasonRegex.find(mainTitle)?.groupValues?.get(1)?.toInt() ?: 0
-                        val episodeLink = button.attr("href") ?: ""
+                        val episodeLink = button.attr("href")
                         
                         if (episodeLink.isNotEmpty()) {
                             val validEpisodeLink = getValidUrl(episodeLink)
@@ -227,7 +223,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                 elements = doc.select("a:matches((?i)(HubCloud|GDFlix))")
                             }
                             
-                            var episodeNum = 1
+                            var episodeNum: Int
                             elements.forEachIndexed { index, element ->
                                 try {
                                     if(element.tagName() == "span") {
@@ -247,7 +243,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                             hTag = hTag.nextElementSibling()
                                         }
                                     } else {
-                                        val epUrl = element.attr("href")?.takeIf { it.isNotEmpty() }
+                                        val epUrl = element.attr("href").takeIf { it.isNotEmpty() }
                                         if (epUrl != null) {
                                             val key = Pair(realSeason, index + 1)
                                             synchronized(episodesMap) {
@@ -255,12 +251,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                             }
                                         }
                                     }
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     // Skip problematic episodes
                                 }
                             }
                         }
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         // Skip problematic buttons - continue processing others
                     }
                 }
@@ -313,7 +309,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                             EpisodeLink(validSource)
                         } else null
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     emptyList<EpisodeLink>() // Return empty list for failed buttons
                 }
             }.flatten()

@@ -6,89 +6,14 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.jsoup.Jsoup
+
 // HubCloud Extractors
-class HubCloudExtractor : ExtractorApi() {
-    override val name = "HubCloud"
-    override val mainUrl = "https://hubcloud.one"
-    override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("hubcloud.one", "hubcloud.fit", "hubcloud.fans")
-    }
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            // Follow redirect chain through gamerxyt.com
-            val doc = app.get(url).document
-            
-            // Find the download link generator
-            val downloadGenLink = doc.selectFirst("a:contains(Generate Direct Download Link)")?.attr("href")
-            
-            if (downloadGenLink != null) {
-                // Follow to intermediate page
-                val intermediatePage = app.get(downloadGenLink).document
-                
-                // Extract pixeldrain or other embeds
-                val iframes = intermediatePage.select("iframe[src*=pixeldrain]")                
-                iframes.forEach { iframe ->
-                    val embedUrl = iframe.attr("src")
-                    if (embedUrl.contains("pixeldrain")) {
-                        val fileId = embedUrl.substringAfter("/u/").substringBefore("?")
-                        val directUrl = "https://pixeldrain.dev/api/file/$fileId?download"
-                        callback(
-                            newExtractorLink(
-                                "HubCloud - PixelServer",
-                                "HubCloud - PixelServer",
-                                directUrl
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                }
-                
-                // Also check for direct links in page
-                val directLinks = intermediatePage.select("a[href*=pixeldrain]")                
-                directLinks.forEach { link ->
-                    val linkUrl = link.attr("href")
-                    if (linkUrl.contains("pixeldrain.dev/u/")) {
-                        val fileId = linkUrl.substringAfter("/u/").substringBefore("?")
-                        val directUrl = "https://pixeldrain.dev/api/file/$fileId?download"
-                        callback(
-                            newExtractorLink(
-                                "HubCloud - PixelDrain",
-                                "HubCloud - PixelDrain",
-                                directUrl
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Silently fail
-        }
-    }
-}
-
-class PixelDrainExtractor : ExtractorApi() {
-    override val name = "PixelDrain"
+class PixelDrainHubCloud : ExtractorApi() {
+    override val name = "PixelDrain [HubCloud]"
     override val mainUrl = "https://pixeldrain.dev"
     override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("pixeldrain.dev", "pixeldrain.com")
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -97,39 +22,54 @@ class PixelDrainExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val fileId = if (url.contains("/u/")) {
-                url.substringAfter("/u/").substringBefore("?")
-            } else if (url.contains("/api/file/")) {
-                url.substringAfter("/api/file/").substringBefore("?")
-            } else {
-                return
-            }
+            // Pattern: hubcloud.one/drive/{id}
+            val hubCloudIdRegex = """hubcloud\.(?:one|fit|club)/drive/([a-zA-Z0-9]+)""".toRegex()
+            val hubCloudMatch = hubCloudIdRegex.find(url)
             
-            val directUrl = "https://pixeldrain.dev/api/file/$fileId?download"
-            callback(
-                newExtractorLink(
-                    name,
-                    name,
-                    directUrl
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
+            if (hubCloudMatch != null) {
+                val hubCloudId = hubCloudMatch.groupValues[1]
+                
+                // Step 1: Get the hubcloud page to extract the gamerxyt link
+                val hubCloudPage = app.get(url).document
+                val downloadLink = hubCloudPage.selectFirst("a#download")?.attr("href")
+                
+                if (downloadLink != null && downloadLink.contains("gamerxyt.com")) {
+                    // Step 2: Follow the gamerxyt redirect
+                    val gamerResponse = app.get(downloadLink, allowRedirects = true)
+                    val finalUrl = gamerResponse.url
+                    
+                    // Pattern: pixeldrain.dev/u/{file_id}
+                    val pixelDrainRegex = """pixeldrain\.dev/u/([a-zA-Z0-9_-]+)""".toRegex()
+                    val pixelMatch = pixelDrainRegex.find(finalUrl)
+                    
+                    if (pixelMatch != null) {
+                        val fileId = pixelMatch.groupValues[1]
+                        val directUrl = "https://pixeldrain.dev/api/file/$fileId?download"
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                this.name,
+                                this.name,
+                                url = directUrl,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = referer ?: ""
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
                 }
-            )
+            }
         } catch (e: Exception) {
-            // Silently fail
+            // Silent fail - continue with other extractors
         }
     }
 }
 
-class InstantDLExtractor : ExtractorApi() {
-    override val name = "Instant DL"
-    override val mainUrl = "https://instant.busycdn.cfd"
+class HubCloud10Gbps : ExtractorApi() {
+    override val name = "Server:10Gbps [HubCloud]"
+    override val mainUrl = "https://hubcloud.one"
     override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("busycdn.cfd", "instant.busycdn.cfd")
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -138,38 +78,132 @@ class InstantDLExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Direct download link from busycdn.cfd
-            // BusyCDN links often redirect to final signed file URLs; follow once
-            val resp = app.get(url, allowRedirects = true)
-            val finalUrl = resp.url
-            callback(
-                newExtractorLink(
-                    name,
-                    "Instant DL 10GBPS",
-                    finalUrl
-                ) {
-                    this.referer = url
-                    this.quality = Qualities.Unknown.value
-                    if (finalUrl.contains(".m3u8")) {
-                        this.type = ExtractorLinkType.M3U8
+            val hubCloudIdRegex = """hubcloud\.(?:one|fit|club)/drive/([a-zA-Z0-9]+)""".toRegex()
+            val match = hubCloudIdRegex.find(url)
+            
+            if (match != null) {
+                val id = match.groupValues[1]
+                val hubCloudPage = app.get(url).document
+                val downloadLink = hubCloudPage.selectFirst("a#download")?.attr("href")
+                
+                if (downloadLink != null) {
+                    callback.invoke(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = downloadLink,
+                            ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = referer ?: ""
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Silent fail
+        }
+    }
+}
+
+class FSLServer : ExtractorApi() {
+    override val name = "FSL:Server [HubCloud]"
+    override val mainUrl = "https://hubcloud.one"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val hubCloudIdRegex = """hubcloud\.(?:one|fit|club)/drive/([a-zA-Z0-9]+)""".toRegex()
+            val match = hubCloudIdRegex.find(url)
+            
+            if (match != null) {
+                val hubCloudPage = app.get(url).document
+                val downloadLink = hubCloudPage.selectFirst("a#download")?.attr("href")
+                
+                if (downloadLink != null && downloadLink.contains("gamerxyt")) {
+                    val response = app.get(downloadLink, allowRedirects = true)
+                    val finalUrl = response.url
+                    
+                    if (finalUrl.contains("pixeldrain")) {
+                        val fileIdRegex = """pixeldrain\.dev/(?:u|api/file)/([a-zA-Z0-9_-]+)""".toRegex()
+                        val fileMatch = fileIdRegex.find(finalUrl)
+                        
+                        if (fileMatch != null) {
+                            val fileId = fileMatch.groupValues[1]
+                            val directUrl = "https://pixeldrain.dev/api/file/$fileId?download"
+                            
+                            callback.invoke(
+                                newExtractorLink(
+                                    this.name,
+                                    this.name,
+                                    url = directUrl,
+                                    ExtractorLinkType.VIDEO
+                                ) {
+                                    this.referer = referer ?: ""
+                                    this.quality = Qualities.Unknown.value
+                                }
+                            )
+                        }
                     }
                 }
-            )
+            }
         } catch (e: Exception) {
-            // Silently fail
+            // Silent fail
+        }
+    }
+}
+
+class MegaServer : ExtractorApi() {
+    override val name = "Mega:Server [HubCloud]"
+    override val mainUrl = "https://hubcloud.one"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val hubCloudIdRegex = """hubcloud\.(?:one|fit|club)/drive/([a-zA-Z0-9]+)""".toRegex()
+            val match = hubCloudIdRegex.find(url)
+            
+            if (match != null) {
+                val hubCloudPage = app.get(url).document
+                val downloadLink = hubCloudPage.selectFirst("a#download")?.attr("href")
+                
+                if (downloadLink != null) {
+                    val response = app.get(downloadLink, allowRedirects = true)
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            this.name,
+                            this.name,
+                            url = response.url,
+                            ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = referer ?: ""
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Silent fail
         }
     }
 }
 
 // GDFlix Extractors
-class GDFlixExtractor : ExtractorApi() {
-    override val name = "GDFlix"
+class InstantDL10GBPS : ExtractorApi() {
+    override val name = "Instant DL [10GBPS]"
     override val mainUrl = "https://gdflix.dev"
     override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("gdflix.dev", "new7.gdflix.net", "gdflix.net")
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -178,94 +212,49 @@ class GDFlixExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val doc = app.get(url).document
+            // Pattern: gdflix.dev/file/{id} or gdlink.*/file/{id}
+            val gdflixIdRegex = """(?:gdflix|gdlink)\.[a-z]+/file/([a-zA-Z0-9]+)""".toRegex()
+            val match = gdflixIdRegex.find(url)
             
-            // Extract Instant DL 10GBPS link
-            val instantDLLink = doc.selectFirst("a:contains(Instant DL)")?.attr("href")
-            if (instantDLLink != null && instantDLLink.contains("busycdn.cfd")) {
-                val resp = app.get(instantDLLink, allowRedirects = true)
-                val finalUrl = resp.url
-                callback(
-                    newExtractorLink(
-                        "GDFlix",
-                        "GDFlix - Instant 10GBPS",
-                        finalUrl
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                        if (finalUrl.contains(".m3u8")) {
-                            this.type = ExtractorLinkType.M3U8
-                        }
+            if (match != null) {
+                val gdflixPage = app.get(url).document
+                
+                // Find Instant DL button with busycdn.cfd domain
+                val instantDlLink = gdflixPage.select("a").find { element ->
+                    element.text().contains("Instant DL", ignoreCase = true) &&
+                    element.attr("href").contains("busycdn.cfd")
+                }?.attr("href")
+                
+                if (instantDlLink != null && instantDlLink.isNotEmpty()) {
+                    // Extract the actual download URL
+                    val instantRegex = """instant\.busycdn\.cfd/([a-zA-Z0-9]+)::""".toRegex()
+                    val instantMatch = instantRegex.find(instantDlLink)
+                    
+                    if (instantMatch != null) {
+                        callback.invoke(
+                            newExtractorLink(
+                                this.name,
+                                this.name,
+                                url = instantDlLink,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = referer ?: ""
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
                     }
-                )
-            }
-            
-            // Extract PixelDrain DL link
-            val pixelDrainLink = doc.selectFirst("a:contains(PixelDrain DL)")?.attr("href")
-            if (pixelDrainLink != null && pixelDrainLink.contains("pixeldrain.dev")) {
-                callback(
-                    newExtractorLink(
-                        "GDFlix",
-                        "GDFlix - PixelDrain 20MB/s",
-                        pixelDrainLink
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-            }
-            
-            // Extract Fast Cloud/ZipDisk link
-            val fastCloudLink = doc.selectFirst("a:contains(FAST CLOUD)")?.attr("href")
-            if (fastCloudLink != null) {
-                callback(
-                    newExtractorLink(
-                        "GDFlix",
-                        "GDFlix - FastCloud/ZipDisk",
-                        fastCloudLink
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                        if (fastCloudLink.contains(".m3u8")) {
-                            this.type = ExtractorLinkType.M3U8
-                        }
-                    }
-                )
-            }
-            
-            // Extract Cloudflare R2 link
-            val r2Link = doc.selectFirst("a:contains(CLOUD DOWNLOAD)")?.attr("href")
-            if (r2Link != null) {
-                // Extract actual R2 URL from fastcdn-dl redirect
-                val r2Url = java.net.URLDecoder.decode(r2Link.substringAfter("url="), "UTF-8")
-                callback(
-                    newExtractorLink(
-                        "GDFlix",
-                        "GDFlix - Cloud R2",
-                        r2Url
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                        if (r2Url.contains(".m3u8")) {
-                            this.type = ExtractorLinkType.M3U8
-                        }
-                    }
-                )
+                }
             }
         } catch (e: Exception) {
-            // Silently fail
+            // Silent fail
         }
     }
 }
 
-class FSLServerExtractor : ExtractorApi() {
-    override val name = "FSL Server"
-    override val mainUrl = "https://new7.gdflix.net"
+class PixelDrainGDFlix : ExtractorApi() {
+    override val name = "PixelDrain DL [20MB/s]"
+    override val mainUrl = "https://gdflix.dev"
     override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("gdflix.net", "new7.gdflix.net")
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -274,58 +263,41 @@ class FSLServerExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Handle zipdisk/fast cloud links
-            callback(
-                newExtractorLink(
-                    name,
-                    "FSL Server - FastCloud",
-                    url
-                ) {
-                    this.referer = referer ?: ""
-                    this.quality = Qualities.Unknown.value
-                    if (url.contains(".m3u8")) {
-                        this.type = ExtractorLinkType.M3U8
+            // Pattern: gdflix.dev/file/{id}
+            val gdflixIdRegex = """(?:gdflix|gdlink)\.[a-z]+/file/([a-zA-Z0-9]+)""".toRegex()
+            val match = gdflixIdRegex.find(url)
+            
+            if (match != null) {
+                val gdflixPage = app.get(url).document
+                
+                // Find PixelDrain DL button
+                val pixelDrainLink = gdflixPage.select("a").find { element ->
+                    element.text().contains("PixelDrain", ignoreCase = true) &&
+                    element.attr("href").contains("pixeldrain.dev")
+                }?.attr("href")
+                
+                if (pixelDrainLink != null && pixelDrainLink.isNotEmpty()) {
+                    // Pattern: pixeldrain.dev/api/file/{id}?download
+                    val fileIdRegex = """pixeldrain\.dev/api/file/([a-zA-Z0-9_-]+)""".toRegex()
+                    val fileMatch = fileIdRegex.find(pixelDrainLink)
+                    
+                    if (fileMatch != null) {
+                        callback.invoke(
+                            newExtractorLink(
+                                this.name,
+                                this.name,
+                                url = pixelDrainLink,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = referer ?: ""
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
                     }
                 }
-            )
+            }
         } catch (e: Exception) {
-            // Silently fail
-        }
-    }
-}
-
-class MegaServerExtractor : ExtractorApi() {
-    override val name = "Mega Server"
-    override val mainUrl = "https://new7.gdflix.net"
-    override val requiresReferer = false
-    
-    companion object {
-        val domains = listOf("gdflix.net", "new7.gdflix.net", "goflix.sbs")
-    }
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            // Handle additional mirrors
-            callback(
-                newExtractorLink(
-                    name,
-                    "Mega Server",
-                    url
-                ) {
-                    this.referer = referer ?: ""
-                    this.quality = Qualities.Unknown.value
-                    if (url.contains(".m3u8")) {
-                        this.type = ExtractorLinkType.M3U8
-                    }
-                }
-            )
-        } catch (e: Exception) {
-            // Silently fail
+            // Silent fail
         }
     }
 }
