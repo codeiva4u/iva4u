@@ -8,7 +8,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import org.json.JSONObject
 import java.net.URI
 
 fun getIndexQuality(str: String?): Int {
@@ -92,8 +91,8 @@ open class HubCloud : ExtractorApi() {
 
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
-        val header = document.select("div.card-header").text() ?: ""
-        val size = document.select("i#size").text() ?: ""
+        val header = document.select("div.card-header").text()
+        val size = document.select("i#size").text()
         val quality = getIndexQuality(header)
 
         div?.select("h2 a.btn")?.amap {
@@ -139,7 +138,7 @@ open class HubCloud : ExtractorApi() {
             else if (text.contains("Download File")) {
                 callback.invoke(
                     newExtractorLink(
-                        "$name",
+                        name,
                         "$name $header[$size]",
                         link,
                     ) {
@@ -163,11 +162,11 @@ open class HubCloud : ExtractorApi() {
                 }
             }
 
-            else if (link.contains("pixeldra")) {
+            else if (text.contains("[PixelServer") || link.contains("pixeldra")) {
                 callback.invoke(
                     newExtractorLink(
-                        "Pixeldrain",
-                        "Pixeldrain $header[$size]",
+                        "$name[PixelDrain]",
+                        "$name[PixelDrain] $header[$size]",
                         link,
                     ) {
                         this.quality = quality
@@ -178,8 +177,8 @@ open class HubCloud : ExtractorApi() {
                 val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
                 callback.invoke(
                     newExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] $header[$size]",
+                        "$name[10Gbps]",
+                        "$name[10Gbps] $header[$size]",
                         dlink.substringAfter("link="),
                     ) {
                         this.quality = quality
@@ -191,7 +190,7 @@ open class HubCloud : ExtractorApi() {
                 if(link.contains(".mkv") || link.contains(".mp4")) {
                     callback.invoke(
                         newExtractorLink(
-                            "$name",
+                            name,
                             "$name $header[$size]",
                             link,
                         ) {
@@ -203,14 +202,9 @@ open class HubCloud : ExtractorApi() {
         }
     }
 }
-
-class fastdlserver2 : fastdlserver() {
-    override var mainUrl = "https://fastdlserver.life"
-}
-
 open class fastdlserver : ExtractorApi() {
     override val name: String = "fastdlserver"
-    override var mainUrl = "https://fastdlserver.lol"
+    override var mainUrl = "https://fastdlserver.life"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -223,76 +217,5 @@ open class fastdlserver : ExtractorApi() {
         if (location != null) {
             loadExtractor(location, "", subtitleCallback, callback)
         }
-    }
-}
-
-class Gofile : ExtractorApi() {
-    override val name = "Gofile"
-    override val mainUrl = "https://gofile.io"
-    override val requiresReferer = false
-    private val mainApi = "https://api.gofile.io"
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Origin" to mainUrl,
-            "Referer" to mainUrl,
-        )
-        val id = url.substringAfter("d/").substringBefore("/")
-        val genAccountRes = app.post("$mainApi/accounts", headers = headers).text
-        val jsonResp = JSONObject(genAccountRes)
-        val token = jsonResp.getJSONObject("data").getString("token") ?: return
-
-        val globalRes = app.get("$mainUrl/dist/js/global.js", headers = headers).text
-        val wt = Regex("""appdata\.wt\s*=\s*[\"']([^\"']+)[\"']""").find(globalRes)?.groupValues?.get(1) ?: return
-
-        val response = app.get("$mainApi/contents/$id?wt=$wt",
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-                "Origin" to mainUrl,
-                "Referer" to mainUrl,
-                "Authorization" to "Bearer $token",
-            )
-        ).text
-
-        val jsonResponse = JSONObject(response)
-        val data = jsonResponse.getJSONObject("data")
-        val children = data.getJSONObject("children")
-        val oId = children.keys().next()
-        val link = children.getJSONObject(oId).getString("link")
-        val fileName = children.getJSONObject(oId).getString("name")
-        val size = children.getJSONObject(oId).getLong("size")
-        val formattedSize = if (size < 1024L * 1024 * 1024) {
-            val sizeInMB = size.toDouble() / (1024 * 1024)
-            "%.2f MB".format(sizeInMB)
-        } else {
-            val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
-            "%.2f GB".format(sizeInGB)
-        }
-
-        if(link != null) {
-            callback.invoke(
-                newExtractorLink(
-                    "Gofile",
-                    "Gofile $fileName[$formattedSize]",
-                    link,
-                ) {
-                    this.quality = getQuality(fileName)
-                    this.headers = mapOf(
-                        "Cookie" to "accountToken=$token"
-                    )
-                }
-            )
-        }
-    }
-
-    private fun getQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
     }
 }
