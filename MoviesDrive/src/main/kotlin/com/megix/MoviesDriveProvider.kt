@@ -23,8 +23,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     )
 
     init {
-        // Use direct domain instead of fetching from GitHub
-        mainUrl = "https://moviesdrive.mom"
+        // Updated to latest working domain
+        mainUrl = "https://moviesdrive.lat"
     }
 
     // Helper function to ensure URL is properly formatted
@@ -77,11 +77,15 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.select("figure > img").attr("title").replace("Download ", "")
-        val href = this.select("figure > a").attr("href")
-        val posterUrl = this.select("figure > img").attr("src")
+        // Optimized selectors - direct element access for faster loading
+        val imgElement = this.selectFirst("figure img")
+        val title = imgElement?.attr("title")?.replace("Download ", "") ?: ""
+        val href = this.selectFirst("figure a")?.attr("href") ?: ""
         
-        // Validate and fix href if needed
+        // Early return if essential data is missing
+        if (title.isEmpty() || href.isEmpty()) return null
+        
+        val posterUrl = imgElement?.attr("src") ?: ""
         val validHref = getValidUrl(href)
         
         val quality = if(title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true)) {
@@ -135,17 +139,21 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun load(url: String): LoadResponse? {
         val validUrl = getValidUrl(url)
         val document = app.get(validUrl).document
-        var title = document.select("meta[property=og:title]").attr("content").replace("Download ", "")
+        
+        // Optimized - direct selectFirst for faster parsing
+        var title = document.selectFirst("meta[property=og:title]")?.attr("content")?.replace("Download ", "") ?: ""
         val ogTitle = title
-        val plotElement = document.select(
-            "h2:contains(Storyline), h3:contains(Storyline), h5:contains(Storyline), h4:contains(Storyline), h4:contains(STORYLINE)"
-        ).firstOrNull() ?. nextElementSibling()
-
-        var description = plotElement ?. text() ?: document.select(".ipc-html-content-inner-div").firstOrNull() ?. text().toString()
-
-        var posterUrl = document.select("img[decoding=\"async\"]").attr("src")
-        val seasonRegex = """(?i)season\s*\d+""".toRegex()
-        val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
+        
+        // Optimized storyline selector - prioritize common patterns
+        val plotElement = document.selectFirst("h4:containsOwn(Storyline), h4:containsOwn(STORYLINE), h5:containsOwn(Storyline), h3:containsOwn(Storyline)")?.nextElementSibling()
+        var description = plotElement?.text() ?: document.selectFirst(".ipc-html-content-inner-div")?.text() ?: ""
+        
+        // Optimized poster - try direct image first, then fallback
+        var posterUrl = document.selectFirst("figure img")?.attr("src") ?: document.selectFirst("img[decoding='async']")?.attr("src") ?: ""
+        
+        // Updated regex to match various season formats (Season 1, S1, S01, season 1, etc.)
+        val seasonRegex = """(?i)(season|s)\s*\d+""".toRegex()
+        val imdbUrl = document.selectFirst("a[href*='imdb']")?.attr("href") ?: ""
 
         val tvtype = if (
             title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
@@ -186,9 +194,10 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
         if(tvtype == "series") {
             if(title != ogTitle) {
-                val checkSeason = Regex("""Season\s*\d*1|S\s*\d*1""").find(ogTitle)
+                // Updated regex to better match season numbers (Season 1, S1, S01, etc.)
+                val checkSeason = Regex("""(?i)(Season|S)\s*0*1\b""").find(ogTitle)
                 if (checkSeason == null) {
-                    val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
+                    val seasonText = Regex("""(?i)(Season|S)\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
                         title = "$title $seasonText"
                     }
@@ -197,7 +206,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             
             val tvSeriesEpisodes = mutableListOf<Episode>()
             val episodesMap = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
-            val buttons = document.select("h5 > a")
+            // Optimized selector for episode links
+            val buttons = document.select("h5 a[href]")
 
             // Limit concurrent processing to avoid overwhelming the server
             val maxConcurrent = minOf(buttons.size, 5)
@@ -208,7 +218,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     try {
                         val titleElement = button.parent()?.previousElementSibling()
                         val mainTitle = titleElement?.text() ?: ""
-                        val realSeasonRegex = Regex("""(?:Season |S)(\d+)""")
+                        // Updated regex to match season number from various formats
+                        val realSeasonRegex = Regex("""(?i)(?:Season|S)\s*(\d+)""")
                         val realSeason = realSeasonRegex.find(mainTitle)?.groupValues?.get(1)?.toInt() ?: 0
                         val episodeLink = button.attr("href")
                         
@@ -218,8 +229,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                             
                             var elements = doc.select("span:matches((?i)(Ep))")
                             if(elements.isEmpty()) {
-                                // Select links that contain hubcloud or gdflix in href or text
-                                elements = doc.select("a[href*='hubcloud'], a[href*='gdflix'], a:matches((?i)(HubCloud|GDFlix))")
+                                // Only HubCloud support - optimized for faster loading
+                                elements = doc.select("h5 a[href*='hubcloud'], a[href*='hubcloud'], a:containsOwn(HubCloud), a:matches((?i)HubCloud)")
                             }
                             
                             var episodeNum: Int
@@ -228,13 +239,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                     if(element.tagName() == "span") {
                                         val titleTag = element.parent()
                                         var hTag = titleTag?.nextElementSibling()
-                                        episodeNum = Regex("""Ep(\d{2})""").find(element.toString())?.groups?.get(1)?.value?.toIntOrNull() ?: (index + 1)
+                                        // Updated regex to extract episode number (supports Ep01, Ep1, ep01, etc.)
+                                        episodeNum = Regex("""(?i)Ep\s*(\d{1,2})""").find(element.toString())?.groups?.get(1)?.value?.toIntOrNull() ?: (index + 1)
                                         
-                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|GDFlix", RegexOption.IGNORE_CASE))) {
+                                        while (hTag != null && hTag.text().contains(Regex("HubCloud", RegexOption.IGNORE_CASE))) {
                                             val aTag = hTag.selectFirst("a")
                                             val epUrl = aTag?.attr("href")?.takeIf { it.isNotEmpty() }
-                                            // Only add URLs that contain hubcloud or gdflix domains
-                                            if (epUrl != null && (epUrl.contains("hubcloud", ignoreCase = true) || epUrl.contains("gdflix", ignoreCase = true))) {
+                                            // Only HubCloud domain support
+                                            if (epUrl != null && epUrl.contains("hubcloud", ignoreCase = true)) {
                                                 val key = Pair(realSeason, episodeNum)
                                                 synchronized(episodesMap) {
                                                     episodesMap.getOrPut(key) { mutableListOf() }.add(epUrl)
@@ -293,14 +305,15 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             }
         }
         else {
-            val buttons = document.select("h5 > a")
+            // Optimized selector for movie download links
+            val buttons = document.select("h5 a[href]")
             val data = buttons.amap { button ->
                 try {
                     val link = button.attr("href")
                     val validLink = getValidUrl(link)
                     val doc = app.get(validLink, timeout = 8L).document
-                    // Select all download links - hubcloud, gdflix domains
-                    val innerButtons = doc.select("a[href*='hubcloud'], a[href*='gdflix'], a:containsOwn(HubCloud), a:containsOwn(GDFlix)")
+                    // Only HubCloud support - optimized selector
+                    val innerButtons = doc.select("h5 a[href*='hubcloud'], a[href*='hubcloud'], a:containsOwn(HubCloud)")
                     innerButtons.mapNotNull { innerButton ->
                         val source = innerButton.attr("href")
                         if (source.isNotEmpty()) {
