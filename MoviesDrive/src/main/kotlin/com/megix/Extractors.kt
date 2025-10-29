@@ -35,23 +35,27 @@ class HubCloudExtractor : ExtractorApi() {
                 // Step 3: Navigate to the download link page
                 val finalDoc = app.get(downloadLink, referer = url).document
                 
-                // Step 4: Extract all server download buttons
+                // Step 4: Extract all download server buttons
+                // Buttons have text like: "Download [PixelServer : 2]", "Download [FSL Server]", etc.
                 val servers = finalDoc.select("a.btn[href]")
                 
                 servers.forEach { server ->
                     val serverUrl = server.attr("href")
                     val buttonText = server.text()
+                    
+                    // Skip Telegram and non-download links
+                    if (buttonText.contains("Telegram", ignoreCase = true) || 
+                        !buttonText.contains("Download", ignoreCase = true)) {
+                        return@forEach
+                    }
+                    
+                    // Extract server name from button text format: "Download [ServerName]"
                     val serverName = when {
-                        buttonText.contains("PixelServer", ignoreCase = true) || buttonText.contains("Pixel", ignoreCase = true) -> "PixelServer"
+                        buttonText.contains("PixelServer", ignoreCase = true) -> "PixelServer"
                         buttonText.contains("10Gbps", ignoreCase = true) -> "10Gbps"
-                        buttonText.contains("FSL", ignoreCase = true) -> "FSL"
-                        buttonText.contains("Mega", ignoreCase = true) -> "Mega"
-                        buttonText.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
-                        serverUrl.contains("pixeldrain", ignoreCase = true) -> "PixelServer"
-                        serverUrl.contains("hubcdn", ignoreCase = true) -> "10Gbps"
-                        serverUrl.contains("fsl", ignoreCase = true) || serverUrl.contains("anime4u", ignoreCase = true) -> "FSL"
-                        serverUrl.contains("mega.co.nz", ignoreCase = true) -> "Mega"
-                        serverUrl.contains("workers.dev", ignoreCase = true) || serverUrl.contains(".zip", ignoreCase = true) -> "ZipDisk"
+                        buttonText.contains("FSL Server", ignoreCase = true) -> "FSL"
+                        buttonText.contains("Mega Server", ignoreCase = true) -> "Mega"
+                        buttonText.contains("ZipDisk Server", ignoreCase = true) -> "ZipDisk"
                         else -> "HubCloud"
                     }
                     
