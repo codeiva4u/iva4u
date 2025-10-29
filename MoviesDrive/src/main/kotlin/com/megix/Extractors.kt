@@ -106,6 +106,12 @@ open class HubCloud : ExtractorApi() {
                 val text = it.text()
                 
                 Log.d("HubCloud", "Processing button: $text with link: $link")
+                
+                // Skip ZipDisk buttons
+                if (text.contains("ZipDisk", ignoreCase = true) || text.contains("Zip Disk", ignoreCase = true)) {
+                    Log.d("HubCloud", "Skipping ZipDisk button: $text")
+                    return@amap
+                }
 
                 when {
                     // PixelServer:2 detection
@@ -193,19 +199,62 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
                     
-                    // FSL Server detection
+                    // FSL Server detection with redirect handling
                     text.contains("FSL", ignoreCase = true) && !text.contains("FSLv2", ignoreCase = true) -> {
                         try {
                             Log.d("HubCloud", "FSL Server link: $link")
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name[FSL:Server]",
-                                    "$name[FSL:Server] $header[$size]",
-                                    link,
-                                ) {
-                                    this.quality = quality
+                            var currentUrl = link
+                            var downloadUrl = ""
+                            var redirectCount = 0
+                            val maxRedirects = 5
+                            
+                            // Follow redirects to get final download URL
+                            while (redirectCount < maxRedirects && downloadUrl.isEmpty()) {
+                                val response = app.get(currentUrl, allowRedirects = false)
+                                val location = response.headers["location"] ?: response.headers["Location"] ?: ""
+                                
+                                if (location.isNotEmpty()) {
+                                    // Check if this is final download URL
+                                    if (location.contains(".mkv", ignoreCase = true) || 
+                                        location.contains(".mp4", ignoreCase = true) ||
+                                        location.contains(".avi", ignoreCase = true) ||
+                                        (!location.contains("hubcloud", ignoreCase = true) && 
+                                         !location.contains("fsl", ignoreCase = true))) {
+                                        downloadUrl = if (location.contains("link=") || location.contains("url=")) {
+                                            try {
+                                                val param = if (location.contains("link=")) "link=" else "url="
+                                                URLDecoder.decode(location.substringAfter(param).substringBefore("&"), "UTF-8")
+                                            } catch (e: Exception) {
+                                                location
+                                            }
+                                        } else {
+                                            location
+                                        }
+                                        break
+                                    } else {
+                                        currentUrl = if (location.startsWith("http")) location else "$newBaseUrl$location"
+                                        redirectCount++
+                                    }
+                                } else {
+                                    downloadUrl = currentUrl
+                                    break
                                 }
-                            )
+                            }
+                            
+                            if (downloadUrl.isNotEmpty()) {
+                                Log.d("HubCloud", "FSL Server final URL: $downloadUrl")
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name[FSL:Server]",
+                                        "$name[FSL:Server] $header[$size]",
+                                        downloadUrl,
+                                    ) {
+                                        this.quality = quality
+                                    }
+                                )
+                            } else {
+                                Log.e("HubCloud", "Failed to extract FSL Server URL after $redirectCount redirects")
+                            }
                         } catch (e: Exception) {
                             Log.e("HubCloud", "FSL Server error: ${e.message}")
                         }
@@ -229,19 +278,62 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
                     
-                    // Mega Server detection
+                    // Mega Server detection with redirect handling
                     text.contains("Mega", ignoreCase = true) -> {
                         try {
                             Log.d("HubCloud", "Mega Server link: $link")
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name[Mega:Server]",
-                                    "$name[Mega:Server] $header[$size]",
-                                    link,
-                                ) {
-                                    this.quality = quality
+                            var currentUrl = link
+                            var downloadUrl = ""
+                            var redirectCount = 0
+                            val maxRedirects = 5
+                            
+                            // Follow redirects for Mega server
+                            while (redirectCount < maxRedirects && downloadUrl.isEmpty()) {
+                                val response = app.get(currentUrl, allowRedirects = false)
+                                val location = response.headers["location"] ?: response.headers["Location"] ?: ""
+                                
+                                if (location.isNotEmpty()) {
+                                    // Check if final download URL
+                                    if (location.contains(".mkv", ignoreCase = true) || 
+                                        location.contains(".mp4", ignoreCase = true) ||
+                                        location.contains(".avi", ignoreCase = true) ||
+                                        (!location.contains("hubcloud", ignoreCase = true) && 
+                                         !location.contains("mega", ignoreCase = true))) {
+                                        downloadUrl = if (location.contains("link=") || location.contains("url=")) {
+                                            try {
+                                                val param = if (location.contains("link=")) "link=" else "url="
+                                                URLDecoder.decode(location.substringAfter(param).substringBefore("&"), "UTF-8")
+                                            } catch (e: Exception) {
+                                                location
+                                            }
+                                        } else {
+                                            location
+                                        }
+                                        break
+                                    } else {
+                                        currentUrl = if (location.startsWith("http")) location else "$newBaseUrl$location"
+                                        redirectCount++
+                                    }
+                                } else {
+                                    downloadUrl = currentUrl
+                                    break
                                 }
-                            )
+                            }
+                            
+                            if (downloadUrl.isNotEmpty()) {
+                                Log.d("HubCloud", "Mega Server final URL: $downloadUrl")
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name[Mega:Server]",
+                                        "$name[Mega:Server] $header[$size]",
+                                        downloadUrl,
+                                    ) {
+                                        this.quality = quality
+                                    }
+                                )
+                            } else {
+                                Log.e("HubCloud", "Failed to extract Mega Server URL after $redirectCount redirects")
+                            }
                         } catch (e: Exception) {
                             Log.e("HubCloud", "Mega Server error: ${e.message}")
                         }
