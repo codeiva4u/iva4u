@@ -20,6 +20,7 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(GDFlix2())
         registerExtractorAPI(GDFlix3())
         registerExtractorAPI(GDFlix7())
+        registerExtractorAPI(GDFlixDev())
         registerExtractorAPI(GDLink())
         registerExtractorAPI(PixelDrain())
         registerExtractorAPI(Gofile())

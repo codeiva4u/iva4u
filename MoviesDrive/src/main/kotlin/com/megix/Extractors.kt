@@ -102,14 +102,66 @@ open class HubCloud : ExtractorApi() {
             val text = it.text()
 
             when {
-                text.contains("Download [FSL Server]") -> {
+                // PixelServer - Working
+                text.contains("PixelServer") || btnLink.contains("pixeldra") -> {
+                    callback.invoke(
+                        newExtractorLink("$name[PixelServer]", "$name[PixelServer] $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+                
+                // 10Gbps Server - Fixed
+                text.contains("10Gbps") || text.contains("10GBPS") -> {
+                    callback.invoke(
+                        newExtractorLink("$name[10Gbps]", "$name[10Gbps] $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+
+                // FSL Server - Working
+                text.contains("FSL Server") -> {
                     callback.invoke(
                         newExtractorLink("$name[FSL Server]", "$name[FSL Server] $header[$size]", btnLink) {
                             quality = getIndexQuality(header)
                         }
                     )
                 }
+                
+                // S3 Server - Fixed to extract from page script
+                text.contains("S3 Server") -> {
+                    try {
+                        // S3 link is set via JavaScript on button click
+                        // We need to extract it from the script tag
+                        val scripts = document.select("script:containsData(s3.blockxpiracy.net)")
+                        scripts.forEach { script ->
+                            val scriptContent = script.html()
+                            val s3Regex = Regex("""window\.location\.href\s*=\s*['\"]([^'\"]*s3\.blockxpiracy\.net[^'\"]*)['\"]""")
+                            val match = s3Regex.find(scriptContent)
+                            if (match != null) {
+                                val s3Link = match.groupValues[1]
+                                callback.invoke(
+                                    newExtractorLink("$name[S3 Server]", "$name[S3 Server] $header[$size]", s3Link) {
+                                        quality = getIndexQuality(header)
+                                    }
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("HubCloud", "S3 Server extraction error: ${e.message}")
+                    }
+                }
 
+                // ZipDisk Server - Fixed
+                text.contains("ZipDisk") || text.contains("ZipDisk Server") -> {
+                    callback.invoke(
+                        newExtractorLink("$name[ZipDisk]", "$name[ZipDisk] $header[$size]", btnLink) {
+                            quality = getIndexQuality(header)
+                        }
+                    )
+                }
+                
                 text.contains("Download File") -> {
                     callback.invoke(
                         newExtractorLink(name, "$name $header[$size]", btnLink) {
@@ -132,24 +184,6 @@ open class HubCloud : ExtractorApi() {
                             }
                         )
                     }
-                }
-
-                btnLink.contains("pixeldra") -> {
-                    callback.invoke(
-                        newExtractorLink("Pixeldrain", "Pixeldrain $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
-
-                text.contains("Download [Server : 10Gbps]") -> {
-                    val dlink = app.get(btnLink, allowRedirects = false).headers["location"]?.substringAfter("link=")
-                        ?: return@forEach
-                    callback.invoke(
-                        newExtractorLink("$name[Download]", "$name[Download] $header[$size]", dlink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
                 }
 
                 else -> {
@@ -198,9 +232,13 @@ class GDFlix7 : GDFlix() {
     override var mainUrl = "https://gdflix.dad"
 }
 
+class GDFlixDev : GDFlix() {
+    override var mainUrl = "https://gdflix.dev"
+}
+
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
-    override val mainUrl = "https://new6.gdflix.dad"
+    override val mainUrl = "https://new7.gdflix.net"
     override val requiresReferer = false
 
 
@@ -217,22 +255,41 @@ open class GDFlix : ExtractorApi() {
             .substringAfter("Size : ")
 
         document.select("div.text-center a").amap { anchor ->
-            val text = anchor.select("a").text()
+            val text = anchor.text()
+            val link = anchor.attr("href")
 
             when {
-                text.contains("DIRECT DL") -> {
-                    val link = anchor.attr("href")
+                // Instant DL - Fixed: Direct link, no redirect needed
+                text.contains("Instant DL", ignoreCase = true) || text.contains("INSTANT DL") -> {
                     callback.invoke(
-                        newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
+                        newExtractorLink("GDFlix[Instant DL]", "GDFlix[Instant DL] $fileName[$fileSize]", link) {
                             this.quality = getIndexQuality(fileName)
                         }
                     )
                 }
-
-                text.contains("CLOUD DOWNLOAD [R2]") -> {
-                    val link = anchor.attr("href")
+                
+                // Cloud Download R2 - Fixed: Direct link
+                text.contains("CLOUD DOWNLOAD", ignoreCase = true) || text.contains("R2") -> {
                     callback.invoke(
-                        newExtractorLink("GDFlix[Cloud Download]", "GDFlix[Cloud Download] $fileName[$fileSize]", link) {
+                        newExtractorLink("GDFlix[Cloud R2]", "GDFlix[Cloud R2] $fileName[$fileSize]", link) {
+                            this.quality = getIndexQuality(fileName)
+                        }
+                    )
+                }
+                
+                // ZipDisk - Fixed: Need to get absolute URL
+                text.contains("ZipDisk", ignoreCase = true) || text.contains("ZIPDISK") || text.contains("FAST CLOUD") -> {
+                    val zipLink = if (link.startsWith("http")) link else "$mainUrl$link"
+                    callback.invoke(
+                        newExtractorLink("GDFlix[ZipDisk]", "GDFlix[ZipDisk] $fileName[$fileSize]", zipLink) {
+                            this.quality = getIndexQuality(fileName)
+                        }
+                    )
+                }
+                
+                text.contains("DIRECT DL") -> {
+                    callback.invoke(
+                        newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
                             this.quality = getIndexQuality(fileName)
                         }
                     )
