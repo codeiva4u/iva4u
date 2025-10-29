@@ -2,12 +2,13 @@ package com.megix
 
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.utils.*
-import org.jsoup.Jsoup
-import com.lagradost.api.Log
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.api.Log
 
-// HubCloud Extractor - PixelServer:2, Server:10Gbps, FSL:Server, Mega:Server
+// HubCloud Extractor - Handles PixelServer:2, Server:10Gbps, FSL:Server, Mega:Server
 open class HubCloudExtractor : ExtractorApi() {
     override val name = "HubCloud"
     override val mainUrl = "https://hubcloud.one"
@@ -20,40 +21,155 @@ open class HubCloudExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Extract file ID from HubCloud URL
-            val fileId = Regex("""hubcloud\.[a-z]+/drive/([a-zA-Z0-9]+)""").find(url)?.groupValues?.get(1)
+            Log.d("HubCloud", "Processing URL: $url")
             
-            if (fileId != null) {
-                // Fetch the HubCloud page
-                val response = app.get(url).document
+            // Get base URL for relative path handling
+            val baseUrl = try {
+                val uri = java.net.URI(url)
+                "${uri.scheme}://${uri.host}"
+            } catch (e: Exception) {
+                mainUrl
+            }
+            
+            // Handle hubcloud.php direct links or extract from page
+            val downloadPageUrl = if ("hubcloud.php" in url) {
+                url
+            } else {
+                val doc = app.get(url).document
+                val href = doc.selectFirst("a#download, a[href*='hubcloud.php']")?.attr("href") ?: ""
+                if (href.startsWith("http", ignoreCase = true)) {
+                    href
+                } else if (href.isNotEmpty()) {
+                    baseUrl.trimEnd('/') + "/" + href.trimStart('/')
+                } else {
+                    Log.e("HubCloud", "No download link found")
+                    return
+                }
+            }
+            
+            if (downloadPageUrl.isEmpty()) return
+            
+            // Fetch the download page with all server buttons
+            val document = app.get(downloadPageUrl).document
+            val size = document.selectFirst("i#size")?.text().orEmpty()
+            val header = document.selectFirst("div.card-header")?.text().orEmpty()
+            
+            // Extract quality from header (480p, 720p, 1080p, etc.)
+            val quality = Regex("""(\d{3,4})[pP]""").find(header)?.groupValues?.get(1)?.toIntOrNull() 
+                ?: Qualities.Unknown.value
+            
+            val labelExtras = buildString {
+                if (header.isNotEmpty()) append("[$header]")
+                if (size.isNotEmpty()) append(" [$size]")
+            }
+            
+            // Process all server buttons
+            document.select("a.btn, a.btn-success, a.btn-danger, a.btn-primary").forEach { element ->
+                val link = element.attr("href")
+                val text = element.text()
                 
-                // Extract download link - pattern: https://gamerxyt.com/hubcloud.php?host=hubcloud&id={id}&token={token}
-                val downloadLink = response.selectFirst("a#download, a[href*='gamerxyt.com/hubcloud.php']")?.attr("href")
-                    ?: response.selectFirst("a[href*='hubcloud.php']")?.attr("href")
+                // Skip empty links or non-download links
+                if (link.isBlank() || text.contains("Copy", ignoreCase = true) || 
+                    text.contains("Logout", ignoreCase = true) ||
+                    text.contains("Login", ignoreCase = true)) {
+                    return@forEach
+                }
                 
-                if (downloadLink != null && downloadLink.contains("gamerxyt")) {
-                    // Follow the download link to get final URL
-                    val finalResponse = app.get(downloadLink, allowRedirects = true)
-                    val finalUrl = finalResponse.url
+                when {
+                    // PixelServer:2 (PixelDrain)
+                    text.contains("PixelServer", ignoreCase = true) || 
+                    text.contains("Pixeldrain", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "PixelDrain",
+                                "PixelServer:2 $labelExtras",
+                                link
+                            ) { 
+                                this.quality = quality 
+                            }
+                        )
+                    }
                     
-                    // Extract filename from response
-                    val fileName = response.selectFirst(".card-header")?.text() 
-                        ?: "HubCloud_${fileId}.mp4"
-                    
-                    callback.invoke(
-                        newExtractorLink(
-                            this.name,
-                            "HubCloud - $fileName",
-                            finalUrl
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = mainUrl
+                    // Server:10Gbps
+                    text.contains("10Gbps", ignoreCase = true) || 
+                    text.contains("10 Gbps", ignoreCase = true) -> {
+                        try {
+                            var currentLink = link
+                            var redirectUrl: String? = null
+                            
+                            // Follow redirects until we get link= parameter
+                            var attempts = 0
+                            while (attempts < 5) {
+                                val response = app.get(currentLink, allowRedirects = false)
+                                redirectUrl = response.headers["location"]
+                                if (redirectUrl == null) break
+                                if ("link=" in redirectUrl) break
+                                currentLink = redirectUrl
+                                attempts++
+                            }
+                            
+                            val finalLink = redirectUrl?.substringAfter("link=")
+                            if (finalLink != null && finalLink.startsWith("http")) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "HubCloud",
+                                        "Server:10Gbps $labelExtras",
+                                        finalLink
+                                    ) { 
+                                        this.quality = quality 
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "10Gbps error: ${e.message}")
                         }
-                    )
+                    }
+                    
+                    // FSL:Server (Fast Server Link)
+                    text.contains("FSL", ignoreCase = true) || 
+                    text.contains("Fast Server", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "HubCloud",
+                                "FSL:Server $labelExtras",
+                                link
+                            ) { 
+                                this.quality = quality 
+                            }
+                        )
+                    }
+                    
+                    // Mega:Server
+                    text.contains("Mega", ignoreCase = true) && 
+                    text.contains("Server", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "HubCloud",
+                                "Mega:Server $labelExtras",
+                                link
+                            ) { 
+                                this.quality = quality 
+                            }
+                        )
+                    }
+                    
+                    // Generic download buttons
+                    text.contains("Download", ignoreCase = true) || 
+                    text.contains("Direct", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "HubCloud",
+                                "HubCloud $labelExtras",
+                                link
+                            ) { 
+                                this.quality = quality 
+                            }
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
-            // Log error but continue
+            Log.e("HubCloud", "Error: ${e.message}")
         }
     }
 }
