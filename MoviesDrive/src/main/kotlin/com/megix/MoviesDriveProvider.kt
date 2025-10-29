@@ -148,9 +148,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) == true ||
-            seasonRegex.containsMatchIn(title) ||
-            title.contains("series", ignoreCase = true) == true
+            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
         ) {
             "series"
         } else {
@@ -192,7 +190,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 if (checkSeason == null) {
                     val seasonText = Regex("""Season\s*\d+|S\s*\d+""").find(ogTitle)?.value
                     if(seasonText != null) {
-                        title = title + " " + seasonText.toString()
+                        title = "$title $seasonText"
                     }
                 }
             }
@@ -220,7 +218,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                             
                             var elements = doc.select("span:matches((?i)(Ep))")
                             if(elements.isEmpty()) {
-                                elements = doc.select("a:matches((?i)(HubCloud|GDFlix))")
+                                // Select links that contain hubcloud or gdflix in href or text
+                                elements = doc.select("a[href*='hubcloud'], a[href*='gdflix'], a:matches((?i)(HubCloud|GDFlix))")
                             }
                             
                             var episodeNum: Int
@@ -231,10 +230,11 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                                         var hTag = titleTag?.nextElementSibling()
                                         episodeNum = Regex("""Ep(\d{2})""").find(element.toString())?.groups?.get(1)?.value?.toIntOrNull() ?: (index + 1)
                                         
-                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
+                                        while (hTag != null && hTag.text().contains(Regex("HubCloud|GDFlix", RegexOption.IGNORE_CASE))) {
                                             val aTag = hTag.selectFirst("a")
                                             val epUrl = aTag?.attr("href")?.takeIf { it.isNotEmpty() }
-                                            if (epUrl != null) {
+                                            // Only add URLs that contain hubcloud or gdflix domains
+                                            if (epUrl != null && (epUrl.contains("hubcloud", ignoreCase = true) || epUrl.contains("gdflix", ignoreCase = true))) {
                                                 val key = Pair(realSeason, episodeNum)
                                                 synchronized(episodesMap) {
                                                     episodesMap.getOrPut(key) { mutableListOf() }.add(epUrl)
@@ -299,9 +299,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     val link = button.attr("href")
                     val validLink = getValidUrl(link)
                     val doc = app.get(validLink, timeout = 8L).document
-                    val innerButtons = doc.select("a").filter { element ->
-                        element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
-                    }
+                    // Select all download links - hubcloud, gdflix domains
+                    val innerButtons = doc.select("a[href*='hubcloud'], a[href*='gdflix'], a:containsOwn(HubCloud), a:containsOwn(GDFlix)")
                     innerButtons.mapNotNull { innerButton ->
                         val source = innerButton.attr("href")
                         if (source.isNotEmpty()) {
