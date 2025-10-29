@@ -61,9 +61,7 @@ open class HubCloud : ExtractorApi() {
     override val mainUrl: String = "https://hubcloud.one"
     override val requiresReferer = false
 
-    fun getBaseUrl(url: String): String {
-        return URI(url).let { "${it.scheme}://${it.host}" }
-    }
+    private val baseUrlRegex = Regex("""https?://[^/]+""")
 
     override suspend fun getUrl(
         url: String,
@@ -71,93 +69,120 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val newBaseUrl = "https://hubcloud.one"
-        // Validate URL before processing
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return // Invalid URL, skip processing
-        }
-        val newUrl = url.replace(mainUrl, newBaseUrl)
-        val doc = app.get(newUrl).document
+        try {
+            Log.d("HubCloud", "Starting extraction for: $url")
+            
+            // Validate URL
+            if (!url.matches(Regex("""https?://(?:hubcloud\.(?:one|fit|ink|art|dad|bz))/drive/\w+"""))) {
+                Log.e("HubCloud", "Invalid HubCloud URL: $url")
+                return
+            }
 
-        var link = if (newUrl.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.getOrNull(1) ?: ""
-        } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-        }
+            // Get initial page
+            val doc = app.get(url).document
+            
+            // Find download link button
+            val downloadBtn = doc.selectFirst("a#download[href]")
+            if (downloadBtn == null) {
+                Log.e("HubCloud", "Download button not found")
+                return
+            }
 
-        if (link.startsWith("/")) {
-            link = newBaseUrl + link
-        }
+            val downloadLink = downloadBtn.attr("href")
+            Log.d("HubCloud", "Download link: $downloadLink")
 
-        val document = app.get(link).document
-        val header = document.select("div.card-header").text()
-        val size = document.select("i#size").text()
-        val div = document.selectFirst("div.card-body")
+            // Get download page with all servers
+            val downloadDoc = app.get(downloadLink, referer = url).document
+            val fileInfo = downloadDoc.selectFirst("div.card-header")?.text() ?: ""
+            val fileSize = downloadDoc.selectFirst("i#size")?.text() ?: ""
 
-        div?.select("h2 a.btn")?.forEach {
-            val btnLink = it.attr("href")
-            val text = it.text()
+            // Extract all download servers
+            downloadDoc.select("a.btn[href]").forEach { btn ->
+                val btnUrl = btn.attr("href")
+                val btnText = btn.text()
 
-            when {
-                text.contains("Download [FSL Server]") -> {
-                    callback.invoke(
-                        newExtractorLink("$name[FSL Server]", "$name[FSL Server] $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
+                if (btnUrl.isBlank() || btnUrl.startsWith("#")) return@forEach
 
-                text.contains("Download File") -> {
-                    callback.invoke(
-                        newExtractorLink(name, "$name $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
-
-                text.contains("BuzzServer") -> {
-                    val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false)
-                        .headers["hx-redirect"].orEmpty()
-                    if (dlink.isNotBlank()) {
+                when {
+                    // FSL Server (Direct download)
+                    btnText.contains("FSL", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
-                                "$name[BuzzServer]",
-                                "$name[BuzzServer] $header[$size]",
-                                getBaseUrl(btnLink) + dlink
+                                "$name [FSL]",
+                                "$name [FSL] $fileInfo [$fileSize]",
+                                btnUrl
                             ) {
-                                quality = getIndexQuality(header)
+                                quality = getIndexQuality(fileInfo)
+                            }
+                        )
+                    }
+
+                    // PixelDrain Server
+                    btnUrl.contains("pixeldrain", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [PixelDrain]",
+                                "$name [PixelDrain] $fileInfo [$fileSize]",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileInfo)
+                            }
+                        )
+                    }
+
+                    // 10Gbps Server (requires redirect follow)
+                    btnText.contains("10Gbps", ignoreCase = true) || btnText.contains("10GBPS", ignoreCase = true) -> {
+                        try {
+                            val finalUrl = app.get(btnUrl, allowRedirects = false)
+                                .headers["location"]
+                                ?.substringAfter("link=") ?: btnUrl
+                            
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name [10Gbps]",
+                                    "$name [10Gbps] $fileInfo [$fileSize]",
+                                    finalUrl
+                                ) {
+                                    quality = getIndexQuality(fileInfo)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("HubCloud", "Error extracting 10Gbps link: ${e.message}")
+                        }
+                    }
+
+                    // Mega Server
+                    btnUrl.contains("mega", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [Mega]",
+                                "$name [Mega] $fileInfo [$fileSize]",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileInfo)
+                            }
+                        )
+                    }
+
+                    // ZipDisk/Cloud Server
+                    btnUrl.contains("cloudserver", ignoreCase = true) || btnText.contains("Zip", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [ZipDisk]",
+                                "$name [ZipDisk] $fileInfo [$fileSize]",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileInfo)
                             }
                         )
                     }
                 }
-
-                btnLink.contains("pixeldra") -> {
-                    callback.invoke(
-                        newExtractorLink("Pixeldrain", "Pixeldrain $header[$size]", btnLink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
-
-                text.contains("Download [Server : 10Gbps]") -> {
-                    val dlink = app.get(btnLink, allowRedirects = false).headers["location"]?.substringAfter("link=")
-                        ?: return@forEach
-                    callback.invoke(
-                        newExtractorLink("$name[Download]", "$name[Download] $header[$size]", dlink) {
-                            quality = getIndexQuality(header)
-                        }
-                    )
-                }
-
-                else -> {
-                    try {
-                        loadExtractor(btnLink, "", subtitleCallback, callback)
-                    } catch (e: Exception) {
-                        Log.e("HubCloud", "LoadExtractor Error: ${e.localizedMessage}")
-                    }
-                }
             }
+
+            Log.d("HubCloud", "Extraction completed")
+        } catch (e: Exception) {
+            Log.e("HubCloud", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -192,48 +217,101 @@ open class GDFlix : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("GDFlix", "Starting extraction for URL: $url")
+            Log.d("GDFlix", "Starting extraction for: $url")
             
-            // Validate URL
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                Log.e("GDFlix", "Invalid URL: $url")
+            // Validate GDFlix URL
+            if (!url.matches(Regex("""https?://(?:gdflix\.dev|new7\.gdflix\.net)/file/\w+"""))) {
+                Log.e("GDFlix", "Invalid GDFlix URL: $url")
                 return
             }
-            
+
+            // Get main page
             val doc = app.get(url, referer = referer).document
-            
-            // Extract download links from buttons
-            val downloadButtons = doc.select("a.btn, a[href*='download'], a[href*='gdflix'], button[onclick]")
-            
-            downloadButtons.forEach { button ->
-                val btnLink = button.attr("href")
-                val btnText = button.text()
-                
-                if (btnLink.isNotEmpty() && !btnLink.startsWith("#")) {
-                    try {
-                        // Follow the link to get actual download URL
-                        val finalUrl = if (btnLink.startsWith("http")) {
-                            btnLink
-                        } else if (btnLink.startsWith("/")) {
-                            "$mainUrl$btnLink"
-                        } else {
-                            return@forEach
-                        }
-                        
+            val fileName = doc.selectFirst("div.card-header")?.text() ?: ""
+
+            // Extract all download buttons
+            doc.select("a[href]").forEach { element ->
+                val btnUrl = element.attr("abs:href")
+                val btnText = element.text()
+
+                if (btnUrl.isBlank() || btnUrl.startsWith("#") || btnUrl.contains("login")) {
+                    return@forEach
+                }
+
+                when {
+                    // Instant Download (10GBPS)
+                    btnUrl.contains("instant.busycdn", ignoreCase = true) || 
+                    btnText.contains("Instant DL", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
-                                name,
-                                "$name $btnText",
-                                finalUrl
+                                "$name [Instant]",
+                                "$name [Instant] $fileName",
+                                btnUrl
                             ) {
-                                quality = getIndexQuality(btnText)
+                                quality = getIndexQuality(fileName)
                             }
                         )
-                    } catch (e: Exception) {
-                        Log.e("GDFlix", "Error processing button: ${e.message}")
+                    }
+
+                    // PixelDrain Server
+                    btnUrl.contains("pixeldrain", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [PixelDrain]",
+                                "$name [PixelDrain] $fileName",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileName)
+                            }
+                        )
+                    }
+
+                    // Fast Cloud / ZipDisk
+                    btnUrl.contains("/zfile/", ignoreCase = true) || 
+                    btnText.contains("ZIPDISK", ignoreCase = true) || 
+                    btnText.contains("CLOUD", ignoreCase = true) -> {
+                        try {
+                            val zipDoc = app.get(btnUrl).document
+                            val zipDownloadLink = zipDoc.selectFirst("a[href*='cloudserver'], a[href*='download']")?.attr("abs:href")
+                            
+                            if (!zipDownloadLink.isNullOrBlank()) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name [ZipDisk]",
+                                        "$name [ZipDisk] $fileName",
+                                        zipDownloadLink
+                                    ) {
+                                        quality = getIndexQuality(fileName)
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "Error extracting ZipDisk link: ${e.message}")
+                        }
+                    }
+
+                    // GoFile Mirror
+                    btnUrl.contains("goflix.sbs", ignoreCase = true) || btnUrl.contains("gofile", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [GoFile]",
+                                "$name [GoFile] $fileName",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileName)
+                            }
+                        )
+                    }
+
+                    // Telegram File
+                    btnUrl.contains("filesgram", ignoreCase = true) || btnUrl.contains("telegram", ignoreCase = true) -> {
+                        // Skip telegram links as they're not direct downloads
+                        Log.d("GDFlix", "Skipping Telegram link")
                     }
                 }
             }
+
+            Log.d("GDFlix", "Extraction completed")
         } catch (e: Exception) {
             Log.e("GDFlix", "Extraction error: ${e.message}")
             e.printStackTrace()
