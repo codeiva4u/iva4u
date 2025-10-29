@@ -20,6 +20,29 @@ fun getIndexQuality(str: String?): Int {
         ?: Qualities.Unknown.value
 }
 
+class PixelDrain : ExtractorApi() {
+    override val name = "PixelDrain"
+    override val mainUrl = "https://pixeldrain.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val mId = Regex("/(?:u|file)/([\\w-]+)").find(url)?.groupValues?.getOrNull(1)
+        val finalUrl = if (mId.isNullOrEmpty()) url else "$mainUrl/api/file/$mId?download"
+
+        callback.invoke(
+            newExtractorLink(this.name, this.name, finalUrl) {
+                this.referer = url
+                this.quality = Qualities.Unknown.value
+            }
+        )
+    }
+}
+
 class HubCloudInk : HubCloud() {
     override val mainUrl: String = "https://hubcloud.ink"
 }
@@ -30,6 +53,10 @@ class HubCloudArt : HubCloud() {
 
 class HubCloudDad : HubCloud() {
     override val mainUrl: String = "https://hubcloud.dad"
+}
+
+class HubCloudBz : HubCloud() {
+    override val mainUrl: String = "https://hubcloud.bz"
 }
 
 open class HubCloud : ExtractorApi() {
