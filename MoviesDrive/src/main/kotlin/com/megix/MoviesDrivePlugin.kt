@@ -19,5 +19,6 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(PixelDrain())
         registerExtractorAPI(Gofile())
         registerExtractorAPI(fastdlserver())
+        registerExtractorAPI(GDFlix())
     }
 }

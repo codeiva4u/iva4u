@@ -180,6 +180,67 @@ open class fastdlserver : ExtractorApi() {
     }
 }
 
+open class GDFlix : ExtractorApi() {
+    override val name: String = "GDFlix"
+    override var mainUrl: String = "https://gdflix.dev"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("GDFlix", "Starting extraction for URL: $url")
+            
+            // Validate URL
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                Log.e("GDFlix", "Invalid URL: $url")
+                return
+            }
+            
+            val doc = app.get(url, referer = referer).document
+            
+            // Extract download links from buttons
+            val downloadButtons = doc.select("a.btn, a[href*='download'], a[href*='gdflix'], button[onclick]")
+            
+            downloadButtons.forEach { button ->
+                val btnLink = button.attr("href")
+                val btnText = button.text()
+                
+                if (btnLink.isNotEmpty() && !btnLink.startsWith("#")) {
+                    try {
+                        // Follow the link to get actual download URL
+                        val finalUrl = if (btnLink.startsWith("http")) {
+                            btnLink
+                        } else if (btnLink.startsWith("/")) {
+                            "$mainUrl$btnLink"
+                        } else {
+                            return@forEach
+                        }
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name $btnText",
+                                finalUrl
+                            ) {
+                                quality = getIndexQuality(btnText)
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("GDFlix", "Error processing button: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("GDFlix", "Extraction error: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+}
+
 class Gofile : ExtractorApi() {
     override val name = "Gofile"
     override val mainUrl = "https://gofile.io"
