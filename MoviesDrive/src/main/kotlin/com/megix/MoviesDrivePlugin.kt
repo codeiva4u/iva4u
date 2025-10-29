@@ -15,10 +15,15 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(HubCloudInk())
         registerExtractorAPI(HubCloudArt())
         registerExtractorAPI(HubCloudDad())
-        registerExtractorAPI(HubCloudBz())
-        registerExtractorAPI(PixelDrain())
         registerExtractorAPI(Gofile())
         registerExtractorAPI(fastdlserver())
+        registerExtractorAPI(fastdlserver2())
         registerExtractorAPI(GDFlix())
+        registerExtractorAPI(GDLink())
+        registerExtractorAPI(GDFlix3())
+        registerExtractorAPI(GDFlix2())
+        registerExtractorAPI(GDFlix7())
+        registerExtractorAPI(GDFlixNet())
+        registerExtractorAPI(GDFlixDev())
     }
 }
