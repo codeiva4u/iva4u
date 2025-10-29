@@ -298,7 +298,7 @@ open class FastCDNExtractor : ExtractorApi() {
     }
 }
 
-// Generic GDFlix Extractor (handles all GDFlix servers)
+// Generic GDFlix Extractor (handles Instant DL 10GBPS, PixelDrain DL 20MB/s, etc.)
 open class GDFlixExtractor : ExtractorApi() {
     override val name = "GDFlix"
     override val mainUrl = "https://gdflix.dev"
@@ -311,47 +311,166 @@ open class GDFlixExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
+            Log.d("GDFlix", "Processing URL: $url")
+            
             // Fetch GDFlix page
-            val response = app.get(url).document
+            val document = app.get(url).document
             
-            // Extract all download links
-            val downloadLinks = response.select("a[href]")
+            // Extract file info from page title or heading
+            val fileTitle = document.selectFirst("h1.text-2xl, h2.text-xl")?.text() 
+                ?: document.title()
             
-            downloadLinks.forEach { element ->
-                val href = element.attr("href")
+            // Extract quality from title (480p, 720p, 1080p, etc.)
+            val quality = Regex("""(\d{3,4})[pP]""").find(fileTitle)?.groupValues?.get(1)?.toIntOrNull() 
+                ?: Qualities.Unknown.value
+            
+            val labelExtras = if (fileTitle.isNotEmpty()) "[$fileTitle]" else ""
+            
+            // Process all download links/buttons
+            document.select("a[href], button[onclick]").forEach { element ->
+                val href = element.attr("href").ifEmpty { 
+                    // Extract URL from onclick if present
+                    element.attr("onclick").let {
+                        Regex("""(?:window\.location|location\.href)\s*=\s*['"]([^'"]+)['"]""").find(it)?.groupValues?.get(1)
+                    } ?: ""
+                }
                 val text = element.text()
+                
+                // Skip empty or invalid links
+                if (href.isBlank() || href.startsWith("javascript:") || 
+                    text.contains("Back", ignoreCase = true) ||
+                    text.contains("Home", ignoreCase = true)) {
+                    return@forEach
+                }
                 
                 when {
                     // Instant DL 10GBPS
-                    href.contains("instant.busycdn.cfd") && text.contains("Instant", ignoreCase = true) -> {
-                        GDFlixInstantExtractor().getUrl(href, referer, subtitleCallback, callback)
-                    }
-                    // PixelDrain DL
-                    href.contains("pixeldrain") && text.contains("PixelDrain", ignoreCase = true) -> {
-                        PixelDrainExtractor().getUrl(href, referer, subtitleCallback, callback)
-                    }
-                    // FastCDN / Cloud Download
-                    href.contains("fastcdn-dl.pages.dev") || href.contains("r2.dev") -> {
-                        if (href.contains("fastcdn-dl")) {
-                            FastCDNExtractor().getUrl(href, referer, subtitleCallback, callback)
-                        } else {
-                            // Direct R2 link
+                    (href.contains("instant.busycdn.cfd") || text.contains("Instant", ignoreCase = true)) &&
+                    (text.contains("10GBPS", ignoreCase = true) || text.contains("10 GBPS", ignoreCase = true)) -> {
+                        try {
+                            val response = app.get(href, allowRedirects = true)
+                            val finalUrl = response.url
+                            
                             callback.invoke(
                                 newExtractorLink(
-                                    "CloudFlare R2",
-                                    "CloudFlare R2 Storage",
-                                    href
+                                    "GDFlix",
+                                    "Instant DL 10GBPS $labelExtras",
+                                    finalUrl
                                 ) {
-                                    this.quality = Qualities.Unknown.value
-                                    this.referer = referer ?: ""
+                                    this.quality = quality
                                 }
                             )
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "Instant DL error: ${e.message}")
                         }
+                    }
+                    
+                    // PixelDrain DL 20MB/s
+                    href.contains("pixeldrain") || text.contains("PixelDrain", ignoreCase = true) -> {
+                        try {
+                            val fileId = Regex("""pixeldrain\.(?:dev|com)/(?:api/file/|u/)?([a-zA-Z0-9]+)""").find(href)?.groupValues?.get(1)
+                            
+                            if (fileId != null) {
+                                val downloadUrl = "https://pixeldrain.com/api/file/$fileId?download"
+                                
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "PixelDrain",
+                                        "PixelDrain DL 20MB/s $labelExtras",
+                                        downloadUrl
+                                    ) {
+                                        this.quality = quality
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "PixelDrain error: ${e.message}")
+                        }
+                    }
+                    
+                    // FastCDN / Cloud Download (R2)
+                    href.contains("fastcdn-dl.pages.dev") -> {
+                        try {
+                            val actualUrl = Regex("""url=([^&]+)""").find(href)?.groupValues?.get(1)
+                                ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+                            
+                            if (actualUrl != null && actualUrl.startsWith("http")) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "GDFlix",
+                                        "Cloud Download [R2] $labelExtras",
+                                        actualUrl
+                                    ) {
+                                        this.quality = quality
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "FastCDN error: ${e.message}")
+                        }
+                    }
+                    
+                    // Direct R2 CloudFlare links
+                    href.contains("r2.dev") && href.contains("pub-") -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "CloudFlare R2",
+                                "CloudFlare R2 Storage $labelExtras",
+                                href
+                            ) {
+                                this.quality = quality
+                            }
+                        )
+                    }
+                    
+                    // ZipDisk / Fast Cloud
+                    href.contains("zfile") || text.contains("ZIPDISK", ignoreCase = true) || 
+                    text.contains("Fast Cloud", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "GDFlix",
+                                "Fast Cloud/ZipDisk $labelExtras",
+                                href
+                            ) {
+                                this.quality = quality
+                            }
+                        )
+                    }
+                    
+                    // GoFile Mirror
+                    href.contains("goflix.sbs") || text.contains("GoFile", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "GoFile",
+                                "GoFile Mirror $labelExtras",
+                                href
+                            ) {
+                                this.quality = quality
+                            }
+                        )
+                    }
+                    
+                    // Telegram File
+                    href.contains("filesgram.site") || href.contains("t.me") && text.contains("Telegram", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "Telegram",
+                                "Telegram File $labelExtras",
+                                href
+                            ) {
+                                this.quality = quality
+                            }
+                        )
+                    }
+                    
+                    // Login to DL (needs authentication - show but may not work)
+                    href.contains("/login") && text.contains("Login", ignoreCase = true) -> {
+                        Log.d("GDFlix", "Login required for: $text - Skipping")
                     }
                 }
             }
         } catch (e: Exception) {
-            // Log error but continue
+            Log.e("GDFlix", "Error: ${e.message}")
         }
     }
 }
