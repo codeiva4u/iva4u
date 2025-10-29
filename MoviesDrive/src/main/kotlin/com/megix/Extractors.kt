@@ -35,16 +35,23 @@ class HubCloudExtractor : ExtractorApi() {
                 // Step 3: Navigate to the download link page
                 val finalDoc = app.get(downloadLink, referer = url).document
                 
-                // Step 4: Extract all server links
-                val servers = finalDoc.select("a[href*='pixeldrain'], a[href*='pixel'], a[href*='fsl.'], a[href*='mega.co.nz'], a[href*='.zip']")
+                // Step 4: Extract all server download buttons
+                val servers = finalDoc.select("a.btn[href]")
                 
                 servers.forEach { server ->
                     val serverUrl = server.attr("href")
+                    val buttonText = server.text()
                     val serverName = when {
-                        serverUrl.contains("pixeldrain", ignoreCase = true) -> "PixelDrain"
-                        serverUrl.contains("fsl.", ignoreCase = true) -> "FSL"
+                        buttonText.contains("PixelServer", ignoreCase = true) || buttonText.contains("Pixel", ignoreCase = true) -> "PixelServer"
+                        buttonText.contains("10Gbps", ignoreCase = true) -> "10Gbps"
+                        buttonText.contains("FSL", ignoreCase = true) -> "FSL"
+                        buttonText.contains("Mega", ignoreCase = true) -> "Mega"
+                        buttonText.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
+                        serverUrl.contains("pixeldrain", ignoreCase = true) -> "PixelServer"
+                        serverUrl.contains("hubcdn", ignoreCase = true) -> "10Gbps"
+                        serverUrl.contains("fsl", ignoreCase = true) || serverUrl.contains("anime4u", ignoreCase = true) -> "FSL"
                         serverUrl.contains("mega.co.nz", ignoreCase = true) -> "Mega"
-                        serverUrl.contains(".zip", ignoreCase = true) -> "ZipDisk"
+                        serverUrl.contains("workers.dev", ignoreCase = true) || serverUrl.contains(".zip", ignoreCase = true) -> "ZipDisk"
                         else -> "HubCloud"
                     }
                     
