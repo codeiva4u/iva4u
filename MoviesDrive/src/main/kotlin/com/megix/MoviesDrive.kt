@@ -7,21 +7,22 @@ import android.content.Context
 @CloudstreamPlugin
 class MoviesDrive: Plugin() {
     override fun load(context: Context) {
-        // All providers should be added in this manner. Please don't edit the providers list directly.
+        // Register main provider
         registerMainAPI(MoviesDriveProvider())
-        registerExtractorAPI(GDFlix())
-        registerExtractorAPI(GDFlix3())
-        registerExtractorAPI(GDFlix7())
-        registerExtractorAPI(GDFlix2())
-        registerExtractorAPI(GDLink())
-        //registerExtractorAPI(Hubdrive())
-        registerExtractorAPI( PixelDrain())
+        
+        // Register extractors
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(HubCloudBz())
         registerExtractorAPI(HubCloudInk())
         registerExtractorAPI(HubCloudArt())
         registerExtractorAPI(HubCloudDad())
-        registerExtractorAPI(fastdlserver())
+        registerExtractorAPI(HubCloudBz())
+        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(GDFlix2())
+        registerExtractorAPI(GDFlix3())
+        registerExtractorAPI(GDFlix7())
+        registerExtractorAPI(GDLink())
+        registerExtractorAPI(PixelDrain())
         registerExtractorAPI(Gofile())
+        registerExtractorAPI(fastdlserver())
     }
 }
