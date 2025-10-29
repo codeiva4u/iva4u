@@ -55,7 +55,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         "$mainUrl/category/amzn-prime-video/page/" to "Prime Video",
         "$mainUrl/category/netflix/page/" to "Netflix",
         "$mainUrl/category/hotstar/page/" to "Hotstar",
-        "$mainUrl/category/web/page/" to "Web Series",
     )
 
     override suspend fun getMainPage(
