@@ -136,27 +136,58 @@ open class HubCloud : ExtractorApi() {
                         }
                     }
                     
-                    // Server:10Gbps detection
+                    // Server:10Gbps detection - Fixed with proper redirect chain following
                     text.contains("10Gbps", ignoreCase = true) || text.contains("10GBPS", ignoreCase = true) -> {
                         try {
                             Log.d("HubCloud", "Processing 10Gbps server link: $link")
-                            val response = app.get(link, allowRedirects = false)
-                            val location = response.headers["location"] ?: ""
-                            val downloadUrl = if (location.isNotEmpty()) {
-                                URLDecoder.decode(location.substringAfter("link="), "UTF-8")
-                            } else {
-                                link
-                            }
-                            Log.d("HubCloud", "10Gbps download URL: $downloadUrl")
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name[Server:10Gbps]",
-                                    "$name[Server:10Gbps] $header[$size]",
-                                    downloadUrl,
-                                ) {
-                                    this.quality = quality
+                            var currentUrl = link
+                            var downloadUrl = ""
+                            var redirectCount = 0
+                            val maxRedirects = 10
+                            
+                            // Follow redirect chain until we get final download URL
+                            while (redirectCount < maxRedirects && downloadUrl.isEmpty()) {
+                                val response = app.get(currentUrl, allowRedirects = false)
+                                val location = response.headers["location"] ?: response.headers["Location"] ?: ""
+                                
+                                if (location.isNotEmpty()) {
+                                    // Check if this is the final download URL (contains file extension or is direct link)
+                                    if (location.contains(".mkv", ignoreCase = true) || 
+                                        location.contains(".mp4", ignoreCase = true) ||
+                                        location.contains(".avi", ignoreCase = true) ||
+                                        !location.contains("hubcloud", ignoreCase = true)) {
+                                        downloadUrl = if (location.contains("link=")) {
+                                            URLDecoder.decode(location.substringAfter("link=").substringBefore("&"), "UTF-8")
+                                        } else {
+                                            location
+                                        }
+                                        break
+                                    } else {
+                                        // Continue following redirects
+                                        currentUrl = if (location.startsWith("http")) location else "$newBaseUrl$location"
+                                        redirectCount++
+                                    }
+                                } else {
+                                    // No more redirects, use current URL
+                                    downloadUrl = currentUrl
+                                    break
                                 }
-                            )
+                            }
+                            
+                            if (downloadUrl.isNotEmpty()) {
+                                Log.d("HubCloud", "10Gbps final download URL: $downloadUrl")
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name[Server:10Gbps]",
+                                        "$name[Server:10Gbps] $header[$size]",
+                                        downloadUrl,
+                                    ) {
+                                        this.quality = quality
+                                    }
+                                )
+                            } else {
+                                Log.e("HubCloud", "Failed to extract 10Gbps download URL after $redirectCount redirects")
+                            }
                         } catch (e: Exception) {
                             Log.e("HubCloud", "10Gbps server error: ${e.message}")
                         }
@@ -449,31 +480,74 @@ open class GDFlix : ExtractorApi() {
                     }
                 }
 
-                // Instant DL 10GBPS detection
+                // Instant DL 10GBPS detection - Fixed with proper redirect handling
                 text.contains("Instant DL", ignoreCase = true) || text.contains("10GBPS", ignoreCase = true) -> {
                     try {
                         Log.d("GDFlix", "Processing Instant DL 10GBPS link: $link")
-                        val instantLink = link
-                        val response = app.get(instantLink, allowRedirects = false)
-                        val location = response.headers["location"] ?: ""
-                        val downloadUrl = if (location.isNotEmpty()) {
-                            URLDecoder.decode(location.substringAfter("url="), "UTF-8")
-                        } else {
-                            link
-                        }
-
-                        Log.d("GDFlix", "Instant DL 10GBPS extracted: $downloadUrl")
-                        callback.invoke(
-                            newExtractorLink(
-                                "GDFlix[Instant DL 10GBPS]", 
-                                "GDFlix[Instant DL 10GBPS] $fileName[$fileSize]", 
-                                downloadUrl
-                            ) {
-                                this.quality = quality
+                        var currentUrl = link
+                        var downloadUrl = ""
+                        var redirectCount = 0
+                        val maxRedirects = 10
+                        
+                        // Follow redirect chain to get final download URL
+                        while (redirectCount < maxRedirects && downloadUrl.isEmpty()) {
+                            val response = app.get(currentUrl, allowRedirects = false)
+                            val location = response.headers["location"] ?: response.headers["Location"] ?: ""
+                            
+                            if (location.isNotEmpty()) {
+                                // Decode URL parameter if present
+                                val decodedLocation = if (location.contains("url=") || location.contains("link=")) {
+                                    try {
+                                        val param = if (location.contains("url=")) "url=" else "link="
+                                        URLDecoder.decode(location.substringAfter(param).substringBefore("&"), "UTF-8")
+                                    } catch (e: Exception) {
+                                        location
+                                    }
+                                } else {
+                                    location
+                                }
+                                
+                                // Check if this is final download URL
+                                if (decodedLocation.contains(".mkv", ignoreCase = true) || 
+                                    decodedLocation.contains(".mp4", ignoreCase = true) ||
+                                    decodedLocation.contains(".avi", ignoreCase = true) ||
+                                    (!decodedLocation.contains("gdflix", ignoreCase = true) && 
+                                     !decodedLocation.contains("gdlink", ignoreCase = true))) {
+                                    downloadUrl = decodedLocation
+                                    break
+                                } else {
+                                    // Continue following redirects
+                                    currentUrl = if (decodedLocation.startsWith("http")) {
+                                        decodedLocation
+                                    } else {
+                                        "$mainUrl$decodedLocation"
+                                    }
+                                    redirectCount++
+                                }
+                            } else {
+                                // No redirect, this might be the final URL
+                                downloadUrl = currentUrl
+                                break
                             }
-                        )
+                        }
+                        
+                        if (downloadUrl.isNotEmpty()) {
+                            Log.d("GDFlix", "Instant DL 10GBPS final URL (after $redirectCount redirects): $downloadUrl")
+                            callback.invoke(
+                                newExtractorLink(
+                                    "GDFlix[Instant DL 10GBPS]", 
+                                    "GDFlix[Instant DL 10GBPS] $fileName[$fileSize]", 
+                                    downloadUrl
+                                ) {
+                                    this.quality = quality
+                                }
+                            )
+                        } else {
+                            Log.e("GDFlix", "Failed to extract Instant DL URL after $redirectCount redirects")
+                        }
                     } catch (e: Exception) {
                         Log.e("GDFlix", "Instant DL error: ${e.message}")
+                        e.printStackTrace()
                     }
                 }
                 text.contains("GoFile") -> {

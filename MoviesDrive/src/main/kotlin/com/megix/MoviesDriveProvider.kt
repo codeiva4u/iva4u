@@ -204,7 +204,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val tvSeriesEpisodes = mutableListOf<Episode>()
             val episodesMap = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
             val buttons = document.select("h5 > a")
-                .filter { !it.text().contains("Zip", true) }
 
             // Limit concurrent processing to avoid overwhelming the server
             val maxConcurrent = minOf(buttons.size, 5)
