@@ -35,29 +35,32 @@ class HubCloudExtractor : ExtractorApi() {
                 // Step 3: Navigate to the download link page
                 val finalDoc = app.get(downloadLink, referer = url).document
                 
-                // Step 4: Extract all download server buttons
-                // Buttons have text like: "Download [PixelServer : 2]", "Download [FSL Server]", etc.
-                val servers = finalDoc.select("a.btn[href]")
+                // Step 4: Extract all download server buttons using regex pattern
+                // Pattern: "Download [ServerName]" from button text
+                val downloadButtons = finalDoc.select("a.btn[href]")
+                val serverPattern = Regex("Download\\s*\\[([^\\]]+)\\]", RegexOption.IGNORE_CASE)
                 
-                servers.forEach { server ->
-                    val serverUrl = server.attr("href")
-                    val buttonText = server.text()
+                downloadButtons.forEach { button ->
+                    val serverUrl = button.attr("href")
+                    val buttonText = button.text()
                     
-                    // Skip Telegram and non-download links
-                    if (buttonText.contains("Telegram", ignoreCase = true) || 
-                        !buttonText.contains("Download", ignoreCase = true)) {
+                    // Skip if not a download button or is Telegram link
+                    if (!serverUrl.startsWith("http") || buttonText.contains("Telegram", ignoreCase = true)) {
                         return@forEach
                     }
                     
-                    // Extract server name from button text format: "Download [ServerName]"
-                    val serverName = when {
-                        buttonText.contains("PixelServer", ignoreCase = true) -> "PixelServer"
-                        buttonText.contains("10Gbps", ignoreCase = true) -> "10Gbps"
-                        buttonText.contains("FSL Server", ignoreCase = true) -> "FSL"
-                        buttonText.contains("Mega Server", ignoreCase = true) -> "Mega"
-                        buttonText.contains("ZipDisk Server", ignoreCase = true) -> "ZipDisk"
-                        else -> "HubCloud"
-                    }
+                    // Extract server name using regex pattern
+                    val matchResult = serverPattern.find(buttonText)
+                    val serverName = matchResult?.groupValues?.get(1)?.trim()?.let { extracted ->
+                        when {
+                            extracted.contains("PixelServer", ignoreCase = true) -> "PixelServer"
+                            extracted.contains("10Gbps", ignoreCase = true) -> "10Gbps"
+                            extracted.contains("FSL", ignoreCase = true) -> "FSL"
+                            extracted.contains("Mega", ignoreCase = true) -> "Mega"
+                            extracted.contains("ZipDisk", ignoreCase = true) -> "ZipDisk"
+                            else -> extracted.replace("Server", "").replace(":", "").trim()
+                        }
+                    } ?: "HubCloud"
                     
                     if (serverUrl.isNotEmpty() && serverUrl.startsWith("http")) {
                         Log.d("HubCloud", "Adding server: $serverName - $serverUrl")
