@@ -130,29 +130,25 @@ open class HubCloud : ExtractorApi() {
                         )
                     }
 
-                    // 10Gbps Server (requires redirect follow)
-                    btnText.contains("10Gbps", ignoreCase = true) || btnText.contains("10GBPS", ignoreCase = true) -> {
-                        try {
-                            val finalUrl = app.get(btnUrl, allowRedirects = false)
-                                .headers["location"]
-                                ?.substringAfter("link=") ?: btnUrl
-                            
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name [10Gbps]",
-                                    "$name [10Gbps] $fileInfo [$fileSize]",
-                                    finalUrl
-                                ) {
-                                    quality = getIndexQuality(fileInfo)
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "Error extracting 10Gbps link: ${e.message}")
-                        }
+                    // 10Gbps Server (pixel.hubcdn.fans direct link)
+                    btnUrl.contains("pixel.hubcdn.fans", ignoreCase = true) || 
+                    btnUrl.contains("hubcdn", ignoreCase = true) ||
+                    btnText.contains("10Gbps", ignoreCase = true) || 
+                    btnText.contains("10GBPS", ignoreCase = true) -> {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [10Gbps]",
+                                "$name [10Gbps] $fileInfo [$fileSize]",
+                                btnUrl
+                            ) {
+                                quality = getIndexQuality(fileInfo)
+                            }
+                        )
                     }
 
-                    // Mega Server
-                    btnUrl.contains("mega", ignoreCase = true) -> {
+                    // Mega Server (bt7.api.mega.co.nz)
+                    btnUrl.contains("mega.co.nz", ignoreCase = true) || 
+                    btnUrl.contains("mega.nz", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
                                 "$name [Mega]",
@@ -164,8 +160,8 @@ open class HubCloud : ExtractorApi() {
                         )
                     }
 
-                    // ZipDisk/Cloud Server
-                    btnUrl.contains("cloudserver", ignoreCase = true) || btnText.contains("Zip", ignoreCase = true) -> {
+                    // ZipDisk/Cloud Server (ddl2.cloudserver)
+                    btnUrl.contains("cloudserver", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
                                 "$name [ZipDisk]",
@@ -239,9 +235,9 @@ open class GDFlix : ExtractorApi() {
                 }
 
                 when {
-                    // Instant Download (10GBPS)
+                    // Instant Download (10GBPS busycdn)
                     btnUrl.contains("instant.busycdn", ignoreCase = true) || 
-                    btnText.contains("Instant DL", ignoreCase = true) -> {
+                    btnUrl.contains("busycdn", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
                                 "$name [Instant]",
@@ -266,13 +262,15 @@ open class GDFlix : ExtractorApi() {
                         )
                     }
 
-                    // Fast Cloud / ZipDisk
-                    btnUrl.contains("/zfile/", ignoreCase = true) || 
-                    btnText.contains("ZIPDISK", ignoreCase = true) || 
-                    btnText.contains("CLOUD", ignoreCase = true) -> {
+                    // Fast Cloud / ZipDisk (new7.gdflix.net/zfile)
+                    btnUrl.contains("/zfile/", ignoreCase = true) -> {
                         try {
-                            val zipDoc = app.get(btnUrl).document
-                            val zipDownloadLink = zipDoc.selectFirst("a[href*='cloudserver'], a[href*='download']")?.attr("abs:href")
+                            val zipDoc = app.get(btnUrl, referer = url).document
+                            
+                            // Try multiple selectors for download link
+                            val zipDownloadLink = zipDoc.selectFirst(
+                                "a[href*='cloudserver'], a[href*='.workers.dev'], a.btn[href*='download']"
+                            )?.attr("abs:href")
                             
                             if (!zipDownloadLink.isNullOrBlank()) {
                                 callback.invoke(
@@ -290,22 +288,32 @@ open class GDFlix : ExtractorApi() {
                         }
                     }
 
-                    // GoFile Mirror
-                    btnUrl.contains("goflix.sbs", ignoreCase = true) || btnUrl.contains("gofile", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [GoFile]",
-                                "$name [GoFile] $fileName",
-                                btnUrl
-                            ) {
-                                quality = getIndexQuality(fileName)
-                            }
-                        )
+                    // GoFile Mirror (goflix.sbs)
+                    btnUrl.contains("goflix.sbs", ignoreCase = true) -> {
+                        try {
+                            // Follow goflix redirect to get actual gofile link
+                            val gofilePage = app.get(btnUrl, referer = url, allowRedirects = true)
+                            val gofileDoc = gofilePage.document
+                            
+                            val gofileLink = gofileDoc.selectFirst("a[href*='gofile.io']")?.attr("abs:href") 
+                                ?: gofilePage.url
+                            
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name [GoFile]",
+                                    "$name [GoFile] $fileName",
+                                    gofileLink
+                                ) {
+                                    quality = getIndexQuality(fileName)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("GDFlix", "Error extracting GoFile link: ${e.message}")
+                        }
                     }
 
-                    // Telegram File
+                    // Telegram File - Skip
                     btnUrl.contains("filesgram", ignoreCase = true) || btnUrl.contains("telegram", ignoreCase = true) -> {
-                        // Skip telegram links as they're not direct downloads
                         Log.d("GDFlix", "Skipping Telegram link")
                     }
                 }
