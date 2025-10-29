@@ -173,13 +173,12 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if (text.contains("Download [Server : 10Gbps]")) {
-                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+            else if (text.contains("[Server : 10Gbps]")) {
                 callback.invoke(
                     newExtractorLink(
                         "$name[10Gbps]",
                         "$name[10Gbps] $header[$size]",
-                        dlink.substringAfter("link="),
+                        link,
                     ) {
                         this.quality = quality
                     }
