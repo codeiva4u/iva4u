@@ -111,18 +111,6 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if (text.contains("[FSLv2 Server]"))
-            {
-                callback.invoke(
-                    newExtractorLink(
-                        "$name[FSLv2 Server]",
-                        "$name[FSLv2 Server] $header[$size]",
-                        link,
-                    ) {
-                        this.quality = quality
-                    }
-                )
-            }
             else if (text.contains("[Mega Server]"))
             {
                 callback.invoke(
@@ -174,24 +162,23 @@ open class HubCloud : ExtractorApi() {
                 )
             }
             else if (text.contains("[Server : 10Gbps]")) {
-                // Follow first redirect: pixel.hubcdn.fans -> pixel.rohitkiskk.workers.dev
-                val redirect1 = app.get(link, allowRedirects = false).headers["location"] ?: ""
-                if (redirect1.isNotEmpty()) {
-                    // Follow second redirect: pixel.rohitkiskk -> gamerxyt.com/dl.php
-                    val redirect2 = app.get(redirect1, allowRedirects = false).headers["location"] ?: ""
-                    if (redirect2.isNotEmpty()) {
-                        // Extract final video link from gamerxyt dl.php
-                        val finalLink = redirect2.substringAfter("link=").takeIf { it.isNotEmpty() } ?: redirect2
+                // 10Gbps Server - fetch final page to get direct googleusercontent link
+                try {
+                    val finalDoc = app.get(link, timeout = 15L).document
+                    val downloadLink = finalDoc.selectFirst("a:contains(Download Here)")?.attr("href")
+                    if (!downloadLink.isNullOrEmpty()) {
                         callback.invoke(
                             newExtractorLink(
                                 "$name[10Gbps]",
                                 "$name[10Gbps] $header[$size]",
-                                finalLink,
+                                downloadLink,
                             ) {
                                 this.quality = quality
                             }
                         )
                     }
+                } catch (e: Exception) {
+                    // Silently skip if 10Gbps server fails
                 }
             }
             else
@@ -208,23 +195,6 @@ open class HubCloud : ExtractorApi() {
                     )
                 }
             }
-        }
-    }
-}
-open class fastdlserver : ExtractorApi() {
-    override val name: String = "fastdlserver"
-    override var mainUrl = "https://fastdlserver.life"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val location = app.get(url, allowRedirects = false).headers["location"]
-        if (location != null) {
-            loadExtractor(location, "", subtitleCallback, callback)
         }
     }
 }
