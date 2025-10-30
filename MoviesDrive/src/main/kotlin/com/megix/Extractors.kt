@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 
@@ -161,25 +160,8 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if (text.contains("[Server : 10Gbps]")) {
-                // 10Gbps Server - fetch final page to get direct googleusercontent link
-                try {
-                    val finalDoc = app.get(link, timeout = 15L).document
-                    val downloadLink = finalDoc.selectFirst("a:contains(Download Here)")?.attr("href")
-                    if (!downloadLink.isNullOrEmpty()) {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[10Gbps]",
-                                "$name[10Gbps] $header[$size]",
-                                downloadLink,
-                            ) {
-                                this.quality = quality
-                            }
-                        )
-                    }
-                } catch (e: Exception) {
-                    // Silently skip if 10Gbps server fails
-                }
+            else if (text.contains("ZipDisk") || text.contains("Zip") || link.contains(".zip")) {
+                // Skip ZipDisk Server - downloads zip files, not streamable
             }
             else
             {
