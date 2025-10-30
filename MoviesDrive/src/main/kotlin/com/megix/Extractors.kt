@@ -133,22 +133,6 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if(text.contains("BuzzServer")) {
-                val dlink = app.get("$link/download", referer = link, allowRedirects = false).headers["hx-redirect"] ?: ""
-                val baseUrl = getBaseUrl(link)
-                if(dlink != "") {
-                    callback.invoke(
-                        newExtractorLink(
-                            "$name[BuzzServer]",
-                            "$name[BuzzServer] $header[$size]",
-                            baseUrl + dlink,
-                        ) {
-                            this.quality = quality
-                        }
-                    )
-                }
-            }
-
             else if (text.contains("[PixelServer") || link.contains("pixeldra")) {
                 callback.invoke(
                     newExtractorLink(
