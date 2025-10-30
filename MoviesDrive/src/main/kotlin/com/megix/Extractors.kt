@@ -144,12 +144,23 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if (text.contains("ZipDisk", ignoreCase = true) || link.endsWith(".zip", ignoreCase = true)) {
-                // Skip ZipDisk Server - downloads zip files, not streamable
+            else if (text.contains("[10Gbps", ignoreCase = true) || text.contains("10 Gbps", ignoreCase = true)) {
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[10Gbps Server]",
+                        "$name[10Gbps Server] $header[$size]",
+                        link,
+                    ) {
+                        this.quality = quality
+                    }
+                )
             }
             else
             {
-                if(link.contains(".mkv") || link.contains(".mp4")) {
+                // Skip ZipDisk and other non-streamable formats
+                if(!text.contains("ZipDisk", ignoreCase = true) && 
+                   !link.endsWith(".zip", ignoreCase = true) &&
+                   (link.contains(".mkv") || link.contains(".mp4"))) {
                     callback.invoke(
                         newExtractorLink(
                             name,
