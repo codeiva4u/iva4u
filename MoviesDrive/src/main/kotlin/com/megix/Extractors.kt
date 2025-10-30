@@ -144,7 +144,7 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if (text.contains("ZipDisk") || text.contains("Zip") || link.contains(".zip")) {
+            else if (text.contains("ZipDisk", ignoreCase = true) || link.endsWith(".zip", ignoreCase = true)) {
                 // Skip ZipDisk Server - downloads zip files, not streamable
             }
             else
