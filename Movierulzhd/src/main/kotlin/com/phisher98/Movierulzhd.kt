@@ -35,7 +35,7 @@ import java.net.URI
 
 open class Movierulzhd : MainAPI() {
 
-    override var mainUrl = "https://2filmyzilla.sbs/"
+    override var mainUrl = "https://2filmyzilla.site/"
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true
