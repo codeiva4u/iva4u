@@ -37,7 +37,7 @@ import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import kotlin.math.abs
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl: String = "https://multimovies.center/"
+    override var mainUrl: String = "https://multimovies.golf/"
     override var name = "MultiMovies"
     override val hasMainPage = true
     override var lang = "hi"
