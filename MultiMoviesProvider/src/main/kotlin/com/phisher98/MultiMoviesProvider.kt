@@ -151,7 +151,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.select("div.g-item a").attr("href")
+            doc.select("div.g-item a img").attr("abs:src")
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
