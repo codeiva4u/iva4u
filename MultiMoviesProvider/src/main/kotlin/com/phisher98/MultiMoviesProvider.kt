@@ -86,6 +86,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
         val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.getImageAttr())
+        Log.d("MultiMovies", "Main page poster URL: $posterUrl")
         val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
         return if (href.contains("Movie")) {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -111,6 +112,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val posterUrl = fixUrlNull(
                 it.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img")?.getImageAttr()
             )
+            Log.d("MultiMovies", "Search poster URL: $posterUrl")
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail.animation-2 > a > span").text()
             if (type.contains("Movie")) {
@@ -153,6 +155,18 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val poster = fixUrlNull(
             doc.selectFirst("div.g-item a img")?.getImageAttr()
         )
+        Log.d("MultiMovies", "Load poster URL: $poster")
+        
+        // Fallback: Try to get poster from other sources if main poster is null
+        var finalPoster = poster
+        if (poster.isNullOrBlank()) {
+            // Try to get poster from meta tags or other elements
+            val ogImage = doc.selectFirst("meta[property=og:image]")?.attr("content")
+            if (!ogImage.isNullOrBlank()) {
+                finalPoster = fixUrlNull(ogImage)
+                Log.d("MultiMovies", "Fallback: Using OG image: $finalPoster")
+            }
+        }
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
         val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
@@ -239,7 +253,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 TvType.Movie,
                 movieData
             ) {
-                this.posterUrl = poster?.trim()
+                this.posterUrl = finalPoster?.trim()
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -251,7 +265,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         } else {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-                this.posterUrl = poster?.trim()
+                this.posterUrl = finalPoster?.trim()
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -448,7 +462,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
     
     private fun Element.getImageAttr(): String? {
-        return when {
+        val imageUrl = when {
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
             this.hasAttr("data-src") -> this.attr("abs:data-src")
             this.hasAttr("data-original") -> this.attr("abs:data-original")
@@ -459,8 +473,17 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             this.hasAttr("data-sources") -> this.attr("abs:data-sources")
             this.hasAttr("data-original-src") -> this.attr("abs:data-original-src")
             this.hasAttr("data-echo") -> this.attr("abs:data-echo")
+            this.hasAttr("data-lazy") -> this.attr("abs:data-lazy")
             this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            this.hasAttr("data-srcset") -> this.attr("abs:data-srcset").substringBefore(" ")
             else -> this.attr("abs:src")
         }
+        
+        // If the image is from TMDB, try to use a higher quality version
+        if (imageUrl?.contains("image.tmdb.org") == true) {
+            return imageUrl.replace("/w300/", "/w780/") // Use higher resolution
+        }
+        
+        return imageUrl
     }
 }
