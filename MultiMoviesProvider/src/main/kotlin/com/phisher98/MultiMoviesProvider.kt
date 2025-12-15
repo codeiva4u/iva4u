@@ -109,7 +109,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img")?.attr("src")
+                it.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img")?.getImageAttr()
             )
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail.animation-2 > a > span").text()
@@ -151,7 +151,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         val poster = fixUrlNull(
-            doc.select("div.g-item a img").attr("abs:src")
+            doc.selectFirst("div.g-item a img")?.getImageAttr()
         )
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -167,13 +167,17 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 ActorData(
                     Actor(
                         it.select("div.data > div.name > a").text(),
-                        it.select("div.img > a > img").attr("src")
+                        fixUrlNull(it.selectFirst("div.img > a > img")?.getImageAttr())
                     ),
                     roleString = it.select("div.data > div.caracter").text(),
                 )
             }
         val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
-            it.toSearchResult()
+            try {
+                it.toSearchResult()
+            } catch (e: Exception) {
+                null
+            }
         }
 
         val episodes = ArrayList<Episode>()
@@ -182,7 +186,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val epUrl = it.select("div.episodiotitle > a").attr("href")
                 val epDoc = app.get(epUrl).document
                 val epName = it.select("div.episodiotitle > a").text()
-                val epPoster = it.selectFirst("div.imagen > img")?.getImageAttr()
+                val epPoster = fixUrlNull(it.selectFirst("div.imagen > img")?.getImageAttr())
                 
                 // Extract player options for this episode
                 val playerOptions = epDoc.select("ul#playeroptionsul > li")
@@ -445,8 +449,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     
     private fun Element.getImageAttr(): String? {
         return when {
-            this.hasAttr("data-src") -> this.attr("abs:data-src")
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-original") -> this.attr("abs:data-original")
+            this.hasAttr("data-thumb") -> this.attr("abs:data-thumb")
+            this.hasAttr("data-image") -> this.attr("abs:data-image")
+            this.hasAttr("data-img") -> this.attr("abs:data-img")
+            this.hasAttr("data-lazysrc") -> this.attr("abs:data-lazysrc")
+            this.hasAttr("data-sources") -> this.attr("abs:data-sources")
+            this.hasAttr("data-original-src") -> this.attr("abs:data-original-src")
+            this.hasAttr("data-echo") -> this.attr("abs:data-echo")
             this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
             else -> this.attr("abs:src")
         }
