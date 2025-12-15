@@ -109,10 +109,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
+                it.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img")?.attr("src")
             )
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
-            val type = it.select("article > div.image > div.thumbnail > a > span").text()
+            val type = it.select("article > div.image > div.thumbnail.animation-2 > a > span").text()
             if (type.contains("Movie")) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
                     this.posterUrl = posterUrl
