@@ -145,41 +145,45 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         
         // Extract poster with multiple fallback selectors
-        // ✅ FIXED: Reordered based on actual website DOM structure from browser inspection
+        // ✅ FIXED: Reordered based on actual website DOM structure + using getImageAttr() for compatibility
         var posterUrl = when {
             // Priority 1: Genre/Category pages structure (Most Common)
             // Structure: article.item.movies > div.poster > img[src]
             this.selectFirst("div.poster > img") != null ->
-                fixUrlNull(this.selectFirst("div.poster > img")?.attr("src"))
+                fixUrlNull(this.selectFirst("div.poster > img")?.getImageAttr())
             
             // Priority 2: Homepage structure  
             // Structure: article.item > div.image > a > img[src]
             this.selectFirst("div.image > a > img") != null ->
-                fixUrlNull(this.selectFirst("div.image > a > img")?.attr("src"))
+                fixUrlNull(this.selectFirst("div.image > a > img")?.getImageAttr())
             
             // Priority 3: Direct img in image div (fallback)
             this.selectFirst("div.image > img") != null ->
-                fixUrlNull(this.selectFirst("div.image > img")?.attr("src"))
+                fixUrlNull(this.selectFirst("div.image > img")?.getImageAttr())
             
-            // Priority 4: Other common patterns
-            this.selectFirst("div.thumbnail > img") != null ->
-                fixUrlNull(this.selectFirst("div.thumbnail > img")?.attr("src"))
-            this.selectFirst("div.imagen > img") != null ->
-                fixUrlNull(this.selectFirst("div.imagen > img")?.attr("src"))
+            // Priority 4: Fallback to parent divs (will recursively find img)
+            this.selectFirst("div.poster") != null ->
+                fixUrlNull(this.selectFirst("div.poster")?.getImageAttr())
+            this.selectFirst("div.image") != null ->
+                fixUrlNull(this.selectFirst("div.image")?.getImageAttr())
+            this.selectFirst("div.thumbnail") != null ->
+                fixUrlNull(this.selectFirst("div.thumbnail")?.getImageAttr())
+            this.selectFirst("div.imagen") != null ->
+                fixUrlNull(this.selectFirst("div.imagen")?.getImageAttr())
             
             // Priority 5: Generic class-based selectors
             this.selectFirst(".poster img") != null ->
-                fixUrlNull(this.selectFirst(".poster img")?.attr("src"))
+                fixUrlNull(this.selectFirst(".poster img")?.getImageAttr())
             this.selectFirst(".image img") != null ->
-                fixUrlNull(this.selectFirst(".image img")?.attr("src"))
+                fixUrlNull(this.selectFirst(".image img")?.getImageAttr())
             this.selectFirst(".thumbnail img") != null ->
-                fixUrlNull(this.selectFirst(".thumbnail img")?.attr("src"))
+                fixUrlNull(this.selectFirst(".thumbnail img")?.getImageAttr())
             
             // Priority 6: Generic img with attributes (lowest priority)
             this.selectFirst("img[src]") != null ->
-                fixUrlNull(this.selectFirst("img[src]")?.attr("src"))
+                fixUrlNull(this.selectFirst("img[src]")?.getImageAttr())
             this.selectFirst("img[data-src]") != null ->
-                fixUrlNull(this.selectFirst("img[data-src]")?.attr("data-src"))
+                fixUrlNull(this.selectFirst("img[data-src]")?.getImageAttr())
             
             else -> null
         }
@@ -282,42 +286,50 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
             
             // ✅ FIXED: Enhanced poster extraction for search results
-            // Reordered based on actual DOM structure from browser inspection
+            // Using getImageAttr() for compatibility + proper selector priority
             var posterUrl = when {
                 // Priority 1: Search result article structure (Most common)
                 // Structure: article > div.image > div.thumbnail.animation-2 > a > img
                 result.selectFirst("div.image > div.thumbnail.animation-2 > a > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > div.thumbnail.animation-2 > a > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.image > div.thumbnail.animation-2 > a > img")?.getImageAttr())
                 
                 //Priority 2: Direct poster structure
                 result.selectFirst("div.poster > img") != null ->
-                    fixUrlNull(result.selectFirst("div.poster > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.poster > img")?.getImageAttr())
                 
                 // Priority 3: Simple image in div
                 result.selectFirst("div.image > a > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > a > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.image > a > img")?.getImageAttr())
                 result.selectFirst("div.image > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.image > img")?.getImageAttr())
                 result.selectFirst("div.thumbnail > img") != null ->
-                    fixUrlNull(result.selectFirst("div.thumbnail > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.thumbnail > img")?.getImageAttr())
                 result.selectFirst("div.imagen > img") != null ->
-                    fixUrlNull(result.selectFirst("div.imagen > img")?.attr("src"))
+                    fixUrlNull(result.selectFirst("div.imagen > img")?.getImageAttr())
                 
-                // Priority 4: Generic class selectors
+                // Priority 4: Fallback to parent divs
+                result.selectFirst("div.poster") != null ->
+                    fixUrlNull(result.selectFirst("div.poster")?.getImageAttr())
+                result.selectFirst("div.image") != null ->
+                    fixUrlNull(result.selectFirst("div.image")?.getImageAttr())
+                result.selectFirst("div.thumbnail") != null ->
+                    fixUrlNull(result.selectFirst("div.thumbnail")?.getImageAttr())
+                
+                // Priority 5: Generic class selectors
                 result.selectFirst(".poster img") != null ->
-                    fixUrlNull(result.selectFirst(".poster img")?.attr("src"))
+                    fixUrlNull(result.selectFirst(".poster img")?.getImageAttr())
                 result.selectFirst(".image img") != null ->
-                    fixUrlNull(result.selectFirst(".image img")?.attr("src"))
+                    fixUrlNull(result.selectFirst(".image img")?.getImageAttr())
                 result.selectFirst(".thumbnail img") != null ->
-                    fixUrlNull(result.selectFirst(".thumbnail img")?.attr("src"))
+                    fixUrlNull(result.selectFirst(".thumbnail img")?.getImageAttr())
                 
-                // Priority 5: Generic img tags (lowest priority)
+                // Priority 6: Generic img tags (lowest priority)
                 result.selectFirst("img[src]") != null ->
-                    fixUrlNull(result.selectFirst("img[src]")?.attr("src"))
+                    fixUrlNull(result.selectFirst("img[src]")?.getImageAttr())
                 result.selectFirst("img[data-src]") != null ->
-                    fixUrlNull(result.selectFirst("img[data-src]")?.attr("data-src"))
+                    fixUrlNull(result.selectFirst("img[data-src]")?.getImageAttr())
                 result.selectFirst("img[data-lazy-src]") != null ->
-                    fixUrlNull(result.selectFirst("img[data-lazy-src]")?.attr("data-lazy-src"))
+                    fixUrlNull(result.selectFirst("img[data-lazy-src]")?.getImageAttr())
                 
                 else -> null
             }
@@ -411,40 +423,48 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
         // ✅ FIXED: Enhanced poster extraction with multiple fallback selectors
-        // Reordered based on actual website DOM structure from browser inspection
+        // Using getImageAttr() for compatibility + optimized selector priority
         var poster = when {
             // Priority 1: Detail page - sheader poster structure
             // Structure: div.sheader > div.poster > img[src]
             doc.selectFirst("div.sheader div.poster img") != null ->
-                fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
             
             // Priority 2: General poster/image structures
             doc.selectFirst("div.poster > img") != null ->
-                fixUrlNull(doc.selectFirst("div.poster > img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.poster > img")?.getImageAttr())
             doc.selectFirst("div.image > a > img") != null ->
-                fixUrlNull(doc.selectFirst("div.image > a > img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.image > a > img")?.getImageAttr())
             doc.selectFirst("div.image > img") != null ->
-                fixUrlNull(doc.selectFirst("div.image > img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.image > img")?.getImageAttr())
             doc.selectFirst("div.thumbnail > img") != null ->
-                fixUrlNull(doc.selectFirst("div.thumbnail > img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.thumbnail > img")?.getImageAttr())
             doc.selectFirst("div.imagen > img") != null ->
-                fixUrlNull(doc.selectFirst("div.imagen > img")?.attr("src"))
+                fixUrlNull(doc.selectFirst("div.imagen > img")?.getImageAttr())
             
-            // Priority 3: Generic class selectors
+            // Priority 3: Fallback to parent divs
+            doc.selectFirst("div.poster") != null ->
+                fixUrlNull(doc.selectFirst("div.poster")?.getImageAttr())
+            doc.selectFirst("div.image") != null ->
+                fixUrlNull(doc.selectFirst("div.image")?.getImageAttr())
+            doc.selectFirst("div.thumbnail") != null ->
+                fixUrlNull(doc.selectFirst("div.thumbnail")?.getImageAttr())
+            
+            // Priority 4: Generic class selectors
             doc.selectFirst(".poster img") != null ->
-                fixUrlNull(doc.selectFirst(".poster img")?.attr("src"))
+                fixUrlNull(doc.selectFirst(".poster img")?.getImageAttr())
             doc.selectFirst(".image img") != null ->
-                fixUrlNull(doc.selectFirst(".image img")?.attr("src"))
+                fixUrlNull(doc.selectFirst(".image img")?.getImageAttr())
             doc.selectFirst(".thumbnail img") != null ->
-                fixUrlNull(doc.selectFirst(".thumbnail img")?.attr("src"))
+                fixUrlNull(doc.selectFirst(".thumbnail img")?.getImageAttr())
             
-            // Priority 4: Generic img with standard and data attributes
+            // Priority 5: Generic img with standard and data attributes
             doc.selectFirst("img[src]") != null ->
-                fixUrlNull(doc.selectFirst("img[src]")?.attr("src"))
+                fixUrlNull(doc.selectFirst("img[src]")?.getImageAttr())
             doc.selectFirst("img[data-src]") != null ->
-                fixUrlNull(doc.selectFirst("img[data-src]")?.attr("data-src"))
+                fixUrlNull(doc.selectFirst("img[data-src]")?.getImageAttr())
             doc.selectFirst("img[data-lazy-src]") != null ->
-                fixUrlNull(doc.selectFirst("img[data-lazy-src]")?.attr("data-lazy-src"))
+                fixUrlNull(doc.selectFirst("img[data-lazy-src]")?.getImageAttr())
             
             else -> null
         }
