@@ -146,6 +146,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         
         // Extract poster with multiple fallback selectors
         var posterUrl = when {
+            // Priority 1: Working selector from actual website analysis
+            this.selectFirst("div.thumbnail.animation-2 > a > img") != null ->
+                fixUrlNull(this.selectFirst("div.thumbnail.animation-2 > a > img")?.getImageAttr())
+            // Priority 2: Original selectors
             this.selectFirst("div.poster > img") != null ->
                 fixUrlNull(this.selectFirst("div.poster > img")?.getImageAttr())
             this.selectFirst("div.thumbnail > img") != null ->
@@ -268,6 +272,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             
             // Enhanced poster extraction for search results
             var posterUrl = when {
+                // Priority 1: Working selector from actual website analysis
+                result.selectFirst("div.thumbnail.animation-2 > a > img") != null ->
+                    fixUrlNull(result.selectFirst("div.thumbnail.animation-2 > a > img")?.getImageAttr())
+                // Priority 2: Original selector (more specific path)
                 result.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img") != null ->
                     fixUrlNull(result.selectFirst("article > div.image > div.thumbnail.animation-2 > a > img")?.getImageAttr())
                 result.selectFirst("div.thumbnail > img") != null ->
@@ -383,6 +391,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val title = if (titleClean == "null") titleL else titleClean
         // Enhanced poster extraction with multiple fallback selectors
         var poster = when {
+            // Priority 1: Working selector from actual website analysis
+            doc.selectFirst("div.thumbnail.animation-2 > a > img") != null ->
+                fixUrlNull(doc.selectFirst("div.thumbnail.animation-2 > a > img")?.getImageAttr())
+            // Priority 2: Original selectors
             doc.selectFirst("div.g-item a img") != null ->
                 fixUrlNull(doc.selectFirst("div.g-item a img")?.getImageAttr())
             doc.selectFirst("div.sheader div.poster img") != null ->
