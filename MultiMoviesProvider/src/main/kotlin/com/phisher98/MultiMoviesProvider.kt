@@ -482,8 +482,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         // If the image is from TMDB, try to use a higher quality version
         if (cleanUrl.contains("image.tmdb.org")) {
             cleanUrl = cleanUrl.replace("/w300/", "/w780/")
-                               .replace("/w185/", "/w780/")
-                               .replace("/w500/", "/w780/")
+                                .replace("/w185/", "/w780/")
+                                .replace("/w500/", "/w780/")
+        }
+
+        // Remove thumbnail suffix for WordPress uploads (e.g., -185x278.jpg -> .jpg)
+        if (cleanUrl.contains("/wp-content/uploads/") && cleanUrl.matches(Regex(".*-\\d+x\\d+\\.[a-zA-Z]{3,4}$"))) {
+            cleanUrl = cleanUrl.replace(Regex("-\\d+x\\d+(\\.\\w+)$"), "$1")
         }
 
         // If the image is from WordPress upload, ensure it's a valid URL
