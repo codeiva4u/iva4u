@@ -1,0 +1,111 @@
+[
+    {
+        "iconUrl": "https://1cinevood.fyi/wp-content/uploads/2020/07/favicon2.png",
+        "jarFileSize": 216425,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 46827,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "codeiva4u"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "CineVood",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/CineVood.jar",
+        "description": "CineVood - Hindi Movies & Web Series Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/CineVood.cs3",
+        "name": "CineVood"
+    },
+    {
+        "iconUrl": "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 57061,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "codeiva4u"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "HDhub4u",
+        "description": "HDhub4u - Download HD Movies & Web Series",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "name": "HDhub4u"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/master/Movierulzhd/faviconV2.png",
+        "jarFileSize": 135079,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 31334,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98,hexated"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 5,
+        "internalName": "Movierulzhd",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.jar",
+        "description": "Includes: Hdmovie2,hdmovie6",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "name": "Movierulzhd"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/master/MoviesDrive/icon.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 44576,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "megix"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama",
+            "Anime"
+        ],
+        "version": 9,
+        "internalName": "MoviesDrive",
+        "description": "High Quality Movies and TV Shows",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "name": "MoviesDrive"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "jarFileSize": 220306,
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "fileSize": 45924,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "Phisher98"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "version": 6,
+        "internalName": "MultiMoviesProvider",
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "description": "Indian Multi-language HD Provider",
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "name": "MultiMoviesProvider"
+    }
+]
