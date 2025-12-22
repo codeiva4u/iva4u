@@ -8,14 +8,13 @@ import android.content.Context
 class MoviesDrive: Plugin() {
     override fun load(context: Context) {
         // Register main provider
-        registerMainAPI(MoviesDriveProvider())
-        registerExtractorAPI( PixelDrain())
+        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(GDLink())
+        registerExtractorAPI(GDFlixNet())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(HubCloudOne())
-        registerExtractorAPI(HubCloudBz())
-        registerExtractorAPI(HubCloudInk())
-        registerExtractorAPI(HubCloudArt())
-        registerExtractorAPI(HubCloudDad())
+        registerExtractorAPI(fastdlserver())
+        registerExtractorAPI(FastLinks())
+        registerExtractorAPI(Gofile())
 
     }
 }

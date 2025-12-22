@@ -1,40 +1,48 @@
 package com.megix
 
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import okhttp3.FormBody
+import org.json.JSONObject
 import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+
+val VIDEO_HEADERS = mapOf(
+    "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
+    "Accept" to "*/*",
+    "Accept-Encoding" to "identity",
+    "Connection" to "keep-alive",
+    "Range" to "bytes=0-",
+    "Icy-MetaData" to "1"
+)
 
 fun getIndexQuality(str: String?): Int {
     return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
         ?: Qualities.Unknown.value
 }
 
-class PixelDrain : ExtractorApi() {
-    override val name = "PixelDrain"
-    override val mainUrl = "https://pixeldrain.dev"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val mId = Regex("/(?:u|file)/([\\w-]+)").find(url)?.groupValues?.getOrNull(1)
-        val finalUrl = if (mId.isNullOrEmpty()) url else "$mainUrl/api/file/$mId?download"
-
-        callback.invoke(
-            newExtractorLink(this.name, this.name, finalUrl) {
-                this.referer = url
-                this.quality = Qualities.Unknown.value
-            }
-        )
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
     }
+}
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = JSONObject(
+        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
+    ).optString(source)
+    if(link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
 }
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
@@ -65,8 +73,8 @@ open class HubCloud : ExtractorApi() {
 
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
-        val header = document.select("div.card-header").text() ?: ""
-        val size = document.select("i#size").text() ?: ""
+        val header = document.select("div.card-header").text()
+        val size = document.select("i#size").text()
         val quality = getIndexQuality(header)
 
         div?.select("h2 a.btn")?.amap {
@@ -115,7 +123,7 @@ open class HubCloud : ExtractorApi() {
             else if (text.contains("Download File")) {
                 callback.invoke(
                     newExtractorLink(
-                        "$name",
+                        name,
                         "$name $header[$size]",
                         link,
                     ) {
@@ -175,7 +183,7 @@ open class HubCloud : ExtractorApi() {
                 if(!link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4"))) {
                     callback.invoke(
                         newExtractorLink(
-                            "$name",
+                            name,
                             "$name $header[$size]",
                             link,
                         ) {
@@ -231,9 +239,9 @@ open class GDFlix : ExtractorApi() {
         val newUrl = url.replace(baseUrl, latestUrl)
         val document = app.get(newUrl).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
-            .substringAfter("Name : ").orEmpty()
+            .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
-            .substringAfter("Size : ").orEmpty()
+            .substringAfter("Size : ")
         val quality = getIndexQuality(fileName)
 
         document.select("div.text-center a").amap { anchor ->
@@ -263,7 +271,7 @@ open class GDFlix : ExtractorApi() {
                 link.contains("pixeldra") -> {
                     val baseUrlLink = getBaseUrl(link)
                     val finalURL = if (link.contains("download", true)) link
-                        else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                    else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
                     callback.invoke(
                         newExtractorLink(
                             "Pixeldrain",
@@ -325,7 +333,7 @@ open class GDFlix : ExtractorApi() {
                                 val headers = mapOf("Referer" to indexbotLink)
                                 val cookies = mapOf("PHPSESSID" to "$cookiesSSID")
 
-                                var downloadLink = app.post(
+                                val downloadLink = app.post(
                                     "$baseUrl/download?id=$postId",
                                     requestBody = requestBody,
                                     headers = headers,
@@ -384,6 +392,25 @@ open class GDFlix : ExtractorApi() {
                 }
             }
         }
+
+        // Cloudflare backup links
+        // try {
+        //     val types = listOf("type=1", "type=2")
+        //     types.map { type ->
+        //         val source = app.get("${newUrl.replace("file", "wfile")}?$type")
+        //             .document.select("a.btn-success").attr("href")
+
+        //         if (source.isNotEmpty()) {
+        //             callback.invoke(
+        //                 newExtractorLink("GDFlix[CF]", "GDFlix[CF] $fileName[$fileSize]", source) {
+        //                     this.quality = getIndexQuality(fileName)
+        //                 }
+        //             )
+        //         }
+        //     }
+        // } catch (e: Exception) {
+        //     Log.d("CF", e.toString())
+        // }
     }
 }
 
@@ -411,7 +438,7 @@ class Gofile : ExtractorApi() {
         val token = jsonResp.getJSONObject("data").getString("token") ?: return
 
         val globalRes = app.get("$mainUrl/dist/js/global.js", headers = headers).text
-        val wt = Regex("""appdata\.wt\s*=\s*[\"']([^\"']+)[\"']""").find(globalRes)?.groupValues?.get(1) ?: return
+        val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
 
         val response = app.get("$mainApi/contents/$id?wt=$wt",
             headers = mapOf(
@@ -430,8 +457,8 @@ class Gofile : ExtractorApi() {
         val fileName = children.getJSONObject(oId).getString("name")
         val size = children.getJSONObject(oId).getLong("size")
         val formattedSize = if (size < 1024L * 1024 * 1024) {
-                val sizeInMB = size.toDouble() / (1024 * 1024)
-                "%.2f MB".format(sizeInMB)
+            val sizeInMB = size.toDouble() / (1024 * 1024)
+            "%.2f MB".format(sizeInMB)
         } else {
             val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
             "%.2f GB".format(sizeInGB)
@@ -456,5 +483,34 @@ class Gofile : ExtractorApi() {
     private fun getQuality(str: String?): Int {
         return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
+    }
+}
+
+class FastLinks : ExtractorApi() {
+    override val name: String = "FastLinks"
+    override val mainUrl: String = "https://fastilinks.*"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val res = app.get(url)
+        val ssid = res.cookies["PHPSESSID"].toString()
+        val cookies = mapOf("PHPSESSID" to ssid)
+        val formBody = FormBody.Builder()
+            .add("_csrf_token_645a83a41868941e4692aa31e7235f2", "3000f5248d9d207e4941e0aa053e1bcfd04dcbab")
+            .build()
+
+        val doc = app.post(
+            url,
+            requestBody = formBody,
+            cookies = cookies
+        ).document
+        doc.select("div.well > a"). amap { link ->
+            loadExtractor(link.attr("href"), subtitleCallback, callback)
+        }
     }
 }
