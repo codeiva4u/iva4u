@@ -8,6 +8,7 @@ import android.content.Context
 class MoviesDrive: Plugin() {
     override fun load(context: Context) {
         // Register main provider
+        registerMainAPI(MoviesDriveProvider())
         registerExtractorAPI(GDFlix())
         registerExtractorAPI(GDLink())
         registerExtractorAPI(GDFlixNet())

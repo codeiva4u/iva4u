@@ -302,12 +302,12 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
 
     data class Meta(
         val id: String?,
-        @JsonProperty("imdb_id") val imdbId: String?,
+        @field:JsonProperty("imdb_id") val imdbId: String?,
         val type: String?,
         val poster: String?,
         val logo: String?,
         val background: String?,
-        @JsonProperty("moviedb_id") val moviedbId: Int?,
+        @field:JsonProperty("moviedb_id") val moviedbId: Int?,
         val name: String?,
         val description: String?,
         val genre: List<String>?,
@@ -332,7 +332,7 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
         val released: String?,
         val overview: String?,
         val thumbnail: String?,
-        @JsonProperty("moviedb_id") val moviedbId: Int?
+        @field:JsonProperty("moviedb_id") val moviedbId: Int?
     )
 
     data class ResponseData(
