@@ -1,6 +1,6 @@
 package com.megix
 
-import com.lagradost.api.Log
+import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
@@ -50,23 +50,28 @@ open class HubCloud : ExtractorApi() {
         val baseUrl = getBaseUrl(url)
         val doc = app.get(url).document
 
-        // HubCloud /drive/ URLs के लिए gamerxyt.com redirect follow करना होगा
+        // HubCloud /drive/ URLs need to follow specific redirects
         var link = if(url.contains("/drive/")) {
-            // "Generate Direct Download Link" button से gamerxyt.com URL निकालें
-            val gamerLink = doc.selectFirst("a[href*=gamerxyt.com]")?.attr("href")
-            if (!gamerLink.isNullOrEmpty()) {
-                // gamerxyt.com page खोलें जहां actual download links हैं
-                val gamerDoc = app.get(gamerLink).document
-                // यह page सीधे download links देता है, इसलिए यहां से process करें
+            // Find "Generate Direct Download Link" or similar
+            // Prioritize looking for the specific link structure that leads to the download page
+            val generateLink = doc.selectFirst("a:contains(Generate Direct Download Link)")?.attr("href")
+                ?: doc.selectFirst("a[href*='gamerxyt']")?.attr("href")
+                ?: doc.selectFirst("a[href*='carnewz']")?.attr("href")
+                ?: doc.selectFirst("a.btn-success")?.attr("href") // Fallback for generic button
+
+            if (!generateLink.isNullOrEmpty()) {
+                // Follow the link to the page with actual download buttons
+                val absoluteGenerateLink = if (generateLink.startsWith("http")) generateLink else baseUrl + generateLink
+                val gamerDoc = app.get(absoluteGenerateLink).document
                 processGamerxytPage(gamerDoc, callback)
                 return
             }
-            // Fallback: पुराना तरीका try करें
+            // Fallback: try old script method if button missing
             val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
         }
         else if(url.contains("/file/")) {
-            // /file/ URLs के लिए direct download page
+            // Direct download page for /file/ URLs
             doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
         }
         else {
@@ -79,6 +84,7 @@ open class HubCloud : ExtractorApi() {
             link = baseUrl + link
         }
 
+        // Proceed to extract from the resolved link (old logic fallback)
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
         val header = document.select("div.card-header").text()
@@ -89,9 +95,8 @@ open class HubCloud : ExtractorApi() {
             val link = it.attr("href")
             val text = it.text()
 
-            if (text.contains("[FSL Server]"))
-            {
-                callback.invoke(
+            if (text.contains("[FSL Server]")) {
+               callback.invoke(
                     newExtractorLink(
                         "$name[FSL Server]",
                         "$name[FSL Server] $header[$size]",
@@ -101,9 +106,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else if (text.contains("[FSLv2 Server]"))
-            {
+            } else if (text.contains("[FSLv2 Server]")) {
                 callback.invoke(
                     newExtractorLink(
                         "$name[FSLv2 Server]",
@@ -114,9 +117,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else if (text.contains("[Mega Server]"))
-            {
+            } else if (text.contains("[Mega Server]")) {
                 callback.invoke(
                     newExtractorLink(
                         "$name[Mega Server]",
@@ -127,8 +128,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else if (text.contains("Download File")) {
+            } else if (text.contains("Download File")) {
                 callback.invoke(
                     newExtractorLink(
                         name,
@@ -139,8 +139,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else if(text.contains("BuzzServer")) {
+            } else if(text.contains("BuzzServer")) {
                 val dlink = app.get("$link/download", referer = link, allowRedirects = false).headers["hx-redirect"] ?: ""
                 val baseUrl = getBaseUrl(link)
                 if(dlink != "") {
@@ -155,9 +154,7 @@ open class HubCloud : ExtractorApi() {
                         }
                     )
                 }
-            }
-
-            else if (link.contains("pixeldra")) {
+            } else if (link.contains("pixeldra")) {
                 val baseUrlLink = getBaseUrl(link)
                 val finalURL = if (link.contains("download", true)) link
                 else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
@@ -172,8 +169,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else if (text.contains("Download [Server : 10Gbps]")) {
+            } else if (text.contains("Download [Server : 10Gbps]")) {
                 val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
                 callback.invoke(
                     newExtractorLink(
@@ -185,9 +181,7 @@ open class HubCloud : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
-            }
-            else
-            {
+            } else {
                 if(!link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4"))) {
                     callback.invoke(
                         newExtractorLink(
@@ -204,76 +198,93 @@ open class HubCloud : ExtractorApi() {
         }
     }
 
-    // gamerxyt.com page से download links extract करने के लिए helper function
+    // Process the intermediate page (e.g. gamerxyt, carnewz) to find download links
     private suspend fun processGamerxytPage(doc: org.jsoup.nodes.Document, callback: (ExtractorLink) -> Unit) {
         val header = doc.select("div.card-header").text().ifEmpty { "Video" }
         val size = doc.select("i#size").text().ifEmpty { "" }
         val quality = getIndexQuality(header)
         val sizeText = if(size.isNotEmpty()) "[$size]" else ""
 
-        // सभी download buttons से links extract करें
+        // Extract links from all buttons
         doc.select("a.btn").forEach { btn ->
             val link = btn.attr("href")
             val text = btn.text()
 
             when {
-                // FSL Server - Direct download
-                text.contains("FSL Server", ignoreCase = true) && link.contains("r2.dev") -> {
-                    callback.invoke(
-                        newExtractorLink(
-                            "$name[FSL Server]",
-                            "$name[FSL Server] $header$sizeText",
-                            link
-                        ) {
-                            this.quality = quality
-                            this.headers = VIDEO_HEADERS
-                        }
-                    )
+                // FSL Server - Direct download or via r2.dev
+                text.contains("FSL Server", ignoreCase = true) -> {
+                    // Check if it's already a direct link or needs following
+                   if (link.contains("r2.dev") || link.contains("worker.dev")) {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name[FSL Server]",
+                                "$name[FSL Server] $header$sizeText",
+                                link
+                            ) {
+                                this.quality = quality
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
+                    } else {
+                         // Sometimes it's a relative link or needs one hop
+                         try {
+                             val resolvedLink = if(link.startsWith("http")) link else getBaseUrl(doc.baseUri()) + link
+                             if(resolvedLink.contains(".mkv") || resolvedLink.contains(".mp4")) {
+                                 callback.invoke(
+                                    newExtractorLink(
+                                        "$name[FSL Server]",
+                                        "$name[FSL Server] $header$sizeText",
+                                        resolvedLink
+                                    ) {
+                                        this.quality = quality
+                                        this.headers = VIDEO_HEADERS
+                                    }
+                                )
+                             }
+                         } catch(_: Exception) {}
+                    }
                 }
-                // 10Gbps Server - pixel.hubcdn.fans को follow करके actual video URL निकालें
+                // 10Gbps Server - often redirects through pixel/hubcdn/workers
                 text.contains("10Gbps", ignoreCase = true) -> {
                     try {
-                        // पहला redirect follow करें (pixel.hubcdn.fans → pixel.rohitkiskk.workers.dev)
-                        val firstRedirect = app.get(link, allowRedirects = false).headers["location"]
-                        if (!firstRedirect.isNullOrEmpty()) {
-                            // दूसरा redirect follow करें (workers.dev → gamerxyt.com/dl.php)
-                            val secondRedirect = app.get(firstRedirect, allowRedirects = false).headers["location"]
-                            if (!secondRedirect.isNullOrEmpty()) {
-                                // तीसरा redirect follow करें (gamerxyt.com → carnewz.site)
-                                val thirdRedirect = app.get(secondRedirect, allowRedirects = false).headers["location"]
-                                val finalUrl = thirdRedirect ?: secondRedirect
+                        // Follow redirect chain
+                        // pixel.hubcdn.fans -> pixel.rohitkiskk.workers.dev -> ...
+                        var currentLink = link
+                        var tries = 0
+                        // Follow up to 5 redirects manually to be safe
+                        while(tries < 5) {
+                            val next = app.get(currentLink, allowRedirects = false).headers["location"]
+                            if (next.isNullOrEmpty()) break
+                            currentLink = next
+                            if (currentLink.contains("link=")) break
+                            tries++
+                        }
+                        
+                        val finalUrl = currentLink
 
-                                if (finalUrl.contains("link=")) {
-                                    // link= parameter से actual video URL extract करें
-                                    val videoUrl = finalUrl.substringAfter("link=").substringBefore("&")
-                                    val decodedUrl = java.net.URLDecoder.decode(videoUrl, "UTF-8")
-                                    if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
-                                        callback.invoke(
-                                            newExtractorLink(
-                                                "$name[10Gbps]",
-                                                "$name[10Gbps] $header$sizeText",
-                                                decodedUrl
-                                            ) {
-                                                this.quality = quality
-                                                this.headers = VIDEO_HEADERS
-                                            }
-                                        )
+                        if (finalUrl.contains("link=")) {
+                            val videoUrl = finalUrl.substringAfter("link=").substringBefore("&")
+                            val decodedUrl = URLDecoder.decode(videoUrl, "UTF-8")
+                            if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "$name[10Gbps]",
+                                        "$name[10Gbps] $header$sizeText",
+                                        decodedUrl
+                                    ) {
+                                        this.quality = quality
+                                        this.headers = VIDEO_HEADERS
                                     }
-                                }
+                                )
                             }
                         }
                     } catch (_: Exception) { }
                 }
-                // Pixeldrain Server - pixeldrain.dev के लिए सही API format
+                // Pixeldrain
                 text.contains("Pixel", ignoreCase = true) && link.contains("pixeldrain") -> {
                     try {
                         val pixelId = link.substringAfterLast("/")
-                        // pixeldrain.dev API format different है
-                        val finalUrl = if (link.contains("pixeldrain.dev")) {
-                            "https://pixeldrain.com/api/file/$pixelId?download"
-                        } else {
-                            "https://pixeldrain.com/api/file/$pixelId?download"
-                        }
+                        val finalUrl = "https://pixeldrain.com/api/file/$pixelId?download"
                         callback.invoke(
                             newExtractorLink(
                                 "$name[Pixeldrain]",
@@ -286,9 +297,8 @@ open class HubCloud : ExtractorApi() {
                         )
                     } catch (_: Exception) { }
                 }
-                // Direct .mp4 or .mkv links
+                // Fallback for direct links
                 !link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4")) -> {
-
                     callback.invoke(
                         newExtractorLink(
                             name,
@@ -328,7 +338,8 @@ class GDLink : GDFlix() {
 }
 
 class GDFlixNet : GDFlix() {
-    override var mainUrl = "https://new9.gdflix.*"
+    // Updated regex to support new10 and potential future numbers
+    override var mainUrl = "https://new\\d*.gdflix.*"
 }
 
 open class GDFlix : ExtractorApi() {
@@ -355,26 +366,44 @@ open class GDFlix : ExtractorApi() {
             val link = anchor.attr("href")
 
             when {
-                // Instant DL [10GBPS] - busycdn.cfd direct link
-                (text.contains("Instant DL", ignoreCase = true) && link.contains("busycdn")) -> {
+                // Instant DL [10GBPS] - handles busycdn.cfd and similar redirects
+                (text.contains("Instant DL", ignoreCase = true)) -> {
                     try {
-                        // Redirect follow करें (busycdn -> fastcdn-dl.pages.dev)
-                        val redirectLink = app.get(link, allowRedirects = false).headers["location"]
-                        val finalLink = if (redirectLink != null && redirectLink.contains("url=")) {
-                            redirectLink.substringAfter("url=")
-                        } else {
-                            link
-                        }
+                        // Check if it's the busycdn link which redirects to fastcdn
+                        if (link.contains("busycdn") || link.contains("instant")) {
+                            val redirectLink = app.get(link, allowRedirects = false).headers["location"]
+                            val finalLink = if (redirectLink != null && redirectLink.contains("url=")) {
+                                // Extract url parameter from e.g. https://fastcdn-dl.pages.dev/?url=...
+                                val rawUrl = redirectLink.substringAfter("url=").substringBefore("&")
+                                URLDecoder.decode(rawUrl, "UTF-8")
+                            } else {
+                                link
+                            }
 
-                        if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
-                            callback.invoke(
-                                newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", finalLink) {
-                                    this.quality = quality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
+                            if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
+                                callback.invoke(
+                                    newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", finalLink) {
+                                        this.quality = quality
+                                        this.headers = VIDEO_HEADERS
+                                    }
+                                )
+                            }
+                        } else {
+                            // Try generic redirect handling for Instant DL if not busycdn specifically
+                             val redirectLink = app.get(link, allowRedirects = false).headers["location"]
+                             if(!redirectLink.isNullOrEmpty()){
+                                 val finalLink = if(redirectLink.contains("url=")) redirectLink.substringAfter("url=") else redirectLink
+                                 callback.invoke(
+                                    newExtractorLink("GDFlix[Instant]", "GDFlix[Instant] $fileName[$fileSize]", finalLink) {
+                                        this.quality = quality
+                                        this.headers = VIDEO_HEADERS
+                                    }
+                                )
+                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        Log.d("Instant DL", "Error extracting Instant DL link")
+                    }
                 }
 
                 // DIRECT SERVER [MGT] - cloudbox.lol
@@ -397,9 +426,9 @@ open class GDFlix : ExtractorApi() {
                 }
 
                 text.contains("CLOUD DOWNLOAD [R2]") -> {
-                    val link = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
+                    val decodedLink = if(link.contains("url=")) URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString()) else link
                     callback.invoke(
-                        newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", link) {
+                        newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", decodedLink) {
                             this.quality = quality
                             this.headers = VIDEO_HEADERS
                         }
@@ -492,23 +521,6 @@ open class GDFlix : ExtractorApi() {
                         }
                     } catch (e: Exception) {
                         Log.d("DriveBot", e.toString())
-                    }
-                }
-
-                text.contains("Instant DL") -> {
-                    try {
-                        val instantLink = link
-                        val link = app.get(instantLink, allowRedirects = false)
-                            .headers["location"]?.substringAfter("url=").orEmpty()
-
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
-                                this.quality = quality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.d("Instant DL", e.toString())
                     }
                 }
                 text.contains("GoFile") -> {
