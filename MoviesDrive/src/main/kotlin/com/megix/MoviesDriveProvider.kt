@@ -258,22 +258,39 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                 addImdbUrl(imdbUrl)
             }
         }
+
         else {
-            val buttons = document.select("h5 > a")
-            val data = buttons.flatMap { button ->
-                val link = button.attr("href")
-                val doc = app.get(link).document
-                val innerButtons = doc.select("a").filter { element ->
-                    element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
-                }
-                innerButtons.mapNotNull { innerButton ->
-                    val source = innerButton.attr("href")
-                    EpisodeLink(
-                        source
-                    )
+            val data = mutableListOf<EpisodeLink>()
+            
+            // 1. Direct Extraction: Check for provider links directly on the main page
+            document.select("a").forEach { anchor ->
+                val href = anchor.attr("href")
+                if (href.contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
+                    data.add(EpisodeLink(href))
                 }
             }
-            return newMovieLoadResponse(title, url, TvType.Movie, data) {
+
+            // 2. Recursive Extraction: Check h5 > a buttons (legacy behavior)
+            val buttons = document.select("h5 > a")
+            buttons.forEach { button ->
+                val link = button.attr("href")
+                // Only visit if it's NOT a provider link we just captured
+                if (link.isNotBlank() && !link.contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
+                     try {
+                        val doc = app.get(link).document
+                        val innerButtons = doc.select("a").filter { element ->
+                            element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                        }
+                        innerButtons.forEach { innerButton ->
+                           data.add(EpisodeLink(innerButton.attr("href"))) 
+                        }
+                     } catch (_: Exception) {}
+                }
+            }
+
+            val uniqueData = data.distinctBy { it.source }
+
+            return newMovieLoadResponse(title, url, TvType.Movie, uniqueData) {
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
@@ -284,6 +301,7 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                 addImdbUrl(imdbUrl)
             }
         }
+
     }
 
     override suspend fun loadLinks(
