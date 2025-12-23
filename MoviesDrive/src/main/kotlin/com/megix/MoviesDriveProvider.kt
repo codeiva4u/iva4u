@@ -32,7 +32,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import org.jsoup.nodes.Element
 
 open class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.forum/"
+    override var mainUrl = "https://moviesdrive.forum"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -69,21 +69,21 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
     }
 
     override val mainPage = mainPageOf(
-        "$mainUrl/page/" to "Latest Release",
-        "$mainUrl/category/hollywood/page/" to "Hollywood Movies",
-        "$mainUrl/hindi-dubbed/page/" to "Hindi Dubbed Movies",
-        "$mainUrl/category/south/page/" to "South Movies",
-        "$mainUrl/category/bollywood/page/" to "Bollywood Movies",
-        "$mainUrl/category/amzn-prime-video/page/" to "Prime Video",
-        "$mainUrl/category/netflix/page/" to "Netflix",
-        "$mainUrl/category/hotstar/page/" to "Hotstar",
+        "/page/" to "Latest Release",
+        "/category/hollywood/page/" to "Hollywood Movies",
+        "/hindi-dubbed/page/" to "Hindi Dubbed Movies",
+        "/category/south/page/" to "South Movies",
+        "/category/bollywood/page/" to "Bollywood Movies",
+        "/category/amzn-prime-video/page/" to "Prime Video",
+        "/category/netflix/page/" to "Netflix",
+        "/category/hotstar/page/" to "Hotstar",
     )
 
      override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get("${mainUrl}${request.data}${page}").document
+        val document = app.get("$mainUrl${request.data}$page").document
         val home = document.select("ul.recent-movies > li").mapNotNull {
             it.toSearchResult()
         }
