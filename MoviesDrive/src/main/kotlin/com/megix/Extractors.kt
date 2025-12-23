@@ -35,15 +35,7 @@ fun getBaseUrl(url: String): String {
     }
 }
 
-suspend fun getLatestUrl(url: String, source: String): String {
-    val link = JSONObject(
-        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
-    ).optString(source)
-    if(link.isNullOrEmpty()) {
-        return getBaseUrl(url)
-    }
-    return link
-}
+
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.*"
@@ -55,13 +47,11 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val latestUrl = getLatestUrl(url, "hubcloud")
         val baseUrl = getBaseUrl(url)
-        val newUrl = url.replace(baseUrl, latestUrl)
-        val doc = app.get(newUrl).document
-        
+        val doc = app.get(url).document
+
         // HubCloud /drive/ URLs के लिए gamerxyt.com redirect follow करना होगा
-        var link = if(newUrl.contains("/drive/")) {
+        var link = if(url.contains("/drive/")) {
             // "Generate Direct Download Link" button से gamerxyt.com URL निकालें
             val gamerLink = doc.selectFirst("a[href*=gamerxyt.com]")?.attr("href")
             if (!gamerLink.isNullOrEmpty()) {
@@ -75,7 +65,7 @@ open class HubCloud : ExtractorApi() {
             val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
         }
-        else if(newUrl.contains("/file/")) {
+        else if(url.contains("/file/")) {
             // /file/ URLs के लिए direct download page
             doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
         }
@@ -84,9 +74,9 @@ open class HubCloud : ExtractorApi() {
         }
 
         if(link.isEmpty()) return
-        
+
         if(!link.startsWith("https://")) {
-            link = latestUrl + link
+            link = baseUrl + link
         }
 
         val document = app.get(link).document
@@ -213,19 +203,19 @@ open class HubCloud : ExtractorApi() {
             }
         }
     }
-    
+
     // gamerxyt.com page से download links extract करने के लिए helper function
     private suspend fun processGamerxytPage(doc: org.jsoup.nodes.Document, callback: (ExtractorLink) -> Unit) {
         val header = doc.select("div.card-header").text().ifEmpty { "Video" }
         val size = doc.select("i#size").text().ifEmpty { "" }
         val quality = getIndexQuality(header)
         val sizeText = if(size.isNotEmpty()) "[$size]" else ""
-        
+
         // सभी download buttons से links extract करें
         doc.select("a.btn").forEach { btn ->
             val link = btn.attr("href")
             val text = btn.text()
-            
+
             when {
                 // FSL Server - Direct download
                 text.contains("FSL Server", ignoreCase = true) && link.contains("r2.dev") -> {
@@ -252,7 +242,7 @@ open class HubCloud : ExtractorApi() {
                                 // तीसरा redirect follow करें (gamerxyt.com → carnewz.site)
                                 val thirdRedirect = app.get(secondRedirect, allowRedirects = false).headers["location"]
                                 val finalUrl = thirdRedirect ?: secondRedirect
-                                
+
                                 if (finalUrl.contains("link=")) {
                                     // link= parameter से actual video URL extract करें
                                     val videoUrl = finalUrl.substringAfter("link=").substringBefore("&")
@@ -352,10 +342,8 @@ open class GDFlix : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val latestUrl = getLatestUrl(url, "gdflix")
         val baseUrl = getBaseUrl(url)
-        val newUrl = url.replace(baseUrl, latestUrl)
-        val document = app.get(newUrl).document
+        val document = app.get(url).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
             .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
@@ -377,7 +365,7 @@ open class GDFlix : ExtractorApi() {
                         } else {
                             link
                         }
-                        
+
                         if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
                             callback.invoke(
                                 newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", finalLink) {
@@ -388,7 +376,7 @@ open class GDFlix : ExtractorApi() {
                         }
                     } catch (_: Exception) {}
                 }
-                
+
                 // DIRECT SERVER [MGT] - cloudbox.lol
                 (text.contains("DIRECT SERVER", ignoreCase = true) || link.contains("cloudbox")) -> {
                     callback.invoke(
@@ -398,7 +386,7 @@ open class GDFlix : ExtractorApi() {
                         }
                     )
                 }
-                
+
                 text.contains("DIRECT DL") -> {
                     callback.invoke(
                         newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
@@ -436,9 +424,9 @@ open class GDFlix : ExtractorApi() {
 
                 text.contains("Index Links") -> {
                     try {
-                        app.get("$latestUrl$link").document
+                        app.get("$baseUrl$link").document
                             .select("a.btn.btn-outline-info").amap { btn ->
-                                val serverUrl = latestUrl + btn.attr("href")
+                                val serverUrl = baseUrl + btn.attr("href")
                                 app.get(serverUrl).document
                                     .select("div.mb-4 > a").amap { sourceAnchor ->
                                         val source = sourceAnchor.attr("href")
