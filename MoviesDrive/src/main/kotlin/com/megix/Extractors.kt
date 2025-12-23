@@ -240,39 +240,55 @@ open class HubCloud : ExtractorApi() {
                         }
                     )
                 }
-                // 10Gbps Server
+                // 10Gbps Server - pixel.hubcdn.fans को follow करके actual video URL निकालें
                 text.contains("10Gbps", ignoreCase = true) -> {
                     try {
-                        val redirectLink = app.get(link, allowRedirects = false).headers["location"]
-                        val finalLink = redirectLink?.substringAfter("link=") ?: link
-                        if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$name[10Gbps]",
-                                    "$name[10Gbps] $header$sizeText",
-                                    finalLink
-                                ) {
-                                    this.quality = quality
-                                    this.headers = VIDEO_HEADERS
+                        // पहला redirect follow करें
+                        val firstRedirect = app.get(link, allowRedirects = false).headers["location"]
+                        if (!firstRedirect.isNullOrEmpty()) {
+                            // दूसरा redirect follow करें
+                            val secondRedirect = app.get(firstRedirect, allowRedirects = false).headers["location"]
+                            if (!secondRedirect.isNullOrEmpty() && secondRedirect.contains("link=")) {
+                                // link= parameter से actual video URL extract करें
+                                val videoUrl = secondRedirect.substringAfter("link=").substringBefore("&")
+                                val decodedUrl = java.net.URLDecoder.decode(videoUrl, "UTF-8")
+                                if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
+                                    callback.invoke(
+                                        newExtractorLink(
+                                            "$name[10Gbps]",
+                                            "$name[10Gbps] $header$sizeText",
+                                            decodedUrl
+                                        ) {
+                                            this.quality = quality
+                                            this.headers = VIDEO_HEADERS
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
                     } catch (_: Exception) { }
                 }
-                // Pixeldrain Server
+                // Pixeldrain Server - pixeldrain.dev के लिए सही API format
                 text.contains("Pixel", ignoreCase = true) && link.contains("pixeldrain") -> {
-                    val pixelId = link.substringAfterLast("/")
-                    val finalUrl = "https://pixeldrain.com/api/file/$pixelId?download"
-                    callback.invoke(
-                        newExtractorLink(
-                            "$name[Pixeldrain]",
-                            "$name[Pixeldrain] $header$sizeText",
-                            finalUrl
-                        ) {
-                            this.quality = quality
-                            this.headers = VIDEO_HEADERS
+                    try {
+                        val pixelId = link.substringAfterLast("/")
+                        // pixeldrain.dev API format different है
+                        val finalUrl = if (link.contains("pixeldrain.dev")) {
+                            "https://pixeldrain.com/api/file/$pixelId?download"
+                        } else {
+                            "https://pixeldrain.com/api/file/$pixelId?download"
                         }
-                    )
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name[Pixeldrain]",
+                                "$name[Pixeldrain] $header$sizeText",
+                                finalUrl
+                            ) {
+                                this.quality = quality
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
+                    } catch (_: Exception) { }
                 }
                 // Direct .mp4 or .mkv links
                 !link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4")) -> {
@@ -507,29 +523,8 @@ open class GDFlix : ExtractorApi() {
                 }
             }
         }
-
-        // Cloudflare backup links
-        // try {
-        //     val types = listOf("type=1", "type=2")
-        //     types.map { type ->
-        //         val source = app.get("${newUrl.replace("file", "wfile")}?$type")
-        //             .document.select("a.btn-success").attr("href")
-
-        //         if (source.isNotEmpty()) {
-        //             callback.invoke(
-        //                 newExtractorLink("GDFlix[CF]", "GDFlix[CF] $fileName[$fileSize]", source) {
-        //                     this.quality = getIndexQuality(fileName)
-        //                 }
-        //             )
-        //         }
-        //     }
-        // } catch (e: Exception) {
-        //     Log.d("CF", e.toString())
-        // }
     }
 }
-
-
 class Gofile : ExtractorApi() {
     override val name = "Gofile"
     override val mainUrl = "https://gofile.io"
