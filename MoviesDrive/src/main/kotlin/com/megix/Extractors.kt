@@ -59,14 +59,32 @@ open class HubCloud : ExtractorApi() {
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
         val doc = app.get(newUrl).document
-        var link = if(newUrl.contains("drive")) {
+        
+        // HubCloud /drive/ URLs के लिए gamerxyt.com redirect follow करना होगा
+        var link = if(newUrl.contains("/drive/")) {
+            // "Generate Direct Download Link" button से gamerxyt.com URL निकालें
+            val gamerLink = doc.selectFirst("a[href*=gamerxyt.com]")?.attr("href")
+            if (!gamerLink.isNullOrEmpty()) {
+                // gamerxyt.com page खोलें जहां actual download links हैं
+                val gamerDoc = app.get(gamerLink).document
+                // यह page सीधे download links देता है, इसलिए यहां से process करें
+                processGamerxytPage(gamerDoc, callback)
+                return
+            }
+            // Fallback: पुराना तरीका try करें
             val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag) ?. groupValues ?. get(1) ?: ""
+            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
+        }
+        else if(newUrl.contains("/file/")) {
+            // /file/ URLs के लिए direct download page
+            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
         }
         else {
-            doc.selectFirst("div.vd > center > a") ?. attr("href") ?: ""
+            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
         }
 
+        if(link.isEmpty()) return
+        
         if(!link.startsWith("https://")) {
             link = latestUrl + link
         }
@@ -195,6 +213,83 @@ open class HubCloud : ExtractorApi() {
             }
         }
     }
+    
+    // gamerxyt.com page से download links extract करने के लिए helper function
+    private suspend fun processGamerxytPage(doc: org.jsoup.nodes.Document, callback: (ExtractorLink) -> Unit) {
+        val header = doc.select("div.card-header").text().ifEmpty { "Video" }
+        val size = doc.select("i#size").text().ifEmpty { "" }
+        val quality = getIndexQuality(header)
+        val sizeText = if(size.isNotEmpty()) "[$size]" else ""
+        
+        // सभी download buttons से links extract करें
+        doc.select("a.btn").forEach { btn ->
+            val link = btn.attr("href")
+            val text = btn.text()
+            
+            when {
+                // FSL Server - Direct download
+                text.contains("FSL Server", ignoreCase = true) && link.contains("r2.dev") -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[FSL Server]",
+                            "$name[FSL Server] $header$sizeText",
+                            link
+                        ) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+                // 10Gbps Server
+                text.contains("10Gbps", ignoreCase = true) -> {
+                    try {
+                        val redirectLink = app.get(link, allowRedirects = false).headers["location"]
+                        val finalLink = redirectLink?.substringAfter("link=") ?: link
+                        if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name[10Gbps]",
+                                    "$name[10Gbps] $header$sizeText",
+                                    finalLink
+                                ) {
+                                    this.quality = quality
+                                    this.headers = VIDEO_HEADERS
+                                }
+                            )
+                        }
+                    } catch (_: Exception) { }
+                }
+                // Pixeldrain Server
+                text.contains("Pixel", ignoreCase = true) && link.contains("pixeldrain") -> {
+                    val pixelId = link.substringAfterLast("/")
+                    val finalUrl = "https://pixeldrain.com/api/file/$pixelId?download"
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[Pixeldrain]",
+                            "$name[Pixeldrain] $header$sizeText",
+                            finalUrl
+                        ) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+                // Direct .mp4 or .mkv links
+                !link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4")) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name $header$sizeText",
+                            link
+                        ) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+            }
+        }
+    }
 }
 
 open class fastdlserver : ExtractorApi() {
@@ -249,6 +344,26 @@ open class GDFlix : ExtractorApi() {
             val link = anchor.attr("href")
 
             when {
+                // Instant DL [10GBPS] - busycdn.cfd direct link
+                (text.contains("Instant DL", ignoreCase = true) && link.contains("busycdn")) -> {
+                    callback.invoke(
+                        newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", link) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+                
+                // DIRECT SERVER [MGT] - cloudbox.lol
+                (text.contains("DIRECT SERVER", ignoreCase = true) || link.contains("cloudbox")) -> {
+                    callback.invoke(
+                        newExtractorLink("GDFlix[MGT]", "GDFlix[MGT] $fileName[$fileSize]", link) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+                
                 text.contains("DIRECT DL") -> {
                     callback.invoke(
                         newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
