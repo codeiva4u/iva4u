@@ -243,26 +243,32 @@ open class HubCloud : ExtractorApi() {
                 // 10Gbps Server - pixel.hubcdn.fans को follow करके actual video URL निकालें
                 text.contains("10Gbps", ignoreCase = true) -> {
                     try {
-                        // पहला redirect follow करें
+                        // पहला redirect follow करें (pixel.hubcdn.fans → pixel.rohitkiskk.workers.dev)
                         val firstRedirect = app.get(link, allowRedirects = false).headers["location"]
                         if (!firstRedirect.isNullOrEmpty()) {
-                            // दूसरा redirect follow करें
+                            // दूसरा redirect follow करें (workers.dev → gamerxyt.com/dl.php)
                             val secondRedirect = app.get(firstRedirect, allowRedirects = false).headers["location"]
-                            if (!secondRedirect.isNullOrEmpty() && secondRedirect.contains("link=")) {
-                                // link= parameter से actual video URL extract करें
-                                val videoUrl = secondRedirect.substringAfter("link=").substringBefore("&")
-                                val decodedUrl = java.net.URLDecoder.decode(videoUrl, "UTF-8")
-                                if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
-                                    callback.invoke(
-                                        newExtractorLink(
-                                            "$name[10Gbps]",
-                                            "$name[10Gbps] $header$sizeText",
-                                            decodedUrl
-                                        ) {
-                                            this.quality = quality
-                                            this.headers = VIDEO_HEADERS
-                                        }
-                                    )
+                            if (!secondRedirect.isNullOrEmpty()) {
+                                // तीसरा redirect follow करें (gamerxyt.com → carnewz.site)
+                                val thirdRedirect = app.get(secondRedirect, allowRedirects = false).headers["location"]
+                                val finalUrl = thirdRedirect ?: secondRedirect
+                                
+                                if (finalUrl.contains("link=")) {
+                                    // link= parameter से actual video URL extract करें
+                                    val videoUrl = finalUrl.substringAfter("link=").substringBefore("&")
+                                    val decodedUrl = java.net.URLDecoder.decode(videoUrl, "UTF-8")
+                                    if (decodedUrl.isNotEmpty() && decodedUrl.startsWith("http")) {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "$name[10Gbps]",
+                                                "$name[10Gbps] $header$sizeText",
+                                                decodedUrl
+                                            ) {
+                                                this.quality = quality
+                                                this.headers = VIDEO_HEADERS
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -292,6 +298,7 @@ open class HubCloud : ExtractorApi() {
                 }
                 // Direct .mp4 or .mkv links
                 !link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4")) -> {
+
                     callback.invoke(
                         newExtractorLink(
                             name,
@@ -362,12 +369,24 @@ open class GDFlix : ExtractorApi() {
             when {
                 // Instant DL [10GBPS] - busycdn.cfd direct link
                 (text.contains("Instant DL", ignoreCase = true) && link.contains("busycdn")) -> {
-                    callback.invoke(
-                        newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", link) {
-                            this.quality = quality
-                            this.headers = VIDEO_HEADERS
+                    try {
+                        // Redirect follow करें (busycdn -> fastcdn-dl.pages.dev)
+                        val redirectLink = app.get(link, allowRedirects = false).headers["location"]
+                        val finalLink = if (redirectLink != null && redirectLink.contains("url=")) {
+                            redirectLink.substringAfter("url=")
+                        } else {
+                            link
                         }
-                    )
+                        
+                        if (finalLink.isNotEmpty() && finalLink.startsWith("http")) {
+                            callback.invoke(
+                                newExtractorLink("GDFlix[10GBPS]", "GDFlix[10GBPS] $fileName[$fileSize]", finalLink) {
+                                    this.quality = quality
+                                    this.headers = VIDEO_HEADERS
+                                }
+                            )
+                        }
+                    } catch (_: Exception) {}
                 }
                 
                 // DIRECT SERVER [MGT] - cloudbox.lol
