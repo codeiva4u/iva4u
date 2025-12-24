@@ -36,7 +36,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true
-    val cinemeta_url = "https://aiometadata.elfhosted.com/stremio/9197a4a9-2f5b-4911-845e-8704c520bdf7/meta"
+    val cinemetaUrl = "https://aiometadata.elfhosted.com/stremio/9197a4a9-2f5b-4911-845e-8704c520bdf7/meta"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -108,7 +108,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override suspend fun search(query: String, page: Int): SearchResponseList {
         val document = app.get("$mainUrl/page/$page/?s=$query").document
         val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
-        val hasNext = if(results.isEmpty()) false else true
+        val hasNext = results.isNotEmpty()
         return newSearchResponseList(results, hasNext)
     }
 
@@ -127,9 +127,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) == true ||
+            title.contains("Episode", ignoreCase = true) ||
             seasonRegex.containsMatchIn(title) ||
-            title.contains("series", ignoreCase = true) == true
+            title.contains("series", ignoreCase = true)
         ) {
             "series"
         } else {
@@ -137,13 +137,13 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         }
 
         val imdbId = imdbUrl.substringAfter("title/").substringBefore("/")
-        val jsonResponse = app.get("$cinemeta_url/$tvtype/$imdbId.json").text
+        val jsonResponse = app.get("$cinemetaUrl/$tvtype/$imdbId.json").text
         val responseData = tryParseJson<ResponseData>(jsonResponse)
 
-        var cast: List<String> = emptyList()
-        var genre: List<String> = emptyList()
-        var imdbRating: String = ""
-        var year: String = ""
+        var cast = emptyList<String>()
+        var genre = emptyList<String>()
+        var imdbRating = ""
+        var year = ""
         var background: String = posterUrl
 
         if(responseData != null) {
@@ -177,7 +177,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 val titleElement = button.parent() ?. previousElementSibling()
                 val mainTitle = titleElement ?. text() ?: ""
                 val realSeasonRegex = Regex("""(?:Season |S)(\d+)""")
-                val realSeason = realSeasonRegex.find(mainTitle.toString()) ?. groupValues ?. get(1) ?.toInt() ?: 0
+                val realSeason = realSeasonRegex.find(mainTitle) ?. groupValues ?. get(1) ?.toInt() ?: 0
                 val episodeLink = button.attr("href")
 
                 val doc = app.get(episodeLink).document
@@ -303,12 +303,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     data class Meta(
         val id: String?,
-        val imdb_id: String?,
+        val imdbId: String?,
         val type: String?,
         val poster: String?,
         val logo: String?,
         val background: String?,
-        val moviedb_id: Int?,
+        val moviedbId: Int?,
         val name: String?,
         val description: String?,
         val genre: List<String>?,
@@ -333,7 +333,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val released: String?,
         val overview: String?,
         val thumbnail: String?,
-        val moviedb_id: Int?
+        val moviedbId: Int?
     )
 
     data class ResponseData(
