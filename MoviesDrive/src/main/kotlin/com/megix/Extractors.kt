@@ -133,23 +133,6 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
-            else if(text.contains("BuzzServer")) {
-                val dlink = app.get("$link/download", referer = link, allowRedirects = false).headers["hx-redirect"] ?: ""
-                val baseUrl = getBaseUrl(link)
-                if(dlink != "") {
-                    callback.invoke(
-                        newExtractorLink(
-                            "$name[BuzzServer]",
-                            "$name[BuzzServer] $header[$size]",
-                            baseUrl + dlink,
-                        ) {
-                            this.quality = quality
-                            this.headers = VIDEO_HEADERS
-                        }
-                    )
-                }
-            }
-
             else if (link.contains("pixeldra")) {
                 val baseUrlLink = getBaseUrl(link)
                 val finalURL = if (link.contains("download", true)) link
@@ -160,19 +143,6 @@ open class HubCloud : ExtractorApi() {
                         "Pixeldrain",
                         "Pixeldrain $header[$size]",
                         finalURL,
-                    ) {
-                        this.quality = quality
-                        this.headers = VIDEO_HEADERS
-                    }
-                )
-            }
-            else if (text.contains("Download [Server : 10Gbps]")) {
-                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
-                callback.invoke(
-                    newExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] $header[$size]",
-                        dlink.substringAfter("link="),
                     ) {
                         this.quality = quality
                         this.headers = VIDEO_HEADERS
