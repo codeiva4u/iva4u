@@ -28,16 +28,15 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
-import com.fasterxml.jackson.annotation.JsonProperty
 import org.jsoup.nodes.Element
 
-open class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.forum"
+class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
+    override var mainUrl = "https://moviesdrive.mom"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true
-    val cinemetaUrl = "https://aiometadata.elfhosted.com/stremio/9197a4a9-2f5b-4911-845e-8704c520bdf7/meta"
+    val cinemeta_url = "https://aiometadata.elfhosted.com/stremio/9197a4a9-2f5b-4911-845e-8704c520bdf7/meta"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -79,11 +78,11 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
         "/category/hotstar/page/" to "Hotstar",
     )
 
-     override suspend fun getMainPage(
+    override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get("$mainUrl${request.data}$page").document
+        val document = app.get("${mainUrl}${request.data}${page}").document
         val home = document.select("ul.recent-movies > li").mapNotNull {
             it.toSearchResult()
         }
@@ -109,7 +108,7 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
     override suspend fun search(query: String, page: Int): SearchResponseList {
         val document = app.get("$mainUrl/page/$page/?s=$query").document
         val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
-        val hasNext = results.isNotEmpty()
+        val hasNext = if(results.isEmpty()) false else true
         return newSearchResponseList(results, hasNext)
     }
 
@@ -128,7 +127,9 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
+            title.contains("Episode", ignoreCase = true) == true ||
+            seasonRegex.containsMatchIn(title) ||
+            title.contains("series", ignoreCase = true) == true
         ) {
             "series"
         } else {
@@ -136,13 +137,13 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
         }
 
         val imdbId = imdbUrl.substringAfter("title/").substringBefore("/")
-        val jsonResponse = app.get("$cinemetaUrl/$tvtype/$imdbId.json").text
+        val jsonResponse = app.get("$cinemeta_url/$tvtype/$imdbId.json").text
         val responseData = tryParseJson<ResponseData>(jsonResponse)
 
         var cast: List<String> = emptyList()
         var genre: List<String> = emptyList()
-        var imdbRating = ""
-        var year = ""
+        var imdbRating: String = ""
+        var year: String = ""
         var background: String = posterUrl
 
         if(responseData != null) {
@@ -176,7 +177,7 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                 val titleElement = button.parent() ?. previousElementSibling()
                 val mainTitle = titleElement ?. text() ?: ""
                 val realSeasonRegex = Regex("""(?:Season |S)(\d+)""")
-                val realSeason = realSeasonRegex.find(mainTitle) ?. groupValues ?. get(1) ?.toInt() ?: 0
+                val realSeason = realSeasonRegex.find(mainTitle.toString()) ?. groupValues ?. get(1) ?.toInt() ?: 0
                 val episodeLink = button.attr("href")
 
                 val doc = app.get(episodeLink).document
@@ -194,10 +195,10 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                         while (
                             hTag != null &&
                             (
-                                hTag.text().contains("HubCloud", ignoreCase = true) ||
-                                hTag.text().contains("gdflix", ignoreCase = true) ||
-                                hTag.text().contains("gdlink", ignoreCase = true)
-                            )
+                                    hTag.text().contains("HubCloud", ignoreCase = true) ||
+                                            hTag.text().contains("gdflix", ignoreCase = true) ||
+                                            hTag.text().contains("gdlink", ignoreCase = true)
+                                    )
                         ) {
                             val aTag = hTag.selectFirst("a")
                             val epUrl = aTag?.attr("href").toString()
@@ -258,39 +259,22 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                 addImdbUrl(imdbUrl)
             }
         }
-
         else {
-            val data = mutableListOf<EpisodeLink>()
-            
-            // 1. Direct Extraction: Check for provider links directly on the main page
-            document.select("a").forEach { anchor ->
-                val href = anchor.attr("href")
-                if (href.contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
-                    data.add(EpisodeLink(href))
-                }
-            }
-
-            // 2. Recursive Extraction: Check h5 > a buttons (legacy behavior)
             val buttons = document.select("h5 > a")
-            buttons.forEach { button ->
+            val data = buttons.flatMap { button ->
                 val link = button.attr("href")
-                // Only visit if it's NOT a provider link we just captured
-                if (link.isNotBlank() && !link.contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))) {
-                     try {
-                        val doc = app.get(link).document
-                        val innerButtons = doc.select("a").filter { element ->
-                            element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
-                        }
-                        innerButtons.forEach { innerButton ->
-                           data.add(EpisodeLink(innerButton.attr("href"))) 
-                        }
-                     } catch (_: Exception) {}
+                val doc = app.get(link).document
+                val innerButtons = doc.select("a").filter { element ->
+                    element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                }
+                innerButtons.mapNotNull { innerButton ->
+                    val source = innerButton.attr("href")
+                    EpisodeLink(
+                        source
+                    )
                 }
             }
-
-            val uniqueData = data.distinctBy { it.source }
-
-            return newMovieLoadResponse(title, url, TvType.Movie, uniqueData) {
+            return newMovieLoadResponse(title, url, TvType.Movie, data) {
                 this.posterUrl = posterUrl
                 this.plot = description
                 this.tags = genre
@@ -301,7 +285,6 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
                 addImdbUrl(imdbUrl)
             }
         }
-
     }
 
     override suspend fun loadLinks(
@@ -315,17 +298,17 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
             val source = it.source
             loadExtractor(source, subtitleCallback, callback)
         }
-        return true   
+        return true
     }
 
     data class Meta(
         val id: String?,
-        @field:JsonProperty("imdb_id") val imdbId: String?,
+        val imdb_id: String?,
         val type: String?,
         val poster: String?,
         val logo: String?,
         val background: String?,
-        @field:JsonProperty("moviedb_id") val moviedbId: Int?,
+        val moviedb_id: Int?,
         val name: String?,
         val description: String?,
         val genre: List<String>?,
@@ -350,7 +333,7 @@ open class MoviesDriveProvider : MainAPI() { // all providers must be an instanc
         val released: String?,
         val overview: String?,
         val thumbnail: String?,
-        @field:JsonProperty("moviedb_id") val moviedbId: Int?
+        val moviedb_id: Int?
     )
 
     data class ResponseData(
