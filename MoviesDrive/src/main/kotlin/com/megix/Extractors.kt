@@ -45,7 +45,6 @@ suspend fun getLatestUrl(url: String, source: String): String {
     }
     return link
 }
-
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
     override val mainUrl: String = "https://hubcloud.*"
@@ -134,6 +133,23 @@ open class HubCloud : ExtractorApi() {
                     }
                 )
             }
+            else if(text.contains("BuzzServer")) {
+                val dlink = app.get("$link/download", referer = link, allowRedirects = false).headers["hx-redirect"] ?: ""
+                val baseUrl = getBaseUrl(link)
+                if(dlink != "") {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[BuzzServer]",
+                            "$name[BuzzServer] $header[$size]",
+                            baseUrl + dlink,
+                        ) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+            }
+
             else if (link.contains("pixeldra")) {
                 val baseUrlLink = getBaseUrl(link)
                 val finalURL = if (link.contains("download", true)) link
@@ -144,6 +160,19 @@ open class HubCloud : ExtractorApi() {
                         "Pixeldrain",
                         "Pixeldrain $header[$size]",
                         finalURL,
+                    ) {
+                        this.quality = quality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
+            }
+            else if (text.contains("Download [Server : 10Gbps]")) {
+                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[Download]",
+                        "$name[Download] $header[$size]",
+                        dlink.substringAfter("link="),
                     ) {
                         this.quality = quality
                         this.headers = VIDEO_HEADERS
@@ -195,11 +224,6 @@ class GDFlixNet : GDFlix() {
     override var mainUrl = "https://new9.gdflix.*"
 }
 
-class GDFlixDev : GDFlix() {
-    override var mainUrl = "https://gdflix.dev"
-}
-
-
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
     override val mainUrl = "https://gdflix.*"
@@ -221,141 +245,12 @@ open class GDFlix : ExtractorApi() {
             .substringAfter("Size : ")
         val quality = getIndexQuality(fileName)
 
-        document.select("div.text-center a, .card-body a").amap { anchor ->
-            val text = anchor.text()
+        document.select("div.text-center a").amap { anchor ->
+            val text = anchor.select("a").text()
             val link = anchor.attr("href")
 
-            // Skip links that require login or are telegram links
-            if (text.contains("Login To DL", ignoreCase = true) || 
-                text.contains("Telegram", ignoreCase = true) ||
-                link.contains("filesgram", ignoreCase = true) ||
-                link.contains("/login", ignoreCase = true)) {
-                return@amap
-            }
-
             when {
-                // Instant DL [10GBPS] - Direct link to busycdn
-                text.contains("Instant DL", ignoreCase = true) -> {
-                    try {
-                        // The link itself is the direct video URL (busycdn.cfd)
-                        if (link.contains("busycdn") || link.contains("instant.")) {
-                            callback.invoke(
-                                newExtractorLink("GDFlix[Instant]", "GDFlix[Instant] $fileName[$fileSize]", link) {
-                                    this.quality = quality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
-                        } else {
-                            // Fallback: follow redirect
-                            val redirectLink = app.get(link, allowRedirects = false)
-                                .headers["location"]?.substringAfter("url=").orEmpty()
-                            if (redirectLink.isNotEmpty()) {
-                                callback.invoke(
-                                    newExtractorLink("GDFlix[Instant]", "GDFlix[Instant] $fileName[$fileSize]", redirectLink) {
-                                        this.quality = quality
-                                        this.headers = VIDEO_HEADERS
-                                    }
-                                )
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.d("Instant DL", e.toString())
-                    }
-                }
-
-                // FAST CLOUD / ZIPDISK - zfile links
-                text.contains("FAST CLOUD", ignoreCase = true) || 
-                text.contains("ZIPDISK", ignoreCase = true) ||
-                link.contains("/zfile/") -> {
-                    try {
-                        val fullLink = if (link.startsWith("/")) "$latestUrl$link" else link
-                        val zfileDoc = app.get(fullLink).document
-                        
-                        // Try to get direct video link from zfile page
-                        val videoLink = zfileDoc.selectFirst("a.btn-success, a.btn-primary, a[href*='.mkv'], a[href*='.mp4']")
-                            ?.attr("href").orEmpty()
-                        
-                        if (videoLink.isNotEmpty() && (videoLink.contains(".mkv") || videoLink.contains(".mp4") || 
-                            videoLink.startsWith("http"))) {
-                            callback.invoke(
-                                newExtractorLink("GDFlix[FastCloud]", "GDFlix[FastCloud] $fileName[$fileSize]", videoLink) {
-                                    this.quality = quality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
-                        } else {
-                            // If no direct link, use the zfile page itself
-                            callback.invoke(
-                                newExtractorLink("GDFlix[FastCloud]", "GDFlix[FastCloud] $fileName[$fileSize]", fullLink) {
-                                    this.quality = quality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
-                        }
-                    } catch (e: Exception) {
-                        Log.d("FastCloud", e.toString())
-                    }
-                }
-
-                // PixelDrain - both pixeldra.in and pixeldrain.dev
-                link.contains("pixeldra", ignoreCase = true) -> {
-                    try {
-                        val baseUrlLink = getBaseUrl(link)
-                        val fileId = link.substringAfterLast("/").substringBefore("?")
-                        val finalURL = if (link.contains("download", true)) link
-                        else if (link.contains("/u/")) "$baseUrlLink/api/file/$fileId?download"
-                        else "$baseUrlLink/api/file/$fileId?download"
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "Pixeldrain",
-                                "GDFlix[Pixeldrain] $fileName[$fileSize]",
-                                finalURL
-                            ) {
-                                this.quality = quality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.d("Pixeldrain", e.toString())
-                    }
-                }
-
-                // GoFile [Ready] - goflix.sbs mirror page
-                text.contains("GoFile", ignoreCase = true) -> {
-                    try {
-                        val mirrorDoc = app.get(link).document
-                        
-                        // Extract gofile.io links from the mirror page
-                        mirrorDoc.select("a[href*='gofile.io'], a[href*='gofile.ee']").forEach { gofileAnchor ->
-                            val gofileLink = gofileAnchor.attr("href")
-                            if (gofileLink.contains("gofile")) {
-                                Gofile().getUrl(gofileLink, "", subtitleCallback, callback)
-                            }
-                        }
-                        
-                        // Also try other file hosts from the mirror page
-                        mirrorDoc.select("a.host[href], a[href*='megaup'], a[href*='1fichier']").forEach { hostAnchor ->
-                            val hostLink = hostAnchor.attr("href")
-                            val hostName = hostAnchor.select("img").attr("alt").ifEmpty { 
-                                hostLink.substringAfter("://").substringBefore("/") 
-                            }
-                            if (hostLink.isNotEmpty() && !hostLink.contains("#")) {
-                                callback.invoke(
-                                    newExtractorLink("GDFlix[$hostName]", "GDFlix[$hostName] $fileName[$fileSize]", hostLink) {
-                                        this.quality = quality
-                                        this.headers = VIDEO_HEADERS
-                                    }
-                                )
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.d("Gofile", e.toString())
-                    }
-                }
-
-                // DIRECT DL
-                text.contains("DIRECT DL", ignoreCase = true) -> {
+                text.contains("DIRECT DL") -> {
                     callback.invoke(
                         newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
                             this.quality = quality
@@ -364,30 +259,37 @@ open class GDFlix : ExtractorApi() {
                     )
                 }
 
-                // CLOUD DOWNLOAD [R2]
-                text.contains("CLOUD DOWNLOAD", ignoreCase = true) -> {
-                    try {
-                        val decodedLink = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", decodedLink) {
-                                this.quality = quality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.d("Cloud Download", e.toString())
-                    }
+                text.contains("CLOUD DOWNLOAD [R2]") -> {
+                    val link = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
+                    callback.invoke(
+                        newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", link) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
                 }
 
-                // Index Links
-                text.contains("Index Links", ignoreCase = true) -> {
+                link.contains("pixeldra") -> {
+                    val baseUrlLink = getBaseUrl(link)
+                    val finalURL = if (link.contains("download", true)) link
+                    else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                    callback.invoke(
+                        newExtractorLink(
+                            "Pixeldrain",
+                            "GDFlix[Pixeldrain] $fileName[$fileSize]",
+                            finalURL
+                        ) {
+                            this.quality = quality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+
+                text.contains("Index Links") -> {
                     try {
-                        val fullLink = if (link.startsWith("/")) "$latestUrl$link" else link
-                        app.get(fullLink).document
+                        app.get("$latestUrl$link").document
                             .select("a.btn.btn-outline-info").amap { btn ->
-                                val serverUrl = if (btn.attr("href").startsWith("/")) 
-                                    latestUrl + btn.attr("href") 
-                                else btn.attr("href")
+                                val serverUrl = latestUrl + btn.attr("href")
                                 app.get(serverUrl).document
                                     .select("div.mb-4 > a").amap { sourceAnchor ->
                                         val source = sourceAnchor.attr("href")
@@ -404,15 +306,15 @@ open class GDFlix : ExtractorApi() {
                     }
                 }
 
-                // DRIVEBOT
-                text.contains("DRIVEBOT", ignoreCase = true) -> {
+                text.contains("DRIVEBOT") -> {
                     try {
-                        val id = link.substringAfter("id=").substringBefore("&")
-                        val doId = link.substringAfter("do=").substringBefore("==")
+                        val driveLink = link
+                        val id = driveLink.substringAfter("id=").substringBefore("&")
+                        val doId = driveLink.substringAfter("do=").substringBefore("==")
                         val baseUrls = listOf("https://drivebot.sbs", "https://indexbot.site")
 
-                        baseUrls.amap { drivebotBaseUrl ->
-                            val indexbotLink = "$drivebotBaseUrl/download?id=$id&do=$doId"
+                        baseUrls.amap { baseUrl ->
+                            val indexbotLink = "$baseUrl/download?id=$id&do=$doId"
                             val indexbotResponse = app.get(indexbotLink, timeout = 100L)
 
                             if (indexbotResponse.isSuccessful) {
@@ -433,7 +335,7 @@ open class GDFlix : ExtractorApi() {
                                 val cookies = mapOf("PHPSESSID" to "$cookiesSSID")
 
                                 val downloadLink = app.post(
-                                    "$drivebotBaseUrl/download?id=$postId",
+                                    "$baseUrl/download?id=$postId",
                                     requestBody = requestBody,
                                     headers = headers,
                                     cookies = cookies,
@@ -442,15 +344,13 @@ open class GDFlix : ExtractorApi() {
                                     Regex("url\":\"(.*?)\"").find(it)?.groupValues?.get(1)?.replace("\\", "").orEmpty()
                                 }
 
-                                if (downloadLink.isNotEmpty()) {
-                                    callback.invoke(
-                                        newExtractorLink("GDFlix[DriveBot]", "GDFlix[DriveBot] $fileName[$fileSize]", downloadLink) {
-                                            this.referer = drivebotBaseUrl
-                                            this.quality = quality
-                                            this.headers = VIDEO_HEADERS
-                                        }
-                                    )
-                                }
+                                callback.invoke(
+                                    newExtractorLink("GDFlix[DriveBot]", "GDFlix[DriveBot] $fileName[$fileSize]", downloadLink) {
+                                        this.referer = baseUrl
+                                        this.quality = quality
+                                        this.headers = VIDEO_HEADERS
+                                    }
+                                )
                             }
                         }
                     } catch (e: Exception) {
@@ -458,18 +358,38 @@ open class GDFlix : ExtractorApi() {
                     }
                 }
 
-                // Direct video file links
-                (link.contains(".mkv") || link.contains(".mp4")) && !link.contains(".zip") -> {
-                    callback.invoke(
-                        newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
-                            this.quality = quality
-                            this.headers = VIDEO_HEADERS
-                        }
-                    )
+                text.contains("Instant DL") -> {
+                    try {
+                        val instantLink = link
+                        val link = app.get(instantLink, allowRedirects = false)
+                            .headers["location"]?.substringAfter("url=").orEmpty()
+
+                        callback.invoke(
+                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
+                                this.quality = quality
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.d("Instant DL", e.toString())
+                    }
+                }
+                text.contains("GoFile") -> {
+                    try {
+                        app.get(link).document
+                            .select(".row .row a").amap { gofileAnchor ->
+                                val link = gofileAnchor.attr("href")
+                                if (link.contains("gofile")) {
+                                    Gofile().getUrl(link, "", subtitleCallback, callback)
+                                }
+                            }
+                    } catch (e: Exception) {
+                        Log.d("Gofile", e.toString())
+                    }
                 }
 
                 else -> {
-                    Log.d("GDFlix", "Unhandled link: $text -> $link")
+                    Log.d("Error", "No Server matched")
                 }
             }
         }
