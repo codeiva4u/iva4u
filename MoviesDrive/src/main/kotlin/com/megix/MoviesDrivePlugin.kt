@@ -14,7 +14,6 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(GDLink())
         registerExtractorAPI(GDFlixNet())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(fastdlserver())
 
     }
 
