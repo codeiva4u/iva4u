@@ -195,6 +195,11 @@ class GDFlixNet : GDFlix() {
     override var mainUrl = "https://new9.gdflix.*"
 }
 
+class GDFlixDev : GDFlix() {
+    override var mainUrl = "https://gdflix.dev"
+}
+
+
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
     override val mainUrl = "https://gdflix.*"
@@ -211,9 +216,9 @@ open class GDFlix : ExtractorApi() {
         val newUrl = url.replace(baseUrl, latestUrl)
         val document = app.get(newUrl).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
-            .substringAfter("Name : ").orEmpty()
+            .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
-            .substringAfter("Size : ").orEmpty()
+            .substringAfter("Size : ")
         val quality = getIndexQuality(fileName)
 
         document.select("div.text-center a, .card-body a").amap { anchor ->
