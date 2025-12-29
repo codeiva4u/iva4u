@@ -98,22 +98,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "$mainUrl/${request.data}" + "page/$page/"
         }
         
-        // Try normal request first, use CloudflareKiller only if needed
-        val document = try {
-            val response = app.get(url)
-            // Check if we got Cloudflare challenge page
-            if (response.text.contains("Checking your browser", ignoreCase = true) ||
-                response.text.contains("Cloudflare", ignoreCase = true) && 
-                response.text.contains("challenge", ignoreCase = true)) {
-                Log.d("MultiMovies", "Cloudflare detected, using CloudflareKiller...")
-                app.get(url, interceptor = cfKiller).document
-            } else {
-                response.document
-            }
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Error loading page, trying with CloudflareKiller: ${e.message}")
-            app.get(url, interceptor = cfKiller).document
-        }
+        // multimovies.golf always has Cloudflare, so use CloudflareKiller directly
+        val document = app.get(url, interceptor = cfKiller).document
 
         val home = when {
             // For movies listing page
@@ -205,13 +191,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d("MultiMovies", "Searching for: $query")
-        // Try without CloudflareKiller first for better performance
-        val document = try {
-            app.get("$mainUrl/?s=$query").document
-        } catch (e: Exception) {
-            Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
-            app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
-        }
+        // multimovies.golf always has Cloudflare
+        val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
 
         return document.select("div.result-item").mapNotNull { result ->
             // Extract title with multiple fallback selectors
@@ -368,13 +349,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
         override suspend fun load(url: String): LoadResponse? {
-            // Try without CloudflareKiller first
-            val doc = try {
-                app.get(url).document
-            } catch (e: Exception) {
-                Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
-                app.get(url, interceptor = cfKiller).document
-            }
+            // multimovies.golf always has Cloudflare
+            val doc = app.get(url, interceptor = cfKiller).document
             val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
             var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
             if (poster.isNullOrBlank()) {
@@ -470,13 +446,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
         } else {
-            // Handle movies - data is URL
-            val document = try {
-                app.get(data).document
-            } catch (e: Exception) {
-                Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
-                app.get(data, interceptor = cfKiller).document
-            }
+            // Handle movies - data is URL  
+            // multimovies.golf has Cloudflare on all pages
+            val document = app.get(data, interceptor = cfKiller).document
 
             // Extract player options (excluding trailer)
             document.select("ul#playeroptionsul > li")
