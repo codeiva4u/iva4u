@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.getQualityFromString
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -58,6 +59,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
         }
+        
+        // Cloudflare bypass interceptor
+        private val cfKiller by lazy { CloudflareKiller() }
     }
     override var name = "MultiMovies"
     override val hasMainPage = true
@@ -88,11 +92,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ): HomePageResponse {
         Log.d("MultiMovies", "Loading main page: ${request.name}, data: ${request.data}, page: $page")
 
-        val document = if (page == 1) {
-            app.get("$mainUrl/${request.data}").document
+        val url = if (page == 1) {
+            "$mainUrl/${request.data}"
         } else {
-            app.get("$mainUrl/${request.data}" + "page/$page/").document
+            "$mainUrl/${request.data}" + "page/$page/"
         }
+        
+        // Use CloudflareKiller to bypass Cloudflare protection
+        val document = app.get(url, interceptor = cfKiller).document
 
         val home = when {
             // For movies listing page
@@ -139,12 +146,38 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = select("h3 a").text().trim()
-        val href = fixUrl(select("h3 a").attr("href"))
-        val posterUrl = fixUrlNull(selectFirst("img")?.getImageAttr())
+        // Try multiple selectors for title - handle different page structures
+        val title = when {
+            select("div.data h3 a").isNotEmpty() -> select("div.data h3 a").text().trim()
+            select("h3 a").isNotEmpty() -> select("h3 a").text().trim()
+            select(".data .title a").isNotEmpty() -> select(".data .title a").text().trim()
+            else -> selectFirst("a")?.text()?.trim() ?: ""
+        }
+        
+        if (title.isBlank()) return null
+        
+        // Try multiple selectors for href
+        val href = when {
+            select("div.data h3 a").isNotEmpty() -> fixUrl(select("div.data h3 a").attr("href"))
+            select("h3 a").isNotEmpty() -> fixUrl(select("h3 a").attr("href"))
+            select("div.poster a").isNotEmpty() -> fixUrl(select("div.poster a").attr("href"))
+            else -> fixUrl(selectFirst("a")?.attr("href") ?: "")
+        }
+        
+        if (href.isBlank() || href == mainUrl) return null
+        
+        // Try multiple selectors for poster - prioritize div.poster > img
+        val posterUrl = when {
+            selectFirst("div.poster img") != null -> fixUrlNull(selectFirst("div.poster img")?.attr("src"))
+            selectFirst("div.poster img[data-src]") != null -> fixUrlNull(selectFirst("div.poster img")?.attr("data-src"))
+            selectFirst("img[src]") != null -> fixUrlNull(selectFirst("img")?.attr("src"))
+            selectFirst("img[data-src]") != null -> fixUrlNull(selectFirst("img")?.attr("data-src"))
+            else -> null
+        }
+        
         val isMovie = href.contains("/movies/")
-        if (posterUrl.isNullOrBlank()) return null
-
+        
+        // Don't skip items without poster - just show them without image
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
@@ -158,7 +191,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d("MultiMovies", "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query").document
+        val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
 
         return document.select("div.result-item").mapNotNull { result ->
             // Extract title with multiple fallback selectors
@@ -315,7 +348,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
         override suspend fun load(url: String): LoadResponse? {
-            val doc = app.get(url).document
+            val doc = app.get(url, interceptor = cfKiller).document
             val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
             var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
             if (poster.isNullOrBlank()) {
@@ -412,7 +445,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         } else {
             // Handle movies - data is URL
-            val document = app.get(data).document
+            val document = app.get(data, interceptor = cfKiller).document
 
             // Extract player options (excluding trailer)
             document.select("ul#playeroptionsul > li")
@@ -451,7 +484,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl
-                )
+                ),
+                interceptor = cfKiller
             ).parsedSafe<ResponseHash>()
 
             val embedUrl = response?.embed_url

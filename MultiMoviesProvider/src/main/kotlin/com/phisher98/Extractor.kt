@@ -257,7 +257,7 @@ class GdMirrorExtractor : ExtractorApi() {
     }
 }
 
-// TechInMind/SSN Extractor - For TV shows
+// TechInMind/SSN Extractor - For TV shows and movies
 class TechInMindExtractor : ExtractorApi() {
     override val name = "TechInMind"
     override val mainUrl = "https://stream.techinmind.space"
@@ -280,64 +280,63 @@ class TechInMindExtractor : ExtractorApi() {
             val response = app.get(newUrl, allowRedirects = true)
             val doc = response.document
             
-            // Look for iframe with ssn.techinmind.space or multimoviesshg
+            // NEW: Handle stream.techinmind.space/embed/* pages with quality selection
+            if (url.contains("stream.techinmind.space") && url.contains("/embed/")) {
+                Log.d("TechInMind", "Detected stream.techinmind.space embed page")
+                
+                // Extract quality links from data-link attributes
+                val qualityLinks = doc.select("#quality-links a[data-link], a[data-link]")
+                if (qualityLinks.isNotEmpty()) {
+                    Log.d("TechInMind", "Found ${qualityLinks.size} quality links")
+                    qualityLinks.forEach { link ->
+                        val dataLink = link.attr("data-link")
+                        if (dataLink.isNotBlank()) {
+                            Log.d("TechInMind", "Processing quality link: $dataLink")
+                            extractFromSSN(dataLink, url, subtitleCallback, callback)
+                        }
+                    }
+                    return
+                }
+                
+                // Fallback: Check for direct iframe in stream page (iframe#player or iframe#vidFrame)
+                val playerIframe = doc.selectFirst("iframe#player, iframe#vidFrame, iframe[allowfullscreen]")
+                if (playerIframe != null) {
+                    val iframeSrc = playerIframe.attr("abs:src").ifBlank { playerIframe.attr("src") }
+                    Log.d("TechInMind", "Found player iframe: $iframeSrc")
+                    
+                    if (iframeSrc.contains("ssn.techinmind", ignoreCase = true)) {
+                        extractFromSSN(iframeSrc, url, subtitleCallback, callback)
+                        return
+                    } else if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
+                        MultiMoviesShgExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
+                        return
+                    }
+                }
+            }
+            
+            // Handle SSN pages directly
+            if (url.contains("ssn.techinmind", ignoreCase = true)) {
+                extractFromSSN(url, referer ?: url, subtitleCallback, callback)
+                return
+            }
+            
+            // Legacy: Look for iframes in other TechInMind pages
             val iframes = doc.select("iframe[src]")
             iframes.forEach { iframe ->
-                val iframeSrc = iframe.attr("abs:src")
+                val iframeSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
                 Log.d("TechInMind", "Found iframe: $iframeSrc")
                 
                 // If iframe directly contains multimoviesshg, extract it
                 if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
                     Log.d("TechInMind", "Found MultiMoviesShg iframe directly: $iframeSrc")
-                    MultiMoviesShgExtractor().getUrl(
-                        iframeSrc,
-                        url,
-                        subtitleCallback,
-                        callback
-                    )
+                    MultiMoviesShgExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
                     return
                 }
                 
                 // If iframe contains ssn.techinmind, follow it for nested iframe
                 if (iframeSrc.contains("ssn.techinmind.space", ignoreCase = true)) {
-                    try {
-                        val iframeResponse = app.get(iframeSrc, allowRedirects = true)
-                        val iframeDoc = iframeResponse.document
-                        
-                        // Look for nested iframe with multimoviesshg
-                        val nestedIframes = iframeDoc.select("iframe[src]")
-                        nestedIframes.forEach { nested ->
-                            val nestedSrc = nested.attr("abs:src")
-                            if (nestedSrc.contains("multimoviesshg", ignoreCase = true)) {
-                                Log.d("TechInMind", "Found nested MultiMoviesShg iframe: $nestedSrc")
-                                MultiMoviesShgExtractor().getUrl(
-                                    nestedSrc,
-                                    iframeSrc,
-                                    subtitleCallback,
-                                    callback
-                                )
-                                return
-                            }
-                        }
-                        
-                        // Also try to find multimoviesshg URL in iframe source
-                        val iframeBodyText = iframeDoc.body().html()
-                        val multiMoviesRegex = Regex("""(https?://[^\"'\\s]*multimoviesshg[^\"'\\s]*/e/[^\"'\\s]+)""")
-                        val multiMoviesMatch = multiMoviesRegex.find(iframeBodyText)
-                        if (multiMoviesMatch != null) {
-                            val multiMoviesUrl = multiMoviesMatch.groupValues[1]
-                            Log.d("TechInMind", "Found MultiMoviesShg URL in iframe source: $multiMoviesUrl")
-                            MultiMoviesShgExtractor().getUrl(
-                                multiMoviesUrl,
-                                iframeSrc,
-                                subtitleCallback,
-                                callback
-                            )
-                            return
-                        }
-                    } catch (e: Exception) {
-                        Log.e("TechInMind", "Error following nested iframe: ${e.message}")
-                    }
+                    extractFromSSN(iframeSrc, url, subtitleCallback, callback)
+                    return
                 }
             }
             
@@ -347,7 +346,50 @@ class TechInMindExtractor : ExtractorApi() {
             e.printStackTrace()
         }
     }
+    
+    /**
+     * Extract video from SSN TechInMind page
+     * SSN pages contain iframe to multimoviesshg.com
+     */
+    private suspend fun extractFromSSN(
+        ssnUrl: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMind", "Extracting from SSN: $ssnUrl")
+            val ssnDoc = app.get(ssnUrl, referer = referer).document
+            
+            // Find multimoviesshg iframe - check multiple selectors
+            val videoIframe = ssnDoc.selectFirst("iframe#vidFrame, iframe[src*=multimoviesshg], iframe[allowfullscreen]")
+            if (videoIframe != null) {
+                val finalUrl = videoIframe.attr("abs:src").ifBlank { videoIframe.attr("src") }
+                if (finalUrl.contains("multimoviesshg", ignoreCase = true)) {
+                    Log.d("TechInMind", "Found MultiMoviesShg iframe in SSN: $finalUrl")
+                    MultiMoviesShgExtractor().getUrl(finalUrl, ssnUrl, subtitleCallback, callback)
+                    return
+                }
+            }
+            
+            // Fallback: Search for multimoviesshg URL in body HTML
+            val bodyText = ssnDoc.body().html()
+            val regex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
+            val match = regex.find(bodyText)
+            if (match != null) {
+                val multiMoviesUrl = match.groupValues[1]
+                Log.d("TechInMind", "Found MultiMoviesShg URL in SSN body: $multiMoviesUrl")
+                MultiMoviesShgExtractor().getUrl(multiMoviesUrl, ssnUrl, subtitleCallback, callback)
+                return
+            }
+            
+            Log.e("TechInMind", "No MultiMoviesShg URL found in SSN page")
+        } catch (e: Exception) {
+            Log.e("TechInMind", "Error extracting from SSN: ${e.message}")
+        }
+    }
 }
+
 
 // Streamwish Extractor
 class StreamwishExtractor : ExtractorApi() {
