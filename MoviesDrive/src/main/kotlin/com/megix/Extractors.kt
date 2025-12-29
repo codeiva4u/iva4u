@@ -72,8 +72,8 @@ open class HubCloud : ExtractorApi() {
 
         val document = app.get(link).document
         val div = document.selectFirst("div.card-body")
-        val header = document.select("div.card-header").text()
-        val size = document.select("i#size").text()
+        val header = document.select("div.card-header").text() ?: ""
+        val size = document.select("i#size").text() ?: ""
         val quality = getIndexQuality(header)
 
         div?.select("h2 a.btn")?.amap {
@@ -122,7 +122,7 @@ open class HubCloud : ExtractorApi() {
             else if (text.contains("Download File")) {
                 callback.invoke(
                     newExtractorLink(
-                        name,
+                        "$name",
                         "$name $header[$size]",
                         link,
                     ) {
@@ -182,7 +182,7 @@ open class HubCloud : ExtractorApi() {
                 if(!link.contains(".zip") && (link.contains(".mkv") || link.contains(".mp4"))) {
                     callback.invoke(
                         newExtractorLink(
-                            name,
+                            "$name",
                             "$name $header[$size]",
                             link,
                         ) {
@@ -199,11 +199,9 @@ open class HubCloud : ExtractorApi() {
 class GDLink : GDFlix() {
     override var mainUrl = "https://gdlink.*"
 }
-
 class GDFlixNet : GDFlix() {
     override var mainUrl = "https://new10.gdflix.*"
 }
-
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
     override val mainUrl = "https://gdflix.*"
@@ -220,9 +218,9 @@ open class GDFlix : ExtractorApi() {
         val newUrl = url.replace(baseUrl, latestUrl)
         val document = app.get(newUrl).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
-            .substringAfter("Name : ")
+            .substringAfter("Name : ").orEmpty()
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
-            .substringAfter("Size : ")
+            .substringAfter("Size : ").orEmpty()
         val quality = getIndexQuality(fileName)
 
         document.select("div.text-center a").amap { anchor ->
@@ -297,8 +295,9 @@ open class GDFlix : ExtractorApi() {
 
                 text.contains("DRIVEBOT") -> {
                     try {
-                        val id = link.substringAfter("id=").substringBefore("&")
-                        val doId = link.substringAfter("do=").substringBefore("==")
+                        val driveLink = link
+                        val id = driveLink.substringAfter("id=").substringBefore("&")
+                        val doId = driveLink.substringAfter("do=").substringBefore("==")
                         val baseUrls = listOf("https://drivebot.sbs", "https://indexbot.site")
 
                         baseUrls.amap { baseUrl ->
@@ -320,9 +319,9 @@ open class GDFlix : ExtractorApi() {
                                     .build()
 
                                 val headers = mapOf("Referer" to indexbotLink)
-                                val cookies = mapOf("PHPSESSID" to cookiesSSID.orEmpty())
+                                val cookies = mapOf("PHPSESSID" to "$cookiesSSID")
 
-                                val downloadLink = app.post(
+                                var downloadLink = app.post(
                                     "$baseUrl/download?id=$postId",
                                     requestBody = requestBody,
                                     headers = headers,
@@ -348,11 +347,12 @@ open class GDFlix : ExtractorApi() {
 
                 text.contains("Instant DL") -> {
                     try {
-                        val instantLink = app.get(link, allowRedirects = false)
+                        val instantLink = link
+                        val link = app.get(instantLink, allowRedirects = false)
                             .headers["location"]?.substringAfter("url=").orEmpty()
 
                         callback.invoke(
-                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", instantLink) {
+                            newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", link) {
                                 this.quality = quality
                                 this.headers = VIDEO_HEADERS
                             }
@@ -406,7 +406,7 @@ class Gofile : ExtractorApi() {
         val jsonResp = JSONObject(genAccountRes)
         val token = jsonResp.getJSONObject("data").getString("token") ?: return
         val globalRes = app.get("$mainUrl/dist/js/config.js", headers = headers).text
-        val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
+        val wt = Regex("""appdata\.wt\s*=\s*[\"']([^\"']+)[\"']""").find(globalRes)?.groupValues?.get(1) ?: return
 
         val response = app.get("$mainApi/contents/$id?cache=true&sortField=createTime&sortDirection=1",
             headers = mapOf(
@@ -450,7 +450,7 @@ class Gofile : ExtractorApi() {
     }
 
     private fun getQuality(str: String?): Int {
-        return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return Regex("(\\d{3,4})[pP]").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
     }
 }
