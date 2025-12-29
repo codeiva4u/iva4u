@@ -88,19 +88,74 @@ open class HubCloud : ExtractorApi() {
                             directLinks.amap { directBtn ->
                                 val directLink = directBtn.attr("href")
                                 val directText = directBtn.text()
-                                if (directLink.isNotEmpty() && !directLink.contains("javascript") && 
-                                    (directLink.contains(".mkv") || directLink.contains(".mp4") || 
-                                     directLink.contains("download") || directText.contains("Download", ignoreCase = true))) {
-                                    callback.invoke(
-                                        newExtractorLink(
-                                            "$name[Direct]",
-                                            "$name[Direct] $title",
+                                
+                                when {
+                                    // FSL Server - firecdn.buzz
+                                    directText.contains("FSL Server", ignoreCase = true) -> {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "$name[FSL Server]",
+                                                "$name[FSL Server] $title",
+                                                directLink
+                                            ) {
+                                                this.quality = quality
+                                                this.headers = VIDEO_HEADERS
+                                            }
+                                        )
+                                    }
+                                    // 10Gbps Server - hubcdn.fans
+                                    directText.contains("10Gbps", ignoreCase = true) || 
+                                    directText.contains("Server :", ignoreCase = true) -> {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "$name[10Gbps]",
+                                                "$name[10Gbps] $title",
+                                                directLink
+                                            ) {
+                                                this.quality = quality
+                                                this.headers = VIDEO_HEADERS
+                                            }
+                                        )
+                                    }
+                                    // PixelServer - pixeldrain
+                                    directText.contains("PixelServer", ignoreCase = true) || 
+                                    directLink.contains("pixeldrain") -> {
+                                        val pixelLink = if (directLink.contains("pixeldrain.dev")) {
+                                            directLink.replace("/u/", "/api/file/") + "?download"
+                                        } else {
                                             directLink
-                                        ) {
-                                            this.quality = quality
-                                            this.headers = VIDEO_HEADERS
                                         }
-                                    )
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "Pixeldrain",
+                                                "Pixeldrain $title",
+                                                pixelLink
+                                            ) {
+                                                this.quality = quality
+                                                this.headers = VIDEO_HEADERS
+                                            }
+                                        )
+                                    }
+                                    // Telegram - skip
+                                    directText.contains("Telegram", ignoreCase = true) -> {
+                                        // Skip telegram links
+                                    }
+                                    // Generic download buttons
+                                    directLink.isNotEmpty() && !directLink.contains("javascript") && 
+                                    !directLink.contains("telegram") &&
+                                    (directLink.contains(".mkv") || directLink.contains(".mp4") || 
+                                     directText.contains("Download", ignoreCase = true)) -> {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "$name[Direct]",
+                                                "$name[Direct] $title",
+                                                directLink
+                                            ) {
+                                                this.quality = quality
+                                                this.headers = VIDEO_HEADERS
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
