@@ -187,51 +187,47 @@ class GdMirrorExtractor : ExtractorApi() {
             } catch (e: Exception) {
                 Log.e("GdMirror", "WebView method failed: ${e.message}")
             }
-            
-            // Method 2: Follow redirects manually
+            // Method 2: Follow redirects manually and check for iframes
             try {
                 Log.d("GdMirror", "Method 2: Following redirects manually...")
-                val response = app.get(url, allowRedirects = true)
+                val response = app.get(newUrl, allowRedirects = true)
                 val finalUrl = response.url
                 val doc = response.document
                 
                 Log.d("GdMirror", "Landed on: $finalUrl")
                 
-                // If landed on gtxgamer, wait and check for iframes
-                if (finalUrl.contains("gtxgamer", ignoreCase = true)) {
-                    // Check for iframes
-                    val iframes = doc.select("iframe[src]")
-                    iframes.forEach { iframe ->
-                        val iframeSrc = iframe.attr("abs:src")
-                        Log.d("GdMirror", "Found iframe: $iframeSrc")
-                        
-                        if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
-                            Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
-                            MultiMoviesShgExtractor().getUrl(
-                                iframeSrc,
-                                finalUrl,
-                                subtitleCallback,
-                                callback
-                            )
-                            return
-                        }
-                    }
+                // Check for iframes on any page (gdmirrorbot, gtxgamer, etc.)
+                val iframes = doc.select("iframe[src], iframe#vidFrame")
+                iframes.forEach { iframe ->
+                    val iframeSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
+                    Log.d("GdMirror", "Found iframe: $iframeSrc")
                     
-                    // Check body for multimoviesshg URLs
-                    val bodyText = doc.body().html()
-                    val multiMoviesRegex = Regex("""(https?://multimoviesshg\.com/e/[a-zA-Z0-9]+)""")
-                    val multiMoviesMatch = multiMoviesRegex.find(bodyText)
-                    if (multiMoviesMatch != null) {
-                        val multiMoviesUrl = multiMoviesMatch.groupValues[1]
-                        Log.d("GdMirror", "Found MultiMoviesShg URL in HTML: $multiMoviesUrl")
+                    if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
+                        Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
                         MultiMoviesShgExtractor().getUrl(
-                            multiMoviesUrl,
+                            iframeSrc,
                             finalUrl,
                             subtitleCallback,
                             callback
                         )
                         return
                     }
+                }
+                
+                // Check body for multimoviesshg URLs
+                val bodyText = doc.body().html()
+                val multiMoviesRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
+                val multiMoviesMatch = multiMoviesRegex.find(bodyText)
+                if (multiMoviesMatch != null) {
+                    val multiMoviesUrl = multiMoviesMatch.groupValues[1]
+                    Log.d("GdMirror", "Found MultiMoviesShg URL in HTML: $multiMoviesUrl")
+                    MultiMoviesShgExtractor().getUrl(
+                        multiMoviesUrl,
+                        finalUrl,
+                        subtitleCallback,
+                        callback
+                    )
+                    return
                 }
                 
                 // If directly landed on multimoviesshg
