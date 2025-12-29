@@ -17,6 +17,23 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 
+// Utility functions for dynamic URL management
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
+    }
+}
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = org.json.JSONObject(
+        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
+    ).optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
+}
+
 class HdStream4u : VidHidePro() {
     override var mainUrl = "https://hdstream4u.*"
 }
@@ -126,16 +143,20 @@ class HubCloud : ExtractorApi() {
         } ?: return
         Log.d("Phisher",url)
 
-        val baseUrl=getBaseUrl(realUrl)
+        // Dynamic URL management - fetch latest hubcloud URL
+        val latestUrl = getLatestUrl(realUrl, "hubcloud")
+        val baseUrl = getBaseUrl(realUrl)
+        val newUrl = realUrl.replace(baseUrl, latestUrl)
+
         val href = try {
-            if ("hubcloud.php" in realUrl) {
-                realUrl
+            if ("hubcloud.php" in newUrl) {
+                newUrl
             } else {
-                val rawHref = app.get(realUrl).document.select("#download").attr("href")
+                val rawHref = app.get(newUrl).document.select("#download").attr("href")
                 if (rawHref.startsWith("http", ignoreCase = true)) {
                     rawHref
                 } else {
-                    baseUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
         } catch (e: Exception) {

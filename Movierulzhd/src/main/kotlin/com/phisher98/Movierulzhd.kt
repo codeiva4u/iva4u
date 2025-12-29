@@ -32,10 +32,35 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import java.net.URI
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 open class Movierulzhd : MainAPI() {
 
     override var mainUrl = "https://9filmyzilla.lol/"
+
+    init {
+        runBlocking {
+            basemainUrl?.let {
+                mainUrl = it
+            }
+        }
+    }
+
+    companion object {
+        val basemainUrl: String? by lazy {
+            runBlocking {
+                try {
+                    val response = app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json")
+                    val json = response.text
+                    val jsonObject = JSONObject(json)
+                    jsonObject.optString("movierulzhd")
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
     var directUrl = ""
     override var name = "Movierulzhd"
     override val hasMainPage = true

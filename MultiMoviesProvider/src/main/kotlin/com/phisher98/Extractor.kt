@@ -1,20 +1,33 @@
 package com.phisher98
 
-import com.google.gson.JsonParser
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
 import java.net.URI
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
+
+// Utility functions for dynamic URL management
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
+    }
+}
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = JSONObject(
+        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
+    ).optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
+}
 
 // MultiMoviesShg Extractor - Main video hoster
 class MultiMoviesShgExtractor : ExtractorApi() {
@@ -31,7 +44,12 @@ class MultiMoviesShgExtractor : ExtractorApi() {
         try {
             Log.d("MultiMoviesShg", "Starting extraction for URL: $url")
             
-            val doc = app.get(url, referer = referer ?: mainUrl).document
+            // Dynamic URL management - fetch latest domain
+            val latestUrl = getLatestUrl(url, "multimoviesshg")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestUrl)
+            
+            val doc = app.get(newUrl, referer = referer ?: latestUrl).document
             
             // Method 1: Parse HTML/JavaScript for m3u8 URLs
             try {
@@ -137,11 +155,16 @@ class GdMirrorExtractor : ExtractorApi() {
         try {
             Log.d("GdMirror", "Starting extraction for: $url")
             
+            // Dynamic URL management - fetch latest domain
+            val latestUrl = getLatestUrl(url, "gdmirror")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestUrl)
+            
             // Method 1: Use WebView to load dynamic content and capture redirects
             try {
                 Log.d("GdMirror", "Method 1: Using WebView to capture dynamic redirects...")
                 val webViewResponse = app.get(
-                    url,
+                    newUrl,
                     referer = referer,
                     interceptor = WebViewResolver(
                         Regex("""multimoviesshg\.com/e/[a-zA-Z0-9]+""")
@@ -249,7 +272,12 @@ class TechInMindExtractor : ExtractorApi() {
         try {
             Log.d("TechInMind", "Fetching: $url")
             
-            val response = app.get(url, allowRedirects = true)
+            // Dynamic URL management - fetch latest domain
+            val latestUrl = getLatestUrl(url, "techinmind")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestUrl)
+            
+            val response = app.get(newUrl, allowRedirects = true)
             val doc = response.document
             
             // Look for iframe with ssn.techinmind.space or multimoviesshg

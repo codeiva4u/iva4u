@@ -35,9 +35,16 @@ import java.text.Normalizer
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl: String = runBlocking {
-        HDhub4uPlugin.getDomains()?.HDHUB4u ?: "https://hdhub4u.rehab"
+    override var mainUrl: String = "https://hdhub4u.rehab"
+
+    init {
+        runBlocking {
+            basemainUrl?.let {
+                mainUrl = it
+            }
+        }
     }
+
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -52,6 +59,19 @@ class HDhub4uProvider : MainAPI() {
         const val TMDBBASE = "https://image.tmdb.org/t/p/original"
         const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
         const val TAG = "EpisodeParser"
+
+        val basemainUrl: String? by lazy {
+            runBlocking {
+                try {
+                    val response = app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json")
+                    val json = response.text
+                    val jsonObject = JSONObject(json)
+                    jsonObject.optString("hdhub4u")
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
     }
 
     override val mainPage = mainPageOf(

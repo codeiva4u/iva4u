@@ -16,6 +16,23 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+// Utility functions for dynamic URL management
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
+    }
+}
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = JSONObject(
+        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
+    ).optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
+}
+
 // AES Helper for Cherry decryption
 object CherryAesHelper {
     private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
@@ -58,10 +75,16 @@ class CherryExtractor : ExtractorApi() {
             }
             
             Log.d("Cherry", "Extracted video ID: $videoId")
-            val baseUrl = getBaseUrl(url)
+            
+            // Dynamic URL management - fetch latest cherry URL
+            val latestUrl = getLatestUrl(url, "cherry")
+            val oldBaseUrl = getBaseUrl(url)
+            val newUrl = url.replace(oldBaseUrl, latestUrl)
+            val baseUrl = latestUrl
+            
             val headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
-                "Referer" to url,
+                "Referer" to newUrl,
                 "Accept" to "*/*",
                 "Origin" to baseUrl
             )
