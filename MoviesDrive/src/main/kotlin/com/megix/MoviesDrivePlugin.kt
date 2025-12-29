@@ -1,7 +1,6 @@
 package com.megix
 
 import android.content.Context
-import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 
@@ -13,7 +12,6 @@ class MoviesDrive: Plugin() {
         registerExtractorAPI(GDFlix())
         registerExtractorAPI(GDLink())
         registerExtractorAPI(GDFlixNet())
-        registerExtractorAPI(GDFlixDev())  // New: gdflix.dev domain support
         registerExtractorAPI(HubCloud())
 
     }
