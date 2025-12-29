@@ -98,8 +98,22 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             "$mainUrl/${request.data}" + "page/$page/"
         }
         
-        // Use CloudflareKiller to bypass Cloudflare protection
-        val document = app.get(url, interceptor = cfKiller).document
+        // Try normal request first, use CloudflareKiller only if needed
+        val document = try {
+            val response = app.get(url)
+            // Check if we got Cloudflare challenge page
+            if (response.text.contains("Checking your browser", ignoreCase = true) ||
+                response.text.contains("Cloudflare", ignoreCase = true) && 
+                response.text.contains("challenge", ignoreCase = true)) {
+                Log.d("MultiMovies", "Cloudflare detected, using CloudflareKiller...")
+                app.get(url, interceptor = cfKiller).document
+            } else {
+                response.document
+            }
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "Error loading page, trying with CloudflareKiller: ${e.message}")
+            app.get(url, interceptor = cfKiller).document
+        }
 
         val home = when {
             // For movies listing page
@@ -191,7 +205,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d("MultiMovies", "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
+        // Try without CloudflareKiller first for better performance
+        val document = try {
+            app.get("$mainUrl/?s=$query").document
+        } catch (e: Exception) {
+            Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
+            app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
+        }
 
         return document.select("div.result-item").mapNotNull { result ->
             // Extract title with multiple fallback selectors
@@ -348,7 +368,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
         override suspend fun load(url: String): LoadResponse? {
-            val doc = app.get(url, interceptor = cfKiller).document
+            // Try without CloudflareKiller first
+            val doc = try {
+                app.get(url).document
+            } catch (e: Exception) {
+                Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
+                app.get(url, interceptor = cfKiller).document
+            }
             val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
             var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
             if (poster.isNullOrBlank()) {
@@ -445,7 +471,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
         } else {
             // Handle movies - data is URL
-            val document = app.get(data, interceptor = cfKiller).document
+            val document = try {
+                app.get(data).document
+            } catch (e: Exception) {
+                Log.d("MultiMovies", "Normal request failed, using CloudflareKiller")
+                app.get(data, interceptor = cfKiller).document
+            }
 
             // Extract player options (excluding trailer)
             document.select("ul#playeroptionsul > li")
@@ -478,15 +509,28 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 .addEncoded("type", type)
                 .build()
 
-            val response = app.post(
-                "$mainUrl/wp-admin/admin-ajax.php",
-                requestBody = requestBody,
-                headers = mapOf(
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to mainUrl
-                ),
-                interceptor = cfKiller
-            ).parsedSafe<ResponseHash>()
+            // Try without CloudflareKiller first - AJAX endpoints usually don't have Cloudflare
+            val response = try {
+                app.post(
+                    "$mainUrl/wp-admin/admin-ajax.php",
+                    requestBody = requestBody,
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to mainUrl
+                    )
+                ).parsedSafe<ResponseHash>()
+            } catch (e: Exception) {
+                Log.d("MultiMovies", "Normal AJAX failed, using CloudflareKiller")
+                app.post(
+                    "$mainUrl/wp-admin/admin-ajax.php",
+                    requestBody = requestBody,
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to mainUrl
+                    ),
+                    interceptor = cfKiller
+                ).parsedSafe<ResponseHash>()
+            }
 
             val embedUrl = response?.embed_url
             Log.d("MultiMovies", "Got embed URL from API: $embedUrl")
