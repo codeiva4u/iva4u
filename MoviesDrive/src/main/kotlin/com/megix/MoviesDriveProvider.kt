@@ -31,7 +31,7 @@ import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl = "https://moviesdrive.mom"
+    override var mainUrl = "https://moviesdrive.forum"
     override var name = "MoviesDrive"
     override val hasMainPage = true
     override var lang = "hi"
@@ -114,7 +114,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
-        var title = document.select("meta[property=og:title]").attr("content").replace("Download ", "")
+        var title = document.select("title").text().replace("Download ", "")
         val ogTitle = title
         val plotElement = document.select(
             "h2:contains(Storyline), h3:contains(Storyline), h5:contains(Storyline), h4:contains(Storyline), h4:contains(STORYLINE)"
@@ -127,9 +127,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
 
         val tvtype = if (
-            title.contains("Episode", ignoreCase = true) ||
-            seasonRegex.containsMatchIn(title) ||
-            title.contains("series", ignoreCase = true)
+            title.contains("Episode", ignoreCase = true) || seasonRegex.containsMatchIn(title) || title.contains("series", ignoreCase = true)
         ) {
             "series"
         } else {
@@ -140,8 +138,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val jsonResponse = app.get("$cinemetaUrl/$tvtype/$imdbId.json").text
         val responseData = tryParseJson<ResponseData>(jsonResponse)
 
-        var cast = emptyList<String>()
-        var genre = emptyList<String>()
+        var cast: List<String> = emptyList()
+        var genre: List<String> = emptyList()
         var imdbRating = ""
         var year = ""
         var background: String = posterUrl
