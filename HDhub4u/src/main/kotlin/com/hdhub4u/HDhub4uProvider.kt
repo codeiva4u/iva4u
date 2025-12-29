@@ -63,7 +63,7 @@ class HDhub4uProvider : MainAPI() {
         val basemainUrl: String? by lazy {
             runBlocking {
                 try {
-                    val response = app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json")
+                    val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
                     val json = response.text
                     val jsonObject = JSONObject(json)
                     jsonObject.optString("hdhub4u")

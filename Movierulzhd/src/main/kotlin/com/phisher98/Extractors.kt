@@ -25,7 +25,7 @@ fun getBaseUrl(url: String): String {
 
 suspend fun getLatestUrl(url: String, source: String): String {
     val link = JSONObject(
-        app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json").text
+        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
     ).optString(source)
     if (link.isNullOrEmpty()) {
         return getBaseUrl(url)
