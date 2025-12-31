@@ -1,0 +1,45 @@
+> Task :Cinevood:preBuild UP-TO-DATE
+> Task :Cinevood:preDebugBuild UP-TO-DATE
+> Task :Cinevood:mergeDebugJniLibFolders UP-TO-DATE
+> Task :Cinevood:mergeDebugNativeLibs NO-SOURCE
+> Task :Cinevood:stripDebugDebugSymbols NO-SOURCE
+> Task :Cinevood:copyDebugJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :Cinevood:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Cinevood:generateDebugResValues UP-TO-DATE
+> Task :Cinevood:generateDebugResources UP-TO-DATE
+> Task :Cinevood:packageDebugResources UP-TO-DATE
+> Task :Cinevood:parseDebugLocalResources UP-TO-DATE
+> Task :Cinevood:generateDebugRFile UP-TO-DATE
+> Task :Cinevood:extractDeepLinksForAarDebug UP-TO-DATE
+> Task :Cinevood:javaPreCompileDebug UP-TO-DATE
+> Task :Cinevood:mergeDebugShaders UP-TO-DATE
+> Task :Cinevood:compileDebugShaders NO-SOURCE
+> Task :Cinevood:generateDebugAssets UP-TO-DATE
+> Task :Cinevood:packageDebugAssets UP-TO-DATE
+> Task :Cinevood:prepareDebugArtProfile UP-TO-DATE
+> Task :Cinevood:prepareLintJarForPublish UP-TO-DATE
+> Task :Cinevood:processDebugManifest UP-TO-DATE
+> Task :Cinevood:writeDebugAarMetadata UP-TO-DATE
+
+> Task :Cinevood:compileDebugKotlin FAILED
+e: file:///C:/Users/Admin/StudioProjects/iva4u/Cinevood/src/main/kotlin/com/cinevood/Extractor.kt:179:29 'constructor(source: String, name: String, url: String, referer: String, quality: Int, type: ExtractorLinkType?, headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+e: file:///C:/Users/Admin/StudioProjects/iva4u/Cinevood/src/main/kotlin/com/cinevood/Extractor.kt:201:29 'constructor(source: String, name: String, url: String, referer: String, quality: Int, type: ExtractorLinkType?, headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+e: file:///C:/Users/Admin/StudioProjects/iva4u/Cinevood/src/main/kotlin/com/cinevood/Extractor.kt:213:29 'constructor(source: String, name: String, url: String, referer: String, quality: Int, type: ExtractorLinkType?, headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+e: file:///C:/Users/Admin/StudioProjects/iva4u/Cinevood/src/main/kotlin/com/cinevood/Extractor.kt:225:29 'constructor(source: String, name: String, url: String, referer: String, quality: Int, type: ExtractorLinkType?, headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+e: file:///C:/Users/Admin/StudioProjects/iva4u/Cinevood/src/main/kotlin/com/cinevood/Extractor.kt:293:21 'constructor(source: String, name: String, url: String, referer: String, quality: Int, type: ExtractorLinkType?, headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':Cinevood:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s
+16 actionable tasks: 1 executed, 15 up-to-date

@@ -174,7 +174,7 @@ open class Movierulzhd : MainAPI() {
         val ratingText = document.selectFirst("span.dt_rating_vgs")?.text()
         val score = try { 
             ratingText?.toDoubleOrNull()?.let { Score.from10(it) }
-        } catch (e: Exception) { 
+        } catch (_: Exception) {
             null 
         }
         val actors = document.select("div.persons > div[itemprop=actor]").map {

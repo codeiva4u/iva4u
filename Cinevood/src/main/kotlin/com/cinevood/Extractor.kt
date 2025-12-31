@@ -3,11 +3,12 @@ package com.cinevood
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
@@ -15,8 +16,10 @@ import java.net.URI
 // ==================== Utility Functions ====================
 
 fun getBaseUrl(url: String): String {
-    return URI(url).let {
-        "${it.scheme}://${it.host}"
+    return try {
+        URI(url).let { "${it.scheme}://${it.host}" }
+    } catch (_: Exception) {
+        url.substringBefore("/", url)
     }
 }
 
@@ -25,27 +28,15 @@ suspend fun getLatestUrl(url: String, source: String): String {
         val link = JSONObject(
             app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
         ).optString(source)
-        if (link.isNullOrEmpty()) {
-            getBaseUrl(url)
-        } else {
-            link
-        }
-    } catch (e: Exception) {
+        if (link.isNullOrEmpty()) getBaseUrl(url) else link
+    } catch (_: Exception) {
         getBaseUrl(url)
     }
 }
-
-// ==================== OxxFile Extractor ====================
-/**
- * OxxFile Extractor - oxxfile.info से HubCloud और Filepress लिंक निकालता है
- * 
- * यह Next.js based file-sharing site है जो download buttons में
- * HubCloud और Filepress links provide करती है
- */
 class OxxFileExtractor : ExtractorApi() {
     override val name = "OxxFile"
     override val mainUrl = "https://oxxfile.info"
-    override val requiresReferer = true
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -54,102 +45,82 @@ class OxxFileExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("OxxFile", "Extracting from: $url")
+            Log.d("Cinevood-OxxFile", "Extracting from: $url")
             
-            val document = app.get(url, referer = referer).document
+            // Method 1: Direct fetch और HTML parsing
+            val document = app.get(url).document
+            
+            // Extract all links from page body
+            val allLinks = document.select("a[href], button[data-url], [data-link]").mapNotNull { element ->
+                element.attr("href").ifBlank { 
+                    element.attr("data-url").ifBlank { 
+                        element.attr("data-link") 
+                    }
+                }
+            }.filter { it.isNotBlank() }
+            
+            Log.d("Cinevood-OxxFile", "Found ${allLinks.size} links in HTML")
+            
+            // Method 2: HTML body से regex से URLs extract करें
             val bodyHtml = document.body().html()
             
-            // Method 1: Look for HubCloud links in HTML
+            // HubCloud URLs खोजें
             val hubcloudRegex = Regex("""(https?://[^\s"'<>]*hubcloud[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            val hubcloudMatches = hubcloudRegex.findAll(bodyHtml)
+            val hubcloudUrls = hubcloudRegex.findAll(bodyHtml).map { it.groupValues[1] }.toSet()
             
-            for (match in hubcloudMatches) {
-                val hubcloudUrl = match.groupValues[1]
-                Log.d("OxxFile", "Found HubCloud URL: $hubcloudUrl")
-                HubCloudExtractor().getUrl(hubcloudUrl, url, subtitleCallback, callback)
+            if (hubcloudUrls.isNotEmpty()) {
+                Log.d("Cinevood-OxxFile", "Found ${hubcloudUrls.size} HubCloud URLs")
+                hubcloudUrls.forEach { hubcloudUrl ->
+                    val cleanUrl = hubcloudUrl.replace("\\u002F", "/").replace("\\", "")
+                    Log.d("Cinevood-OxxFile", "Processing HubCloud: $cleanUrl")
+                    HubCloudExtractor().getUrl(cleanUrl, url, subtitleCallback, callback)
+                }
             }
             
-            // Method 2: Look for Filepress links
+            // Filepress URLs खोजें
             val filepressRegex = Regex("""(https?://[^\s"'<>]*filepress[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            val filepressMatches = filepressRegex.findAll(bodyHtml)
+            val filepressUrls = filepressRegex.findAll(bodyHtml).map { it.groupValues[1] }.toSet()
             
-            for (match in filepressMatches) {
-                val filepressUrl = match.groupValues[1]
-                Log.d("OxxFile", "Found Filepress URL: $filepressUrl")
-                FilepressExtractor().getUrl(filepressUrl, url, subtitleCallback, callback)
-            }
-            
-            // Method 3: Look for download buttons with onclick or data-link attributes
-            document.select("button[onclick], a[data-link], [data-url]").forEach { element ->
-                val onclick = element.attr("onclick")
-                val dataLink = element.attr("data-link").ifBlank { element.attr("data-url") }
-                
-                val linkUrl = when {
-                    dataLink.isNotBlank() -> dataLink
-                    onclick.contains("hubcloud", ignoreCase = true) -> {
-                        Regex("""['"]([^'"]*hubcloud[^'"]*)['""]""").find(onclick)?.groupValues?.get(1)
-                    }
-                    onclick.contains("filepress", ignoreCase = true) -> {
-                        Regex("""['"]([^'"]*filepress[^'"]*)['""]""").find(onclick)?.groupValues?.get(1)
-                    }
-                    else -> null
-                }
-                
-                linkUrl?.let { extractedUrl ->
-                    when {
-                        extractedUrl.contains("hubcloud", ignoreCase = true) -> {
-                            Log.d("OxxFile", "Found HubCloud from button: $extractedUrl")
-                            HubCloudExtractor().getUrl(extractedUrl, url, subtitleCallback, callback)
-                        }
-                        extractedUrl.contains("filepress", ignoreCase = true) -> {
-                            Log.d("OxxFile", "Found Filepress from button: $extractedUrl")
-                            FilepressExtractor().getUrl(extractedUrl, url, subtitleCallback, callback)
-                        }
-                    }
+            if (filepressUrls.isNotEmpty()) {
+                Log.d("Cinevood-OxxFile", "Found ${filepressUrls.size} Filepress URLs")
+                filepressUrls.forEach { filepressUrl ->
+                    val cleanUrl = filepressUrl.replace("\\u002F", "/").replace("\\", "")
+                    Log.d("Cinevood-OxxFile", "Processing Filepress: $cleanUrl")
+                    FilepressExtractor().getUrl(cleanUrl, url, subtitleCallback, callback)
                 }
             }
             
-            // Method 4: Check for API endpoints that might return links
-            val apiRegex = Regex("""['"](/api/[^'"]+)['"]""")
-            apiRegex.findAll(bodyHtml).forEach { match ->
-                val apiPath = match.groupValues[1]
-                try {
-                    val apiUrl = getBaseUrl(url) + apiPath
-                    val apiResponse = app.get(apiUrl, referer = url).text
-                    
-                    // Parse JSON response for links
-                    if (apiResponse.startsWith("{") || apiResponse.startsWith("[")) {
-                        val hubcloudApiMatch = hubcloudRegex.find(apiResponse)
-                        hubcloudApiMatch?.let {
-                            Log.d("OxxFile", "Found HubCloud from API: ${it.groupValues[1]}")
-                            HubCloudExtractor().getUrl(it.groupValues[1], url, subtitleCallback, callback)
-                        }
-                        
-                        val filepressApiMatch = filepressRegex.find(apiResponse)
-                        filepressApiMatch?.let {
-                            Log.d("OxxFile", "Found Filepress from API: ${it.groupValues[1]}")
-                            FilepressExtractor().getUrl(it.groupValues[1], url, subtitleCallback, callback)
-                        }
+            // Method 3: Script tags में embedded URLs
+            document.select("script").forEach { script ->
+                val scriptContent = script.html()
+                
+                // HubCloud in scripts
+                hubcloudRegex.findAll(scriptContent).forEach { match ->
+                    val hubUrl = match.groupValues[1].replace("\\u002F", "/").replace("\\", "")
+                    if (hubUrl.startsWith("http")) {
+                        Log.d("Cinevood-OxxFile", "Found HubCloud in script: $hubUrl")
+                        HubCloudExtractor().getUrl(hubUrl, url, subtitleCallback, callback)
                     }
-                } catch (e: Exception) {
-                    Log.d("OxxFile", "API call failed: ${e.message}")
+                }
+                
+                // Filepress in scripts  
+                filepressRegex.findAll(scriptContent).forEach { match ->
+                    val fpUrl = match.groupValues[1].replace("\\u002F", "/").replace("\\", "")
+                    if (fpUrl.startsWith("http")) {
+                        Log.d("Cinevood-OxxFile", "Found Filepress in script: $fpUrl")
+                        FilepressExtractor().getUrl(fpUrl, url, subtitleCallback, callback)
+                    }
                 }
             }
             
         } catch (e: Exception) {
-            Log.e("OxxFile", "Extraction error: ${e.message}")
+            Log.e("Cinevood-OxxFile", "Extraction error: ${e.message}")
             e.printStackTrace()
         }
     }
 }
 
 // ==================== HubCloud Extractor ====================
-/**
- * HubCloud Extractor - HubCloud से actual video/download links निकालता है
- * 
- * यह HDhub4u plugin के HubCloud extractor पर based है
- * Multiple server options (FSL, BuzzServer, Pixeldrain, etc.) support करता है
- */
 class HubCloudExtractor : ExtractorApi() {
     override val name = "HubCloud"
     override val mainUrl = "https://hubcloud.day"
@@ -162,213 +133,98 @@ class HubCloudExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("HubCloud", "Extracting from: $url")
+            Log.d("Cinevood-HubCloud", "Extracting from: $url")
             
-            // Validate URL
-            val realUrl = url.takeIf {
-                try { URI(it).toURL(); true } catch (e: Exception) { false }
-            } ?: return
+            val document = app.get(url).document
             
-            // Dynamic URL management - fetch latest hubcloud URL
-            val latestUrl = getLatestUrl(realUrl, "hubcloud")
-            val baseUrl = getBaseUrl(realUrl)
-            val newUrl = realUrl.replace(baseUrl, latestUrl)
+            // Check for "Generate Direct Download Link" or similar button
+            val redirectButton = document.selectFirst("a#download, a:contains(Generate Direct Download Link)")
+            val redirectUrl = redirectButton?.attr("href")
             
-            // Get the download page URL
-            val href = try {
-                if ("hubcloud.php" in newUrl) {
-                    newUrl
-                } else {
-                    val rawHref = app.get(newUrl).document.select("#download, .download-btn, a[href*='hubcloud.php']").attr("href")
-                    if (rawHref.startsWith("http", ignoreCase = true)) {
-                        rawHref
-                    } else if (rawHref.isNotBlank()) {
-                        latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
-                    } else {
-                        newUrl
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("HubCloud", "Failed to extract href: ${e.message}")
-                newUrl
+            val targetUrl = if (!redirectUrl.isNullOrBlank() && redirectUrl.startsWith("http")) {
+                Log.d("Cinevood-HubCloud", "Found redirect URL: $redirectUrl")
+                redirectUrl
+            } else {
+                url
             }
+
+            // 2. Fetch the target page (gamerxyt)
+            val targetDoc = app.get(targetUrl).document
             
-            val document = app.get(href).document
-            val size = document.selectFirst("i#size, .file-size")?.text().orEmpty()
-            val header = document.selectFirst("div.card-header, .file-name, h1, h2")?.text().orEmpty()
-            
-            val headerDetails = cleanTitle(header)
-            val labelExtras = buildString {
-                if (headerDetails.isNotEmpty()) append("[$headerDetails]")
-                if (size.isNotEmpty()) append("[$size]")
-            }
-            val quality = getIndexQuality(header)
-            
-            // Extract download buttons
-            document.select("div.card-body h2 a.btn, .download-links a, a.btn[href]").forEach { element ->
-                val link = element.attr("href")
+            targetDoc.select("a[href]").forEach { element ->
+                val href = element.attr("href")
                 val text = element.text()
                 
-                Log.d("HubCloud", "Processing button: $text -> $link")
+                if (href.isBlank() || href.startsWith("javascript:")) return@forEach
                 
+                // Classify link based on text or domain
                 when {
-                    text.contains("FSL Server", ignoreCase = true) -> {
+                    text.contains("FSL", ignoreCase = true) -> {
                         callback.invoke(
                             newExtractorLink(
-                                "Cinevood [FSL Server]",
-                                "Cinevood [FSL Server] $labelExtras",
-                                link,
-                            ) { this.quality = quality }
-                        )
-                    }
-                    
-                    text.contains("Download File", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "Cinevood",
-                                "Cinevood $labelExtras",
-                                link,
-                            ) { this.quality = quality }
-                        )
-                    }
-                    
-                    text.contains("BuzzServer", ignoreCase = true) -> {
-                        try {
-                            val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                            val dlink = buzzResp.headers["hx-redirect"].orEmpty()
-                            if (dlink.isNotBlank()) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "Cinevood [BuzzServer]",
-                                        "Cinevood [BuzzServer] $labelExtras",
-                                        dlink,
-                                    ) { this.quality = quality }
-                                )
+                                "HubCloud-FSL",
+                                "HubCloud-FSL",
+                                href,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.quality = Qualities.Unknown.value
                             }
-                        } catch (e: Exception) {
-                            Log.w("HubCloud", "BuzzServer extraction failed: ${e.message}")
-                        }
-                    }
-                    
-                    text.contains("pixeldra", ignoreCase = true) || text.contains("pixel", ignoreCase = true) -> {
-                        val baseUrlLink = getBaseUrl(link)
-                        val finalURL = if (link.contains("download", true)) link
-                        else "$baseUrlLink/api/file/${link.substringAfterLast("/")}"
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "Pixeldrain",
-                                "Pixeldrain $labelExtras",
-                                finalURL
-                            ) { this.quality = quality }
                         )
                     }
-                    
-                    text.contains("S3 Server", ignoreCase = true) -> {
-                        callback.invoke(
+                    href.contains("pixeldrain", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
+                         val pdUrl = if (href.contains("/u/")) {
+
+                             val id = href.substringAfter("/u/")
+                             "https://pixeldrain.com/api/file/$id"
+                         } else {
+                             href
+                         }
+                         callback.invoke(
                             newExtractorLink(
-                                "Cinevood [S3 Server]",
-                                "Cinevood [S3 Server] $labelExtras",
-                                link,
-                            ) { this.quality = quality }
-                        )
-                    }
-                    
-                    text.contains("10Gbps", ignoreCase = true) -> {
-                        try {
-                            var currentLink = link
-                            var redirectCount = 0
-                            val maxRedirects = 3
-                            
-                            while (redirectCount < maxRedirects) {
-                                val response = app.get(currentLink, allowRedirects = false)
-                                val redirectUrl = response.headers["location"] ?: break
-                                
-                                if ("link=" in redirectUrl) {
-                                    val finalLink = redirectUrl.substringAfter("link=")
-                                    callback.invoke(
-                                        newExtractorLink(
-                                            "10Gbps [Download]",
-                                            "10Gbps [Download] $labelExtras",
-                                            finalLink
-                                        ) { this.quality = quality }
-                                    )
-                                    break
-                                }
-                                
-                                currentLink = redirectUrl
-                                redirectCount++
+                                "HubCloud-PixelDrain",
+                                "HubCloud-PixelDrain",
+                                pdUrl,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.quality = Qualities.Unknown.value
                             }
-                        } catch (e: Exception) {
-                            Log.e("HubCloud", "10Gbps extraction failed: ${e.message}")
-                        }
+                        )
                     }
-                    
-                    link.isNotBlank() && (link.endsWith(".mp4") || link.endsWith(".mkv") || link.contains(".m3u8")) -> {
-                        val linkType = if (link.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        callback.invoke(
+                    text.contains("ZipDisk", ignoreCase = true) || href.contains("workers.dev", ignoreCase = true) -> {
+                         callback.invoke(
                             newExtractorLink(
-                                "Cinevood [Direct]",
-                                "Cinevood [Direct] $labelExtras",
-                                link,
-                                linkType
-                            ) { this.quality = quality }
+                                "HubCloud-ZipDisk",
+                                "HubCloud-ZipDisk",
+                                href,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
+                    href.endsWith(".mkv") || href.endsWith(".mp4") -> {
+                         callback.invoke(
+                            newExtractorLink(
+                                "HubCloud-Direct",
+                                "HubCloud-Direct",
+                                href,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                            }
                         )
                     }
                 }
             }
-            
-            // Fallback: Find any direct video links in page
-            val videoRegex = Regex("""(https?://[^\s"'<>]+\.(mp4|mkv|m3u8)[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            videoRegex.findAll(document.body().html()).forEach { match ->
-                val videoUrl = match.groupValues[1]
-                val linkType = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                callback.invoke(
-                    newExtractorLink(
-                        "Cinevood [Auto]",
-                        "Cinevood [Auto] $labelExtras",
-                        videoUrl,
-                        linkType
-                    ) { this.quality = quality }
-                )
-            }
-            
+
         } catch (e: Exception) {
-            Log.e("HubCloud", "Extraction error: ${e.message}")
+            Log.e("Cinevood-HubCloud", "Extraction error: ${e.message}")
             e.printStackTrace()
-        }
-    }
-    
-    private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
-    }
-    
-    private fun cleanTitle(title: String): String {
-        val parts = title.split(".", "-", "_")
-        val qualityTags = listOf(
-            "WEBRip", "WEB-DL", "WEB", "BluRay", "HDRip", "DVDRip", "HDTV",
-            "CAM", "TS", "R5", "DVDScr", "BRRip", "BDRip", "DVD", "PDTV", "HD"
-        )
-        
-        val startIndex = parts.indexOfFirst { part ->
-            qualityTags.any { tag -> part.contains(tag, ignoreCase = true) }
-        }
-        
-        return if (startIndex != -1) {
-            parts.subList(startIndex, minOf(startIndex + 4, parts.size)).joinToString(".")
-        } else {
-            parts.takeLast(3).joinToString(".")
         }
     }
 }
 
 // ==================== Filepress Extractor ====================
-/**
- * Filepress Extractor - Filepress से video source निकालता है
- * 
- * M3U8 और direct video URLs दोनों support करता है
- */
 class FilepressExtractor : ExtractorApi() {
     override val name = "Filepress"
     override val mainUrl = "https://filepress.store"
@@ -381,98 +237,50 @@ class FilepressExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("Filepress", "Extracting from: $url")
+            Log.d("Cinevood-Filepress", "Extracting from: $url")
+
+            val videoUrl = if (url.contains("/file/")) {
+                url.replace("/file/", "/video/")
+            } else {
+                url
+            }
             
-            val document = app.get(url, referer = referer).document
+            Log.d("Cinevood-Filepress", "Video Page URL: $videoUrl")
             
-            // Method 1: Look for video source in HTML
-            val videoSrc = document.select("source[src], video source").firstOrNull()?.attr("src")
+             val request = app.get(
+                videoUrl,
+                referer = referer ?: mainUrl,
+                interceptor = WebViewResolver(
+                    // Capture common video patterns
+                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|.*\.mp4|.*\.mkv|.*streamwish.*|.*dood.*)""")
+                )
+            )
             
-            if (!videoSrc.isNullOrBlank()) {
-                val linkType = if (videoSrc.contains("m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                callback.invoke(
+            val capturedUrl = request.url
+            Log.d("Cinevood-Filepress", "WebView captured: $capturedUrl")
+            
+            if (capturedUrl.contains("m3u8") || capturedUrl.endsWith(".mp4")) {
+                 callback.invoke(
                     newExtractorLink(
                         name,
-                        name,
-                        videoSrc,
-                        linkType
+                        "$name [Direct]",
+                        capturedUrl,
+                        if (capturedUrl.contains("m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     ) {
-                        this.referer = referer ?: url
+                        this.referer = referer ?: videoUrl
                         this.quality = Qualities.Unknown.value
                     }
                 )
-                return
+            } else if (capturedUrl.contains("streamwish") || capturedUrl.contains("dood")) {
+                // If we captured a hoster URL, delegate to its extractor
+                loadExtractor(capturedUrl, videoUrl, subtitleCallback, callback)
+            } else {
+
+                app.get(videoUrl).document
             }
-            
-            // Method 2: Look for video URL in scripts
-            val bodyHtml = document.body().html()
-            val videoRegex = Regex("""(https?://[^\s"'<>]+\.(mp4|mkv|m3u8)[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            
-            videoRegex.findAll(bodyHtml).forEach { match ->
-                val videoUrl = match.groupValues[1]
-                val linkType = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        videoUrl,
-                        linkType
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-            }
-            
-            // Method 3: Check for encoded URLs
-            val encodedRegex = Regex("""['"](aHR0c[A-Za-z0-9+/=]+)['"]""")
-            encodedRegex.findAll(bodyHtml).forEach { match ->
-                try {
-                    val decoded = base64Decode(match.groupValues[1])
-                    if (decoded.startsWith("http") && (decoded.contains(".mp4") || decoded.contains(".m3u8"))) {
-                        val linkType = if (decoded.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [Decoded]",
-                                decoded,
-                                linkType
-                            ) {
-                                this.referer = referer ?: url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.d("Filepress", "Base64 decode failed: ${e.message}")
-                }
-            }
-            
-            // Method 4: Look for download button/link
-            document.select("a[href*='download'], a.download-btn, button[onclick*='download']").forEach { element ->
-                val downloadUrl = element.attr("href").ifBlank {
-                    Regex("""['"]([^'"]+)['"]""").find(element.attr("onclick"))?.groupValues?.get(1)
-                }
-                
-                downloadUrl?.let { dUrl ->
-                    if (dUrl.startsWith("http")) {
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [Download]",
-                                dUrl,
-                                ExtractorLinkType.VIDEO
-                            ) {
-                                this.referer = referer ?: url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-                }
-            }
-            
+
         } catch (e: Exception) {
-            Log.e("Filepress", "Extraction error: ${e.message}")
+            Log.e("Cinevood-Filepress", "Extraction error: ${e.message}")
             e.printStackTrace()
         }
     }
