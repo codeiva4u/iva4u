@@ -13,8 +13,6 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
 
-// ==================== Utility Functions ====================
-
 fun getBaseUrl(url: String): String {
     return try {
         URI(url).let { "${it.scheme}://${it.host}" }
@@ -123,7 +121,7 @@ class OxxFileExtractor : ExtractorApi() {
 // ==================== HubCloud Extractor ====================
 class HubCloudExtractor : ExtractorApi() {
     override val name = "HubCloud"
-    override val mainUrl = "https://hubcloud.day"
+    override val mainUrl = "https://hubcloud.foo"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -134,13 +132,14 @@ class HubCloudExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Cinevood-HubCloud", "Extracting from: $url")
-            
+
             val document = app.get(url).document
-            
+
             // Check for "Generate Direct Download Link" or similar button
-            val redirectButton = document.selectFirst("a#download, a:contains(Generate Direct Download Link)")
+            val redirectButton =
+                document.selectFirst("a#download, a:contains(Generate Direct Download Link)")
             val redirectUrl = redirectButton?.attr("href")
-            
+
             val targetUrl = if (!redirectUrl.isNullOrBlank() && redirectUrl.startsWith("http")) {
                 Log.d("Cinevood-HubCloud", "Found redirect URL: $redirectUrl")
                 redirectUrl
@@ -150,13 +149,13 @@ class HubCloudExtractor : ExtractorApi() {
 
             // 2. Fetch the target page (gamerxyt)
             val targetDoc = app.get(targetUrl).document
-            
+
             targetDoc.select("a[href]").forEach { element ->
                 val href = element.attr("href")
                 val text = element.text()
-                
+
                 if (href.isBlank() || href.startsWith("javascript:")) return@forEach
-                
+
                 // Classify link based on text or domain
                 when {
                     text.contains("FSL", ignoreCase = true) -> {
@@ -171,15 +170,19 @@ class HubCloudExtractor : ExtractorApi() {
                             }
                         )
                     }
-                    href.contains("pixeldrain", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
-                         val pdUrl = if (href.contains("/u/")) {
 
-                             val id = href.substringAfter("/u/")
-                             "https://pixeldrain.com/api/file/$id"
-                         } else {
-                             href
-                         }
-                         callback.invoke(
+                    href.contains("pixeldrain", ignoreCase = true) || text.contains(
+                        "Pixel",
+                        ignoreCase = true
+                    ) -> {
+                        val pdUrl = if (href.contains("/u/")) {
+
+                            val id = href.substringAfter("/u/")
+                            "https://pixeldrain.com/api/file/$id"
+                        } else {
+                            href
+                        }
+                        callback.invoke(
                             newExtractorLink(
                                 "HubCloud-PixelDrain",
                                 "HubCloud-PixelDrain",
@@ -190,8 +193,12 @@ class HubCloudExtractor : ExtractorApi() {
                             }
                         )
                     }
-                    text.contains("ZipDisk", ignoreCase = true) || href.contains("workers.dev", ignoreCase = true) -> {
-                         callback.invoke(
+
+                    text.contains("ZipDisk", ignoreCase = true) || href.contains(
+                        "workers.dev",
+                        ignoreCase = true
+                    ) -> {
+                        callback.invoke(
                             newExtractorLink(
                                 "HubCloud-ZipDisk",
                                 "HubCloud-ZipDisk",
@@ -202,8 +209,9 @@ class HubCloudExtractor : ExtractorApi() {
                             }
                         )
                     }
+
                     href.endsWith(".mkv") || href.endsWith(".mp4") -> {
-                         callback.invoke(
+                        callback.invoke(
                             newExtractorLink(
                                 "HubCloud-Direct",
                                 "HubCloud-Direct",
@@ -227,7 +235,7 @@ class HubCloudExtractor : ExtractorApi() {
 // ==================== Filepress Extractor ====================
 class FilepressExtractor : ExtractorApi() {
     override val name = "Filepress"
-    override val mainUrl = "https://filepress.store"
+    override val mainUrl = "https://new3.filepress.cloud/"
     override val requiresReferer = true
 
     override suspend fun getUrl(
