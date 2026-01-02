@@ -12,8 +12,9 @@ class CineVoodPlugin: BasePlugin() {
         registerMainAPI(CinevoodProvider())
         
         // Register all video hosting extractors
-        registerExtractorAPI(Hubcloud())
-        registerExtractorAPI(Filepress())
+        registerExtractorAPI(HubCloud())
+        registerExtractorAPI(StreamWishExtractor())
+        registerExtractorAPI(DoodLaExtractor())
         // OxxFile is handled by CloudStream3's built-in extractors
 
     }

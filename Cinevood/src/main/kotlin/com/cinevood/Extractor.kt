@@ -1,27 +1,43 @@
 package com.cinevood
 
 import com.lagradost.api.Log
+import com.lagradost.cloudstream3.Prerelease
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.USER_AGENT
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.getAndUnpack
+import com.lagradost.cloudstream3.utils.getPacked
+import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
 import java.net.URI
 
-// Utility function to get base URL
 fun getBaseUrl(url: String): String {
-    return try {
-        URI(url).let { "${it.scheme}://${it.host}" }
-    } catch (_: Exception) {
-        ""
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
     }
 }
 
-// Hubcloud Extractor - Updated with gamerxyt.com support
-class Hubcloud : ExtractorApi() {
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = JSONObject(
+        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+    ).optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
+}
+
+class HubCloud : ExtractorApi() {
     override val name = "Hub-Cloud"
-    override val mainUrl = "https://hubcloud.foo"
+    override val mainUrl = "https://hubcloud.*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -30,195 +46,231 @@ class Hubcloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("Hubcloud", "Starting extraction for: $url")
-        
-        // Validate URL
+        val tag = "HubCloud"
         val realUrl = url.takeIf {
-            try { java.net.URI(it).toURL(); true } catch (_: Exception) { false }
+            try { URI(it).toURL(); true } catch (e: Exception) { Log.e(tag, "Invalid URL: ${e.message}"); false }
         } ?: return
 
-        try {
-            // Step 1: Get the hubcloud.php URL from drive page
-            val hubcloudPhpUrl = if (realUrl.contains("hubcloud.php")) {
-                realUrl
-            } else if (realUrl.contains("gamerxyt.com")) {
+        val baseUrl=getBaseUrl(realUrl)
+
+        val href = try {
+            if ("hubcloud.php" in realUrl) {
                 realUrl
             } else {
-                // Get download button href from drive page
-                val driveDoc = app.get(realUrl).document
-                val downloadHref = driveDoc.selectFirst("#download")?.attr("href")
-                    ?: driveDoc.selectFirst("a[href*=hubcloud.php]")?.attr("href")
-                    ?: driveDoc.selectFirst("a[href*=gamerxyt.com]")?.attr("href")
-                
-                if (downloadHref.isNullOrBlank()) {
-                    Log.e("Hubcloud", "No download button found")
-                    return
-                }
-                
-                Log.d("Hubcloud", "Found download href: $downloadHref")
-                downloadHref
-            }
-            
-            // Step 2: Parse the hubcloud.php/gamerxyt page for download links
-            Log.d("Hubcloud", "Fetching PHP page: $hubcloudPhpUrl")
-            val phpDoc = app.get(hubcloudPhpUrl).document
-            
-            // Extract file info
-            val header = phpDoc.selectFirst("div.card-header, h2.title, .file-name")?.text().orEmpty()
-            val size = phpDoc.selectFirst("i#size, .file-size, span:contains(Size)")?.text().orEmpty()
-            val quality = getIndexQuality(header)
-            val labelExtras = if (size.isNotEmpty()) "[$size]" else ""
-            
-            Log.d("Hubcloud", "File: $header, Size: $size")
-            
-            // Extract all download links from buttons
-            val downloadButtons = phpDoc.select("a.btn, a[href*=cdn.fsl], a[href*=fsl.firecdn], a[href*=pixel], a[href*=pixeldrain], a[href*=cloudserver], a[href*=hubcdn]")
-            
-            Log.d("Hubcloud", "Found ${downloadButtons.size} download buttons")
-            
-            downloadButtons.forEach { element ->
-                val link = element.attr("href")
-                val text = element.text().trim()
-                
-                if (link.isBlank() || link.startsWith("#") || link.contains("google.com/search")) {
-                    return@forEach
-                }
-                
-                Log.d("Hubcloud", "Processing button: $text -> $link")
-                
-                when {
-                    // FSLv2 Server
-                    text.contains("FSLv2", ignoreCase = true) || link.contains("fsl-buckets", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [FSLv2]",
-                                "$name [FSLv2] $labelExtras",
-                                link,
-                            ) {
-                                this.referer = hubcloudPhpUrl
-                                this.quality = quality
-                            }
-                        )
-                    }
-                    
-                    // FSL Server
-                    text.contains("FSL Server", ignoreCase = true) || link.contains("fsl.firecdn", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [FSL]",
-                                "$name [FSL] $labelExtras",
-                                link,
-                            ) {
-                                this.referer = hubcloudPhpUrl
-                                this.quality = quality
-                            }
-                        )
-                    }
-                    
-                    // 10Gbps Server - needs redirect following
-                    text.contains("10Gbps", ignoreCase = true) || link.contains("pixel.hubcdn", ignoreCase = true) -> {
-                        try {
-                            val finalLink = followRedirectsForLink(link)
-                            if (finalLink.isNotBlank()) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "$name [10Gbps]",
-                                        "$name [10Gbps] $labelExtras",
-                                        finalLink,
-                                    ) {
-                                        this.referer = hubcloudPhpUrl
-                                        this.quality = quality
-                                    }
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e("Hubcloud", "10Gbps redirect error: ${e.message}")
-                        }
-                    }
-                    
-                    // Pixeldrain
-                    text.contains("Pixel", ignoreCase = true) || link.contains("pixeldrain", ignoreCase = true) -> {
-                        val baseUrlLink = getBaseUrl(link)
-                        val finalURL = if (link.contains("download", true)) {
-                            link
-                        } else {
-                            "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
-                        }
-                        callback.invoke(
-                            newExtractorLink(
-                                "Pixeldrain",
-                                "Pixeldrain $labelExtras",
-                                finalURL,
-                            ) {
-                                this.referer = hubcloudPhpUrl
-                                this.quality = quality
-                            }
-                        )
-                    }
-                    
-                    // ZipDisk Server
-                    text.contains("ZipDisk", ignoreCase = true) || link.contains("cloudserver", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [ZipDisk]",
-                                "$name [ZipDisk] $labelExtras",
-                                link,
-                            ) {
-                                this.referer = hubcloudPhpUrl
-                                this.quality = quality
-                            }
-                        )
-                    }
+                val rawHref = app.get(realUrl).document.select("#download").attr("href")
+                if (rawHref.startsWith("http", ignoreCase = true)) {
+                    rawHref
+                } else {
+                    baseUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
-            
         } catch (e: Exception) {
-            Log.e("Hubcloud", "Extraction error: ${e.message}")
-            e.printStackTrace()
+            Log.e(tag, "Failed to extract href: ${e.message}")
+            ""
         }
-    }
-    
-    private suspend fun followRedirectsForLink(link: String): String {
-        var currentLink = link
-        var redirectCount = 0
-        val maxRedirects = 5
-        
-        while (redirectCount < maxRedirects) {
-            val response = app.get(currentLink, allowRedirects = false)
-            val redirectUrl = response.headers["location"]
-            
-            if (redirectUrl == null) {
-                return currentLink
-            }
-            
-            // Check if final link is in the redirect URL
-            if ("link=" in redirectUrl) {
-                return redirectUrl.substringAfter("link=")
-            }
-            
-            currentLink = if (redirectUrl.startsWith("http")) {
-                redirectUrl
-            } else {
-                getBaseUrl(currentLink) + redirectUrl
-            }
-            redirectCount++
+
+        if (href.isBlank()) {
+            Log.w(tag, "No valid href found")
+            return
         }
-        
-        return currentLink
+
+        val document = app.get(href).document
+        val size = document.selectFirst("i#size")?.text().orEmpty()
+        val header = document.selectFirst("div.card-header")?.text().orEmpty()
+
+        val headerDetails = cleanTitle(header)
+
+        val labelExtras = buildString {
+            if (headerDetails.isNotEmpty()) append("[$headerDetails]")
+            if (size.isNotEmpty()) append("[$size]")
+        }
+        val quality = getIndexQuality(header)
+
+        document.select("div.card-body h2 a.btn").amap { element ->
+            val link = element.attr("href")
+            val text = element.text()
+
+            when {
+                text.contains("FSL Server", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer [FSL Server]",
+                            "$referer [FSL Server] $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("Download File", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer",
+                            "$referer $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("BuzzServer", ignoreCase = true) -> {
+                    val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
+                    val dlink = buzzResp.headers["hx-redirect"].orEmpty()
+                    if (dlink.isNotBlank()) {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$referer [BuzzServer]",
+                                "$referer [BuzzServer] $labelExtras",
+                                dlink,
+                            ) { this.quality = quality }
+                        )
+                    } else {
+                        Log.w(tag, "BuzzServer: No redirect")
+                    }
+                }
+
+                text.contains("pixeldra", ignoreCase = true) || text.contains("pixel", ignoreCase = true) -> {
+                    val baseUrlLink = getBaseUrl(link)
+                    val finalURL = if (link.contains("download", true)) link
+                    else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+
+                    callback(
+                        newExtractorLink(
+                            "Pixeldrain",
+                            "Pixeldrain $labelExtras",
+                            finalURL
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("S3 Server", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer S3 Server",
+                            "$referer S3 Server $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("FSLv2", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer FSLv2",
+                            "$referer FSLv2 $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("Mega Server", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer [Mega Server]",
+                            "$referer [Mega Server] $labelExtras",
+                            link,
+                        ) { this.quality = quality }
+                    )
+                }
+
+                text.contains("10Gbps", ignoreCase = true) -> {
+                    var currentLink = link
+                    var redirectUrl: String?
+                    var redirectCount = 0
+                    val maxRedirects = 3
+
+                    while (redirectCount < maxRedirects) {
+                        val response = app.get(currentLink, allowRedirects = false)
+                        redirectUrl = response.headers["location"]
+
+                        if (redirectUrl == null) {
+                            Log.e(tag, "10Gbps: No redirect")
+                            return@amap
+                        }
+
+                        if ("link=" in redirectUrl) {
+                            val finalLink = redirectUrl.substringAfter("link=")
+                            callback.invoke(
+                                newExtractorLink(
+                                    "10Gbps [Download]",
+                                    "10Gbps [Download] $labelExtras",
+                                    finalLink
+                                ) { this.quality = quality }
+                            )
+                            return@amap
+                        }
+
+                        currentLink = redirectUrl
+                        redirectCount++
+                    }
+
+                    Log.e(tag, "10Gbps: Redirect limit reached ($maxRedirects)")
+                    return@amap
+                }
+
+                else -> {
+                    loadExtractor(link, "", subtitleCallback, callback)
+                }
+            }
+        }
     }
 
     private fun getIndexQuality(str: String?): Int {
         return Regex("(\\d{3,4})[pP]").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: com.lagradost.cloudstream3.utils.Qualities.Unknown.value
+            ?: Qualities.P2160.value
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    fun cleanTitle(title: String): String {
+        val parts = title.split(".", "-", "_")
+
+        val qualityTags = listOf(
+            "WEBRip", "WEB-DL", "WEB", "BluRay", "HDRip", "DVDRip", "HDTV",
+            "CAM", "TS", "R5", "DVDScr", "BRRip", "BDRip", "DVD", "PDTV",
+            "HD"
+        )
+
+        val audioTags = listOf(
+            "AAC", "AC3", "DTS", "MP3", "FLAC", "DD5", "EAC3", "Atmos"
+        )
+
+        val subTags = listOf(
+            "ESub", "ESubs", "Subs", "MultiSub", "NoSub", "EnglishSub", "HindiSub"
+        )
+
+        val codecTags = listOf(
+            "x264", "x265", "H264", "HEVC", "AVC"
+        )
+
+        val startIndex = parts.indexOfFirst { part ->
+            qualityTags.any { tag -> part.contains(tag, ignoreCase = true) }
+        }
+
+        val endIndex = parts.indexOfLast { part ->
+            subTags.any { tag -> part.contains(tag, ignoreCase = true) } ||
+                    audioTags.any { tag -> part.contains(tag, ignoreCase = true) } ||
+                    codecTags.any { tag -> part.contains(tag, ignoreCase = true) }
+        }
+
+        return if (startIndex != -1 && endIndex != -1 && endIndex >= startIndex) {
+            parts.subList(startIndex, endIndex + 1).joinToString(".")
+        } else if (startIndex != -1) {
+            parts.subList(startIndex, parts.size).joinToString(".")
+        } else {
+            parts.takeLast(3).joinToString(".")
+        }
     }
 }
 
-
-// Filepress Extractor - WebView-based with network monitoring for React SPA
-class Filepress : ExtractorApi() {
-    override val name = "Filepress"
-    override val mainUrl = "https://filepress.cloud"
-    override val requiresReferer = false
+open class StreamWishExtractor : ExtractorApi() {
+    override val name = "Streamwish"
+    override val mainUrl = "https://swhoi.com/"
+    override val requiresReferer = true
 
     override suspend fun getUrl(
         url: String,
@@ -226,146 +278,123 @@ class Filepress : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("Filepress", "Starting extraction for: $url")
-        
-        try {
-            val baseUrl = getBaseUrl(url)
-            
-            // Step 1: Get file ID from URL
-            val fileId = when {
-                url.contains("/file/") -> url.substringAfter("/file/").substringBefore("?").substringBefore("/")
-                url.contains("/video/") -> url.substringAfter("/video/").substringBefore("?").substringBefore("/")
-                else -> url.substringAfterLast("/").substringBefore("?")
+        val headers = mapOf(
+            "Accept" to "*/*",
+            "Connection" to "keep-alive",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "cross-site",
+            "Referer" to "$mainUrl/",
+            "Origin" to "$mainUrl/",
+            "User-Agent" to USER_AGENT
+        )
+
+        val pageResponse = app.get(resolveEmbedUrl(url), referer = referer)
+
+        val playerScriptData = when {
+            !getPacked(pageResponse.text).isNullOrEmpty() -> getAndUnpack(pageResponse.text)
+            pageResponse.document.select("script").any { it.html().contains("jwplayer(\"vplayer\").setup(") } ->
+                pageResponse.document.select("script").firstOrNull {
+                    it.html().contains("jwplayer(\"vplayer\").setup(")
+                }?.html()
+            else -> pageResponse.document.selectFirst("script:containsData(sources:)")?.data()
+        }
+
+        val directStreamUrl = playerScriptData?.let {
+            Regex("""file:\s*"(.*?m3u8.*?)"""").find(it)?.groupValues?.getOrNull(1)
+        }
+
+        if (!directStreamUrl.isNullOrEmpty()) {
+            M3u8Helper.generateM3u8(
+                name,
+                directStreamUrl,
+                mainUrl,
+                headers = headers
+            ).forEach(callback)
+        } else {
+            val webViewM3u8Resolver = WebViewResolver(
+                interceptUrl = Regex("""txt|m3u8"""),
+                additionalUrls = listOf(Regex("""txt|m3u8""")),
+                useOkhttp = false,
+                timeout = 15_000L
+            )
+
+            val interceptedStreamUrl = app.get(
+                url,
+                referer = referer,
+                interceptor = webViewM3u8Resolver
+            ).url
+
+            if (interceptedStreamUrl.isNotEmpty()) {
+                M3u8Helper.generateM3u8(
+                    name,
+                    interceptedStreamUrl,
+                    mainUrl,
+                    headers = headers
+                ).forEach(callback)
+            } else {
+                Log.d("StreamwishExtractor", "No m3u8 found in fallback either.")
             }
-            
-            if (fileId.isBlank()) {
-                Log.e("Filepress", "Could not extract file ID")
-                return
+        }
+    }
+
+    private fun resolveEmbedUrl(inputUrl: String): String {
+        return if (inputUrl.contains("/f/")) {
+            val videoId = inputUrl.substringAfter("/f/")
+            "$mainUrl/$videoId"
+        } else {
+            inputUrl
+        }
+    }
+}
+
+open class DoodLaExtractor : ExtractorApi() {
+    override var name = "DoodStream"
+    override var mainUrl = "https://dood.la"
+    override val requiresReferer = false
+
+    private val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val embedUrl = url.replace("/d/", "/e/")
+        val req = app.get(embedUrl)
+        val host = getBaseUrl(req.url)
+        val response0 = req.text
+        val md5 = host + (Regex("/pass_md5/[^']*").find(response0)?.value ?: return)
+        val trueUrl = app.get(md5, referer = req.url).text + createHashTable() + "?token=" + md5.substringAfterLast("/")
+        val quality = Regex("\\d{3,4}p")
+            .find(response0.substringAfter("<title>").substringBefore("</title>"))
+            ?.groupValues
+            ?.getOrNull(0)
+
+        callback.invoke(
+            newExtractorLink(
+                this.name,
+                this.name,
+                trueUrl,
+            ) {
+                this.referer = "$mainUrl/"
+                this.quality = getQualityFromName(quality)
             }
-            
-            Log.d("Filepress", "File ID: $fileId")
-            
-            // Step 2: Navigate to video page (this has the stream buttons)
-            val videoUrl = "$baseUrl/video/$fileId"
-            Log.d("Filepress", "Using video page: $videoUrl")
-            
-            // Method 1: Try to extract stream URLs from page source first (faster)
-            try {
-                val videoDoc = app.get(videoUrl).document
-                val pageHtml = videoDoc.html()
-                val scripts = videoDoc.select("script").map { it.html() }
-                
-                // Look for embedded stream URLs in JavaScript/JSON
-                val allScriptContent = scripts.joinToString("\n")
-                
-                // Pattern 1: Direct StreamWish/DoodStream URLs in JSON or variables
-                val streamUrlPatterns = listOf(
-                    // StreamWish variants
-                    Regex("""["']?(https?://(?:[^"'\s]*\.)?(?:streamwish|swhoi|wishembed|awish|streamwish\.to|streamwish\.com|embedwish)[^"'\s]*/(?:e|d|v)/[a-zA-Z0-9]+[^"'\s]*)["']?"""),
-                    // DoodStream variants  
-                    Regex("""["']?(https?://(?:[^"'\s]*\.)?(?:dood|doodstream|ds2play|doods|dood\.to|dood\.watch|dood\.pm)[^"'\s]*/(?:e|d)/[a-zA-Z0-9]+[^"'\s]*)["']?"""),
-                )
-                
-                for (pattern in streamUrlPatterns) {
-                    val matches = pattern.findAll(allScriptContent + pageHtml)
-                    for (match in matches) {
-                        val streamUrl = match.groupValues[1].trim('"', '\'', ',', ' ')
-                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
-                            Log.d("Filepress", "Found stream URL in scripts: $streamUrl")
-                            when {
-                                streamUrl.contains("streamwish", ignoreCase = true) ||
-                                streamUrl.contains("swhoi", ignoreCase = true) ||
-                                streamUrl.contains("wishembed", ignoreCase = true) -> {
-                                    loadExtractor(streamUrl, videoUrl, subtitleCallback, callback)
-                                }
-                                streamUrl.contains("dood", ignoreCase = true) -> {
-                                    loadExtractor(streamUrl, videoUrl, subtitleCallback, callback)
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Check for iframes
-                videoDoc.select("iframe[src]").forEach { iframe ->
-                    val iframeSrc = iframe.attr("src").let { src ->
-                        when {
-                            src.startsWith("//") -> "https:$src"
-                            src.startsWith("/") -> "$baseUrl$src"
-                            else -> src
-                        }
-                    }
-                    
-                    if (iframeSrc.isNotBlank() && 
-                        !iframeSrc.contains("google") && 
-                        !iframeSrc.contains("facebook") &&
-                        (iframeSrc.contains("streamwish", ignoreCase = true) || 
-                         iframeSrc.contains("dood", ignoreCase = true) ||
-                         iframeSrc.contains("swhoi", ignoreCase = true))) {
-                        Log.d("Filepress", "Found stream iframe: $iframeSrc")
-                        loadExtractor(iframeSrc, videoUrl, subtitleCallback, callback)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("Filepress", "Script extraction failed: ${e.message}")
+        )
+    }
+
+    private fun createHashTable(): String {
+        return buildString {
+            repeat(10) {
+                append(alphabet.random())
             }
-            
-            // Method 2: Fallback - Try /file/ page for direct links
-            try {
-                val filePageUrl = "$baseUrl/file/$fileId"
-                val fileDoc = app.get(filePageUrl).document
-                
-                // Sometimes file page has direct download links or watch links
-                fileDoc.select("a[href*=streamwish], a[href*=dood], a[href*=swhoi]").forEach { link ->
-                    val href = link.attr("href")
-                    if (href.isNotBlank()) {
-                        Log.d("Filepress", "Found link on file page: $href")
-                        loadExtractor(href, filePageUrl, subtitleCallback, callback)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d("Filepress", "File page check failed: ${e.message}")
-            }
-            
-            // Method 3: Check API endpoints (some React apps expose these)
-            try {
-                // Try common API patterns
-                val apiPatterns = listOf(
-                    "$baseUrl/api/file/$fileId",
-                    "$baseUrl/api/video/$fileId",
-                    "$baseUrl/api/stream/$fileId"
-                )
-                
-                for (apiUrl in apiPatterns) {
-                    try {
-                        val apiResponse = app.get(apiUrl).text
-                        // Look for stream URLs in JSON response
-                        val streamUrlPatterns = listOf(
-                            Regex("""["']?(?:url|link|stream|video)["']?\s*:\s*["'](https?://[^"']+)["']"""),
-                            Regex("""(https?://(?:[^"'\s]*\.)?(?:streamwish|swhoi|dood)[^"'\s]*/(?:e|d)/[a-zA-Z0-9]+)""")
-                        )
-                        
-                        for (pattern in streamUrlPatterns) {
-                            val matches = pattern.findAll(apiResponse)
-                            for (match in matches) {
-                                val streamUrl = match.groupValues[1]
-                                if (streamUrl.isNotBlank()) {
-                                    Log.d("Filepress", "Found stream URL in API: $streamUrl")
-                                    loadExtractor(streamUrl, videoUrl, subtitleCallback, callback)
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Skip failed API calls
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d("Filepress", "API check failed: ${e.message}")
-            }
-            
-        } catch (e: Exception) {
-            Log.e("Filepress", "Extraction error: ${e.message}")
-            e.printStackTrace()
+        }
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return URI(url).let {
+            "${it.scheme}://${it.host}"
         }
     }
 }

@@ -12,19 +12,18 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
+import java.util.Locale.getDefault
 
 class CinevoodProvider : MainAPI() {
     override var mainUrl: String = "https://1cinevood.codes"
@@ -154,12 +153,6 @@ class CinevoodProvider : MainAPI() {
         }
     }
 
-    // Data class for link information (Movierulzhd style)
-    data class LinkData(
-        val url: String,
-        val type: String,  // "hubcloud", "filepress", "other"
-        val name: String? = null
-    )
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
@@ -185,43 +178,45 @@ class CinevoodProvider : MainAPI() {
         // Extract tags/genres
         val tags = document.select(".entry-categories a, .post-categories a").map { it.text() }
 
-        // Extract download links with type classification (Movierulzhd style)
-        val linkDataList = mutableListOf<LinkData>()
-        
-        // Find all download links
-        document.select("a[href*='hubcloud'], a[href*='gamerxyt']").forEach { element ->
-            val href = element.attr("href")
-            val linkText = element.text().trim()
-            if (href.isNotBlank()) {
-                linkDataList.add(LinkData(href, "hubcloud", linkText.ifBlank { "Hubcloud" }))
-            }
-        }
-        
-        document.select("a[href*='filepress']").forEach { element ->
-            val href = element.attr("href")
-            val linkText = element.text().trim()
-            if (href.isNotBlank()) {
-                linkDataList.add(LinkData(href, "filepress", linkText.ifBlank { "Filepress" }))
-            }
-        }
-        
-        // Other extractable links
-        document.select("a[href*='streamwish'], a[href*='doodstream'], a[href*='dood.'], a[href*='swhoi']").forEach { element ->
-            val href = element.attr("href")
-            val linkText = element.text().trim()
-            if (href.isNotBlank()) {
-                linkDataList.add(LinkData(href, "other", linkText.ifBlank { "Stream" }))
-            }
-        }
+        // Extract ALL download links from entry-content area
+        val downloadLinks = mutableListOf<String>()
 
-        Log.d(TAG, "Found ${linkDataList.size} download links")
+        // Look for links in entry-content (main content area)
+        document.select(".entry-content a[href], .post-content a[href], article a[href]")
+            .forEach { element ->
+                val href = element.attr("href")
+                val text = element.text().lowercase(getDefault())
+
+                // Filter for download-related links
+                if (href.isNotBlank() && (
+                    href.contains("hubcloud", ignoreCase = true) ||
+                    href.contains("hubcdn", ignoreCase = true) ||
+                    href.contains("gamester", ignoreCase = true) ||
+                    href.contains("streamwish", ignoreCase = true) ||
+                    href.contains("swhoi", ignoreCase = true) ||
+                    href.contains("wishfast", ignoreCase = true) ||
+                    href.contains("streamvid", ignoreCase = true) ||
+                    href.contains("dood", ignoreCase = true) ||
+                    href.contains("doodstream", ignoreCase = true) ||
+                    href.contains("d0o0d", ignoreCase = true) ||
+                    href.contains("ds2play", ignoreCase = true) ||
+                    href.contains("do0od", ignoreCase = true) ||
+                    text.contains("download", ignoreCase = true) ||
+                    text.contains("watch", ignoreCase = true) ||
+                    text.contains("stream", ignoreCase = true)
+                )) {
+                    if (!downloadLinks.contains(href)) {
+                        downloadLinks.add(href)
+                    }
+                }
+            }
+
+        Log.d(TAG, "Total download links found: ${downloadLinks.size}")
+        downloadLinks.forEach { Log.d(TAG, "Link: $it") }
 
         val isSeries = rawTitle.contains("Season", ignoreCase = true) ||
                 rawTitle.contains("S0", ignoreCase = true) ||
                 rawTitle.contains("Episode", ignoreCase = true)
-
-        // Convert link data list to JSON for passing to loadLinks
-        val dataJson = linkDataList.toJson()
 
         return if (isSeries) {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, emptyList()) {
@@ -231,7 +226,9 @@ class CinevoodProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, dataJson) {
+            // Return as comma-separated string
+            val data = downloadLinks.joinToString(",")
+            newMovieLoadResponse(title, url, TvType.Movie, data) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -246,94 +243,80 @@ class CinevoodProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d(TAG, "Loading links from data: ${data.take(100)}...")
-        
+        Log.d(TAG, "Loading links from: $data")
+
         try {
-            // Try to parse as LinkData list (new format)
-            val linkDataList = try {
-                parseJson<List<LinkData>>(data)
-            } catch (e: Exception) {
-                // Fallback: Try old comma-separated format
-                null
-            }
-            
-            if (linkDataList != null && linkDataList.isNotEmpty()) {
-                // New Movierulzhd-style processing
-                Log.d(TAG, "Processing ${linkDataList.size} links (new format)")
-                
-                linkDataList.forEach { linkData ->
-                    try {
-                        when (linkData.type) {
-                            "hubcloud" -> {
-                                Log.d(TAG, "Processing Hubcloud: ${linkData.url}")
-                                Hubcloud().getUrl(linkData.url, mainUrl, subtitleCallback, callback)
-                            }
-                            
-                            "filepress" -> {
-                                Log.d(TAG, "Processing Filepress: ${linkData.url}")
-                                Filepress().getUrl(linkData.url, mainUrl, subtitleCallback, callback)
-                            }
-                            
-                            "other" -> {
-                                Log.d(TAG, "Processing other extractor: ${linkData.url}")
-                                loadExtractor(linkData.url, mainUrl, subtitleCallback, callback)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing link ${linkData.url}: ${e.message}")
-                    }
+            // Parse comma-separated links
+            val links = if (data.isBlank()) {
+                emptyList()
+            } else if (data.startsWith("http")) {
+                // Single URL or comma separated
+                if (data.contains(",")) {
+                    data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                } else {
+                    listOf(data)
                 }
             } else {
-                // Fallback: Old format - comma separated or direct URL
-                val links = if (data.startsWith("[")) {
-                    // Empty array or invalid JSON
-                    emptyList()
-                } else if (data.startsWith("http")) {
-                    // Single URL
-                    listOf(data)
-                } else {
-                    // Comma separated
-                    data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                }
-                
-                Log.d(TAG, "Processing ${links.size} links (legacy format)")
-                
-                links.forEach { link ->
-                    try {
-                        when {
-                            link.contains("hubcloud", ignoreCase = true) || 
-                            link.contains("gamerxyt", ignoreCase = true) -> {
-                                Log.d(TAG, "Using Hubcloud extractor for: $link")
-                                Hubcloud().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
-                            
-                            link.contains("filepress", ignoreCase = true) -> {
-                                Log.d(TAG, "Using Filepress extractor for: $link")
-                                Filepress().getUrl(link, mainUrl, subtitleCallback, callback)
-                            }
-                            
-                            else -> {
-                                Log.d(TAG, "Using generic extractor for: $link")
-                                loadExtractor(link, mainUrl, subtitleCallback, callback)
-                            }
+                // Comma separated
+                data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            }
+
+            Log.d(TAG, "Processing ${links.size} links")
+
+            links.forEach { link ->
+                try {
+                    Log.d(TAG, "Processing link: $link")
+
+                    when {
+                        // HubCloud patterns
+                        link.contains("hubcloud", ignoreCase = true) ||
+                        link.contains("hubcdn", ignoreCase = true) ||
+                        link.contains("gamester", ignoreCase = true) -> {
+                            Log.d(TAG, "Using HubCloud extractor")
+                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error loading link $link: ${e.message}")
+
+                        // StreamWish patterns
+                        link.contains("streamwish", ignoreCase = true) ||
+                        link.contains("swhoi", ignoreCase = true) ||
+                        link.contains("wishfast", ignoreCase = true) ||
+                        link.contains("streamvid", ignoreCase = true) -> {
+                            Log.d(TAG, "Using StreamWish extractor")
+                            StreamWishExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+
+                        // DoodStream patterns
+                        link.contains("dood", ignoreCase = true) ||
+                        link.contains("doodstream", ignoreCase = true) ||
+                        link.contains("d0o0d", ignoreCase = true) ||
+                        link.contains("ds2play", ignoreCase = true) ||
+                        link.contains("do0od", ignoreCase = true) -> {
+                            Log.d(TAG, "Using DoodStream extractor")
+                            DoodLaExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+
+                        else -> {
+                            Log.d(TAG, "Using generic extractor for: $link")
+                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading link $link: ${e.message}")
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in loadLinks: ${e.message}")
             e.printStackTrace()
         }
-        
+
         return true
     }
 
-    private fun cleanTitle(rawTitle: String): String {
-        // Remove year in parentheses and extra metadata
-        return rawTitle.replace(Regex("\\(\\d{4}\\)"), "")
-            .replace(Regex("\\[.*?]"), "")
+    private fun cleanTitle(title: String): String {
+        return title
+            .replace(Regex("\\(\\d{4}\\)"), "")
+            .replace(Regex("\\[.*?\\]"), "")
+            .replace(Regex("Download|Free|Full|Movie|HD|Watch", RegexOption.IGNORE_CASE), "")
             .trim()
     }
 }
