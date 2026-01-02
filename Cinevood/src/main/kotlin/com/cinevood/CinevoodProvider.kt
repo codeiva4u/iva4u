@@ -189,9 +189,11 @@ class CinevoodProvider : MainAPI() {
 
                 // Filter for download-related links
                 if (href.isNotBlank() && (
+                    href.contains("oxxfile", ignoreCase = true) ||
                     href.contains("hubcloud", ignoreCase = true) ||
                     href.contains("hubcdn", ignoreCase = true) ||
                     href.contains("gamester", ignoreCase = true) ||
+                    href.contains("gamerxyt", ignoreCase = true) ||
                     href.contains("streamwish", ignoreCase = true) ||
                     href.contains("swhoi", ignoreCase = true) ||
                     href.contains("wishfast", ignoreCase = true) ||
@@ -268,10 +270,17 @@ class CinevoodProvider : MainAPI() {
                     Log.d(TAG, "Processing link: $link")
 
                     when {
+                        // OxxFile patterns (primary for Cinevood)
+                        link.contains("oxxfile", ignoreCase = true) -> {
+                            Log.d(TAG, "Using OxxFile extractor")
+                            OxxFile().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+
                         // HubCloud patterns
                         link.contains("hubcloud", ignoreCase = true) ||
                         link.contains("hubcdn", ignoreCase = true) ||
-                        link.contains("gamester", ignoreCase = true) -> {
+                        link.contains("gamester", ignoreCase = true) ||
+                        link.contains("gamerxyt", ignoreCase = true) -> {
                             Log.d(TAG, "Using HubCloud extractor")
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                         }

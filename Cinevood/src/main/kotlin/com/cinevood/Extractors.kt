@@ -1,7 +1,6 @@
 package com.cinevood
 
 import com.lagradost.api.Log
-import com.lagradost.cloudstream3.Prerelease
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.amap
@@ -33,6 +32,76 @@ suspend fun getLatestUrl(url: String, source: String): String {
         return getBaseUrl(url)
     }
     return link
+}
+
+// OxxFile Extractor - handles oxxfile.info links from Cinevood
+class OxxFile : ExtractorApi() {
+    override val name = "OxxFile"
+    override val mainUrl = "https://new7.oxxfile.info"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "OxxFile"
+        Log.d(tag, "Processing OxxFile URL: $url")
+
+        try {
+            // Extract file ID from URL: https://new7.oxxfile.info/s/{fileId}
+            val fileId = Regex("/s/([a-zA-Z0-9]+)").find(url)?.groupValues?.get(1)
+            if (fileId.isNullOrEmpty()) {
+                Log.e(tag, "Failed to extract file ID from: $url")
+                return
+            }
+
+            Log.d(tag, "File ID: $fileId")
+
+            // Get HubCloud page from OxxFile API
+            val hubcloudPageUrl = "$mainUrl/api/s/$fileId/hubcloud"
+            Log.d(tag, "Fetching HubCloud page: $hubcloudPageUrl")
+
+            val hubcloudPage = app.get(hubcloudPageUrl).document
+
+            // Extract gamerxyt.com hubcloud.php link (direct download generator)
+            val hubcloudPhpLink = hubcloudPage.select("a[href*=gamerxyt.com/hubcloud.php]").attr("href")
+            if (hubcloudPhpLink.isNotBlank()) {
+                Log.d(tag, "Found hubcloud.php link: $hubcloudPhpLink")
+                // Use HubCloud extractor to process this link
+                HubCloud().getUrl(hubcloudPhpLink, referer, subtitleCallback, callback)
+                return
+            }
+
+            // Try to find hubcloud.foo/drive link
+            val hubcloudDriveLink = hubcloudPage.select("a[href*=hubcloud]").attr("href")
+                .takeIf { it.contains("hubcloud") && it.contains("drive") }
+            if (!hubcloudDriveLink.isNullOrBlank()) {
+                Log.d(tag, "Found HubCloud drive link: $hubcloudDriveLink")
+                HubCloud().getUrl(hubcloudDriveLink, referer, subtitleCallback, callback)
+                return
+            }
+
+            // Extract all download links from the page
+            hubcloudPage.select("a[href]").forEach { element ->
+                val href = element.attr("href")
+                val text = element.text().lowercase()
+                
+                when {
+                    href.contains("hubcloud", ignoreCase = true) ||
+                    href.contains("gamerxyt", ignoreCase = true) -> {
+                        Log.d(tag, "Found download link: $href")
+                        HubCloud().getUrl(href, referer, subtitleCallback, callback)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing OxxFile: ${e.message}")
+            e.printStackTrace()
+        }
+    }
 }
 
 class HubCloud : ExtractorApi() {
