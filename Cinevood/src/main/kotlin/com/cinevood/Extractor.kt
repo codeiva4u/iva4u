@@ -1,126 +1,15 @@
 package com.cinevood
 
-import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import org.json.JSONObject
-import java.net.URI
 
-fun getBaseUrl(url: String): String {
-    return try {
-        URI(url).let { "${it.scheme}://${it.host}" }
-    } catch (_: Exception) {
-        url.substringBefore("/", url)
-    }
-}
 
-suspend fun getLatestUrl(url: String, source: String): String {
-    return try {
-        val link = JSONObject(
-            app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-        ).optString(source)
-        if (link.isNullOrEmpty()) getBaseUrl(url) else link
-    } catch (_: Exception) {
-        getBaseUrl(url)
-    }
-}
-class OxxFileExtractor : ExtractorApi() {
-    override val name = "OxxFile"
-    override val mainUrl = "https://oxxfile.info"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            Log.d("Cinevood-OxxFile", "Extracting from: $url")
-            
-            // Method 1: Direct fetch और HTML parsing
-            val document = app.get(url).document
-            
-            // Extract all links from page body
-            val allLinks = document.select("a[href], button[data-url], [data-link]").mapNotNull { element ->
-                element.attr("href").ifBlank { 
-                    element.attr("data-url").ifBlank { 
-                        element.attr("data-link") 
-                    }
-                }
-            }.filter { it.isNotBlank() }
-            
-            Log.d("Cinevood-OxxFile", "Found ${allLinks.size} links in HTML")
-            
-            // Method 2: HTML body से regex से URLs extract करें
-            val bodyHtml = document.body().html()
-            
-            // HubCloud URLs खोजें
-            val hubcloudRegex = Regex("""(https?://[^\s"'<>]*hubcloud[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            val hubcloudUrls = hubcloudRegex.findAll(bodyHtml).map { it.groupValues[1] }.toSet()
-            
-            if (hubcloudUrls.isNotEmpty()) {
-                Log.d("Cinevood-OxxFile", "Found ${hubcloudUrls.size} HubCloud URLs")
-                hubcloudUrls.forEach { hubcloudUrl ->
-                    val cleanUrl = hubcloudUrl.replace("\\u002F", "/").replace("\\", "")
-                    Log.d("Cinevood-OxxFile", "Processing HubCloud: $cleanUrl")
-                    HubCloudExtractor().getUrl(cleanUrl, url, subtitleCallback, callback)
-                }
-            }
-            
-            // Filepress URLs खोजें
-            val filepressRegex = Regex("""(https?://[^\s"'<>]*filepress[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
-            val filepressUrls = filepressRegex.findAll(bodyHtml).map { it.groupValues[1] }.toSet()
-            
-            if (filepressUrls.isNotEmpty()) {
-                Log.d("Cinevood-OxxFile", "Found ${filepressUrls.size} Filepress URLs")
-                filepressUrls.forEach { filepressUrl ->
-                    val cleanUrl = filepressUrl.replace("\\u002F", "/").replace("\\", "")
-                    Log.d("Cinevood-OxxFile", "Processing Filepress: $cleanUrl")
-                    FilepressExtractor().getUrl(cleanUrl, url, subtitleCallback, callback)
-                }
-            }
-            
-            // Method 3: Script tags में embedded URLs
-            document.select("script").forEach { script ->
-                val scriptContent = script.html()
-                
-                // HubCloud in scripts
-                hubcloudRegex.findAll(scriptContent).forEach { match ->
-                    val hubUrl = match.groupValues[1].replace("\\u002F", "/").replace("\\", "")
-                    if (hubUrl.startsWith("http")) {
-                        Log.d("Cinevood-OxxFile", "Found HubCloud in script: $hubUrl")
-                        HubCloudExtractor().getUrl(hubUrl, url, subtitleCallback, callback)
-                    }
-                }
-                
-                // Filepress in scripts  
-                filepressRegex.findAll(scriptContent).forEach { match ->
-                    val fpUrl = match.groupValues[1].replace("\\u002F", "/").replace("\\", "")
-                    if (fpUrl.startsWith("http")) {
-                        Log.d("Cinevood-OxxFile", "Found Filepress in script: $fpUrl")
-                        FilepressExtractor().getUrl(fpUrl, url, subtitleCallback, callback)
-                    }
-                }
-            }
-            
-        } catch (e: Exception) {
-            Log.e("Cinevood-OxxFile", "Extraction error: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-}
-
-// ==================== HubCloud Extractor ====================
-class HubCloudExtractor : ExtractorApi() {
-    override val name = "HubCloud"
+class Hubcloud : ExtractorApi() {
+    override val name = "Hub-Cloud"
     override val mainUrl = "https://hubcloud.foo"
     override val requiresReferer = false
 
@@ -130,113 +19,140 @@ class HubCloudExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            Log.d("Cinevood-HubCloud", "Extracting from: $url")
+        
+        // Validate URL
+        val realUrl = url.takeIf {
+            try { java.net.URI(it).toURL(); true } catch (_: Exception) { false }
+        } ?: return
 
-            val document = app.get(url).document
-
-            // Check for "Generate Direct Download Link" or similar button
-            val redirectButton =
-                document.selectFirst("a#download, a:contains(Generate Direct Download Link)")
-            val redirectUrl = redirectButton?.attr("href")
-
-            val targetUrl = if (!redirectUrl.isNullOrBlank() && redirectUrl.startsWith("http")) {
-                Log.d("Cinevood-HubCloud", "Found redirect URL: $redirectUrl")
-                redirectUrl
+        // Extract download button href
+        val href = try {
+            if ("hubcloud.php" in realUrl) {
+                realUrl
             } else {
-                url
-            }
-
-            // 2. Fetch the target page (gamerxyt)
-            val targetDoc = app.get(targetUrl).document
-
-            targetDoc.select("a[href]").forEach { element ->
-                val href = element.attr("href")
-                val text = element.text()
-
-                if (href.isBlank() || href.startsWith("javascript:")) return@forEach
-
-                // Classify link based on text or domain
-                when {
-                    text.contains("FSL", ignoreCase = true) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "HubCloud-FSL",
-                                "HubCloud-FSL",
-                                href,
-                                ExtractorLinkType.VIDEO
-                            ) {
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-
-                    href.contains("pixeldrain", ignoreCase = true) || text.contains(
-                        "Pixel",
-                        ignoreCase = true
-                    ) -> {
-                        val pdUrl = if (href.contains("/u/")) {
-
-                            val id = href.substringAfter("/u/")
-                            "https://pixeldrain.com/api/file/$id"
-                        } else {
-                            href
-                        }
-                        callback.invoke(
-                            newExtractorLink(
-                                "HubCloud-PixelDrain",
-                                "HubCloud-PixelDrain",
-                                pdUrl,
-                                ExtractorLinkType.VIDEO
-                            ) {
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-
-                    text.contains("ZipDisk", ignoreCase = true) || href.contains(
-                        "workers.dev",
-                        ignoreCase = true
-                    ) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "HubCloud-ZipDisk",
-                                "HubCloud-ZipDisk",
-                                href,
-                                ExtractorLinkType.VIDEO
-                            ) {
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
-
-                    href.endsWith(".mkv") || href.endsWith(".mp4") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "HubCloud-Direct",
-                                "HubCloud-Direct",
-                                href,
-                                ExtractorLinkType.VIDEO
-                            ) {
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                    }
+                val rawHref = app.get(realUrl).document.select("#download").attr("href")
+                if (rawHref.startsWith("http", ignoreCase = true)) {
+                    rawHref
+                } else {
+                    mainUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
+        } catch (_: Exception) {
+            ""
+        }
 
-        } catch (e: Exception) {
-            Log.e("Cinevood-HubCloud", "Extraction error: ${e.message}")
-            e.printStackTrace()
+        if (href.isBlank()) return
+
+        val document = app.get(href).document
+        val size = document.selectFirst("i#size")?.text().orEmpty()
+        val header = document.selectFirst("div.card-header")?.text().orEmpty()
+        
+        val quality = getIndexQuality(header)
+        val labelExtras = if (size.isNotEmpty()) "[$size]" else ""
+
+        // Extract all download links
+        document.select("div.card-body h2 a.btn, a.btn-success, a.btn-danger").forEach { element ->
+            val link = element.attr("href")
+            val text = element.text()
+
+            when {
+                text.contains("FSL Server", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name [FSL Server]",
+                            "$name [FSL Server] $labelExtras",
+                            link,
+                        ) { 
+                            this.referer = href
+                            this.quality = quality 
+                        }
+                    )
+                }
+
+                text.contains("FSLv2", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name [FSLv2]",
+                            "$name [FSLv2] $labelExtras",
+                            link,
+                        ) { 
+                            this.referer = href
+                            this.quality = quality 
+                        }
+                    )
+                }
+
+                text.contains("10Gbps", ignoreCase = true) -> {
+                    // Follow redirects to get final link
+                    var currentLink = link
+                    var redirectCount = 0
+                    val maxRedirects = 3
+
+                    while (redirectCount < maxRedirects) {
+                        val response = app.get(currentLink, allowRedirects = false)
+                        val redirectUrl = response.headers["location"]
+
+                        if (redirectUrl == null) break
+
+                        if ("link=" in redirectUrl) {
+                            val finalLink = redirectUrl.substringAfter("link=")
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name [10Gbps]",
+                                    "$name [10Gbps] $labelExtras",
+                                    finalLink,
+                                ) { 
+                                    this.referer = href
+                                    this.quality = quality 
+                                }
+                            )
+                            return@forEach
+                        }
+
+                        currentLink = redirectUrl
+                        redirectCount++
+                    }
+                }
+
+                text.contains("pixel", ignoreCase = true) || link.contains("pixeldrain", ignoreCase = true) -> {
+                    val baseUrlLink = getBaseUrl(link)
+                    val finalURL = if (link.contains("download", true)) link
+                    else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+
+                    callback.invoke(
+                        newExtractorLink(
+                            "Pixeldrain",
+                            "Pixeldrain $labelExtras",
+                            finalURL,
+                        ) { 
+                            this.referer = href
+                            this.quality = quality 
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun getIndexQuality(str: String?): Int {
+        return Regex("(\\d{3,4})[pP]").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: com.lagradost.cloudstream3.utils.Qualities.Unknown.value
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return try {
+            java.net.URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (_: Exception) {
+            ""
         }
     }
 }
 
-// ==================== Filepress Extractor ====================
-class FilepressExtractor : ExtractorApi() {
+
+class Filepress : ExtractorApi() {
     override val name = "Filepress"
-    override val mainUrl = "https://new3.filepress.cloud/"
-    override val requiresReferer = true
+    override val mainUrl = "https://filepress.cloud"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -244,52 +160,77 @@ class FilepressExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        // Filepress URLs: https://new3.filepress.cloud/file/{id}
+        // Watch page: https://new3.filepress.cloud/video/{id}
+        
+        val fileId = url.substringAfterLast("/file/").substringBefore("?")
+        val baseUrl = url.substringBefore("/file/")
+        
+        // Try watch page first
+        val watchUrl = "$baseUrl/video/$fileId"
+        
         try {
-            Log.d("Cinevood-Filepress", "Extracting from: $url")
-
-            val videoUrl = if (url.contains("/file/")) {
-                url.replace("/file/", "/video/")
-            } else {
-                url
+            val watchDoc = app.get(watchUrl).document
+            
+            // Look for iframe sources (StreamWish, DoodStream are usually embedded in iframes)
+            watchDoc.select("iframe[src]").forEach { iframe ->
+                val iframeSrc = iframe.attr("src")
+                if (iframeSrc.isNotBlank()) {
+                    // Use CloudStream3's built-in extractors
+                    loadExtractor(iframeSrc, referer, subtitleCallback, callback)
+                }
             }
             
-            Log.d("Cinevood-Filepress", "Video Page URL: $videoUrl")
-            
-             val request = app.get(
-                videoUrl,
-                referer = referer ?: mainUrl,
-                interceptor = WebViewResolver(
-                    // Capture common video patterns
-                    Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|.*\.mp4|.*\.mkv|.*streamwish.*|.*dood.*)""")
-                )
-            )
-            
-            val capturedUrl = request.url
-            Log.d("Cinevood-Filepress", "WebView captured: $capturedUrl")
-            
-            if (capturedUrl.contains("m3u8") || capturedUrl.endsWith(".mp4")) {
-                 callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name [Direct]",
-                        capturedUrl,
-                        if (capturedUrl.contains("m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    ) {
-                        this.referer = referer ?: videoUrl
-                        this.quality = Qualities.Unknown.value
+            // Also check for direct video sources
+            watchDoc.select("source[src], video source").forEach { source ->
+                val src = source.attr("src")
+                if (src.isNotBlank()) {
+                    loadExtractor(src, referer, subtitleCallback, callback)
+                }
+            }
+        } catch (_: Exception) {
+            // Fallback: Try file page
+            try {
+                val document = app.get(url).document
+                
+                // Look for StreamWish and DoodStream buttons/links
+                document.select("a, button").forEach { element ->
+                    val text = element.text()
+                    val href = element.attr("href")
+                    val onclick = element.attr("onclick")
+                    
+                    // Extract URL from onclick or href
+                    val linkToExtract = when {
+                        href.isNotBlank() && !href.startsWith("#") -> href
+                        onclick.contains("window.open") -> {
+                            Regex("window\\.open\\s*\\(['\"]([^'\"]+)['\"]").find(onclick)?.groupValues?.get(1)
+                        }
+                        onclick.contains("location.href") -> {
+                            Regex("location\\.href\\s*=\\s*['\"]([^'\"]+)['\"]").find(onclick)?.groupValues?.get(1)
+                        }
+                        else -> null
                     }
-                )
-            } else if (capturedUrl.contains("streamwish") || capturedUrl.contains("dood")) {
-                // If we captured a hoster URL, delegate to its extractor
-                loadExtractor(capturedUrl, videoUrl, subtitleCallback, callback)
-            } else {
-
-                app.get(videoUrl).document
+                    
+                    if (linkToExtract != null) {
+                        when {
+                            text.contains("StreamWish", ignoreCase = true) || 
+                            linkToExtract.contains("streamwish", ignoreCase = true) ||
+                            linkToExtract.contains("swhoi", ignoreCase = true) -> {
+                                loadExtractor(linkToExtract, referer, subtitleCallback, callback)
+                            }
+                            
+                            text.contains("DoodStream", ignoreCase = true) || 
+                            linkToExtract.contains("doodstream", ignoreCase = true) ||
+                            linkToExtract.contains("dood", ignoreCase = true) -> {
+                                loadExtractor(linkToExtract, referer, subtitleCallback, callback)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Silently fail
             }
-
-        } catch (e: Exception) {
-            Log.e("Cinevood-Filepress", "Extraction error: ${e.message}")
-            e.printStackTrace()
         }
     }
 }
+

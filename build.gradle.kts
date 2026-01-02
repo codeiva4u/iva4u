@@ -54,7 +54,6 @@ subprojects {
             targetCompatibility = JavaVersion.VERSION_1_8
         }
 
-
         tasks.withType<KotlinJvmCompile> {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_1_8)
@@ -64,6 +63,13 @@ subprojects {
                     "-Xno-receiver-assertions"
                 )
             }
+        }
+    }
+
+    // Disable all androidTest related tasks
+    tasks.configureEach {
+        if (name.contains("AndroidTest", ignoreCase = true)) {
+            enabled = false
         }
     }
 

@@ -481,28 +481,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 .addEncoded("type", type)
                 .build()
 
-            // Try without CloudflareKiller first - AJAX endpoints usually don't have Cloudflare
-            val response = try {
-                app.post(
-                    "$mainUrl/wp-admin/admin-ajax.php",
-                    requestBody = requestBody,
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to mainUrl
-                    )
-                ).parsedSafe<ResponseHash>()
-            } catch (e: Exception) {
-                Log.d("MultiMovies", "Normal AJAX failed, using CloudflareKiller")
-                app.post(
-                    "$mainUrl/wp-admin/admin-ajax.php",
-                    requestBody = requestBody,
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to mainUrl
-                    ),
-                    interceptor = cfKiller
-                ).parsedSafe<ResponseHash>()
-            }
+            // Direct call with CloudflareKiller as multimovies always has protections
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = requestBody,
+                headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to mainUrl
+                ),
+                interceptor = cfKiller
+            ).parsedSafe<ResponseHash>()
 
             val embedUrl = response?.embed_url
             Log.d("MultiMovies", "Got embed URL from API: $embedUrl")
