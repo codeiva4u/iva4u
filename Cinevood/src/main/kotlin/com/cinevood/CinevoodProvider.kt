@@ -17,6 +17,8 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.network.CloudflareKiller
@@ -152,6 +154,13 @@ class CinevoodProvider : MainAPI() {
         }
     }
 
+    // Data class for link information (Movierulzhd style)
+    data class LinkData(
+        val url: String,
+        val type: String,  // "hubcloud", "filepress", "other"
+        val name: String? = null
+    )
+
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
         val document = app.get(url, interceptor = cfKiller).document
@@ -176,16 +185,43 @@ class CinevoodProvider : MainAPI() {
         // Extract tags/genres
         val tags = document.select(".entry-categories a, .post-categories a").map { it.text() }
 
-        // Extract download links (oxxfile, Hubcloud, Filepress)
-        val downloadLinks =
-            document.select("a[href*='oxxfile'], a[href*='hubcloud'], a[href*='filepress']")
-                .map { it.attr("href") }.distinct()
+        // Extract download links with type classification (Movierulzhd style)
+        val linkDataList = mutableListOf<LinkData>()
+        
+        // Find all download links
+        document.select("a[href*='hubcloud'], a[href*='gamerxyt']").forEach { element ->
+            val href = element.attr("href")
+            val linkText = element.text().trim()
+            if (href.isNotBlank()) {
+                linkDataList.add(LinkData(href, "hubcloud", linkText.ifBlank { "Hubcloud" }))
+            }
+        }
+        
+        document.select("a[href*='filepress']").forEach { element ->
+            val href = element.attr("href")
+            val linkText = element.text().trim()
+            if (href.isNotBlank()) {
+                linkDataList.add(LinkData(href, "filepress", linkText.ifBlank { "Filepress" }))
+            }
+        }
+        
+        // Other extractable links
+        document.select("a[href*='streamwish'], a[href*='doodstream'], a[href*='dood.'], a[href*='swhoi']").forEach { element ->
+            val href = element.attr("href")
+            val linkText = element.text().trim()
+            if (href.isNotBlank()) {
+                linkDataList.add(LinkData(href, "other", linkText.ifBlank { "Stream" }))
+            }
+        }
 
-        Log.d(TAG, "Found ${downloadLinks.size} download links")
+        Log.d(TAG, "Found ${linkDataList.size} download links")
 
         val isSeries = rawTitle.contains("Season", ignoreCase = true) ||
                 rawTitle.contains("S0", ignoreCase = true) ||
                 rawTitle.contains("Episode", ignoreCase = true)
+
+        // Convert link data list to JSON for passing to loadLinks
+        val dataJson = linkDataList.toJson()
 
         return if (isSeries) {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, emptyList()) {
@@ -195,7 +231,7 @@ class CinevoodProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, downloadLinks) {
+            newMovieLoadResponse(title, url, TvType.Movie, dataJson) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -210,41 +246,85 @@ class CinevoodProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d(TAG, "Loading links from: $data")
+        Log.d(TAG, "Loading links from data: ${data.take(100)}...")
         
-        // data contains comma-separated download links
-        val links = data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        
-        Log.d(TAG, "Found ${links.size} links to process")
-        
-        links.forEach { link ->
-            Log.d(TAG, "Processing link: $link")
+        try {
+            // Try to parse as LinkData list (new format)
+            val linkDataList = try {
+                parseJson<List<LinkData>>(data)
+            } catch (e: Exception) {
+                // Fallback: Try old comma-separated format
+                null
+            }
             
-            try {
-                when {
-                    link.contains("hubcloud", ignoreCase = true) -> {
-                        Log.d(TAG, "Using Hubcloud extractor")
-                        Hubcloud().getUrl(link, link, subtitleCallback, callback)
-                    }
-                    
-                    link.contains("filepress", ignoreCase = true) -> {
-                        Log.d(TAG, "Using Filepress extractor")
-                        Filepress().getUrl(link, link, subtitleCallback, callback)
-                    }
-                    
-                    link.contains("oxxfile", ignoreCase = true) -> {
-                        Log.d(TAG, "Using generic extractor for oxxfile")
-                        loadExtractor(link, link, subtitleCallback, callback)
-                    }
-                    
-                    else -> {
-                        Log.d(TAG, "Using generic extractor")
-                        loadExtractor(link, link, subtitleCallback, callback)
+            if (linkDataList != null && linkDataList.isNotEmpty()) {
+                // New Movierulzhd-style processing
+                Log.d(TAG, "Processing ${linkDataList.size} links (new format)")
+                
+                linkDataList.forEach { linkData ->
+                    try {
+                        when (linkData.type) {
+                            "hubcloud" -> {
+                                Log.d(TAG, "Processing Hubcloud: ${linkData.url}")
+                                Hubcloud().getUrl(linkData.url, mainUrl, subtitleCallback, callback)
+                            }
+                            
+                            "filepress" -> {
+                                Log.d(TAG, "Processing Filepress: ${linkData.url}")
+                                Filepress().getUrl(linkData.url, mainUrl, subtitleCallback, callback)
+                            }
+                            
+                            "other" -> {
+                                Log.d(TAG, "Processing other extractor: ${linkData.url}")
+                                loadExtractor(linkData.url, mainUrl, subtitleCallback, callback)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing link ${linkData.url}: ${e.message}")
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading link $link: ${e.message}")
+            } else {
+                // Fallback: Old format - comma separated or direct URL
+                val links = if (data.startsWith("[")) {
+                    // Empty array or invalid JSON
+                    emptyList()
+                } else if (data.startsWith("http")) {
+                    // Single URL
+                    listOf(data)
+                } else {
+                    // Comma separated
+                    data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
+                
+                Log.d(TAG, "Processing ${links.size} links (legacy format)")
+                
+                links.forEach { link ->
+                    try {
+                        when {
+                            link.contains("hubcloud", ignoreCase = true) || 
+                            link.contains("gamerxyt", ignoreCase = true) -> {
+                                Log.d(TAG, "Using Hubcloud extractor for: $link")
+                                Hubcloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                            }
+                            
+                            link.contains("filepress", ignoreCase = true) -> {
+                                Log.d(TAG, "Using Filepress extractor for: $link")
+                                Filepress().getUrl(link, mainUrl, subtitleCallback, callback)
+                            }
+                            
+                            else -> {
+                                Log.d(TAG, "Using generic extractor for: $link")
+                                loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error loading link $link: ${e.message}")
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in loadLinks: ${e.message}")
+            e.printStackTrace()
         }
         
         return true
@@ -257,5 +337,3 @@ class CinevoodProvider : MainAPI() {
             .trim()
     }
 }
-
-
