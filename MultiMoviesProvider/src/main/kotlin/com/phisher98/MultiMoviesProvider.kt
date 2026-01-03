@@ -104,14 +104,14 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val home = when {
             // For movies listing page
             request.data.contains("/movies") -> {
-                document.select("#archive-content > article").mapNotNull {
+                document.select("article.item, #archive-content > article").mapNotNull {
                     it.toSearchResult()
                 }
             }
 
             // For genre/category pages
             request.data.contains("/genre/") || request.data.contains("/category/") -> {
-                document.select("div.items > article, #archive-content > article").mapNotNull {
+                document.select("article.item, div.items > article, #archive-content > article").mapNotNull {
                     it.toSearchResult()
                 }
             }
@@ -119,10 +119,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             // For main page (homepage)
             request.data.isEmpty() || request.data == "/" -> {
                 // Get movies from both featured and regular movie sections
-                val featuredMovies = document.select("#featured-titles .item.movies, #featured-titles .item.tvshows").mapNotNull {
+                val featuredMovies = document.select("#featured-titles .item.movies, #featured-titles .item.tvshows, #featured-titles article.item").mapNotNull {
                     it.toSearchResult()
                 }
-                val regularMovies = document.select("#dt-movies .item").mapNotNull {
+                val regularMovies = document.select("#dt-movies .item, article.item").mapNotNull {
                     it.toSearchResult()
                 }
                 val archiveMovies = document.select("#archive-content > article").mapNotNull {
@@ -135,7 +135,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
             // Default fallback
             else -> {
-                document.select("div.items > article, #archive-content > article").mapNotNull {
+                document.select("article.item, div.items > article, #archive-content > article").mapNotNull {
                     it.toSearchResult()
                 }
             }
@@ -147,31 +147,35 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     private fun Element.toSearchResult(): SearchResponse? {
         // Try multiple selectors for title - handle different page structures
+        // Website structure: article.item > .data > h3 > a (for homepage/category)
         val title = when {
-            select("div.data h3 a").isNotEmpty() -> select("div.data h3 a").text().trim()
-            select("h3 a").isNotEmpty() -> select("h3 a").text().trim()
-            select(".data .title a").isNotEmpty() -> select(".data .title a").text().trim()
+            selectFirst(".data h3 a") != null -> selectFirst(".data h3 a")!!.text().trim()
+            selectFirst("h3 a") != null -> selectFirst("h3 a")!!.text().trim()
+            selectFirst(".data h3") != null -> selectFirst(".data h3")!!.text().trim()
+            selectFirst("h3") != null -> selectFirst("h3")!!.text().trim()
             else -> selectFirst("a")?.text()?.trim() ?: ""
         }
         
         if (title.isBlank()) return null
         
         // Try multiple selectors for href
+        // Website structure: .poster a or .data h3 a
         val href = when {
-            select("div.data h3 a").isNotEmpty() -> fixUrl(select("div.data h3 a").attr("href"))
-            select("h3 a").isNotEmpty() -> fixUrl(select("h3 a").attr("href"))
-            select("div.poster a").isNotEmpty() -> fixUrl(select("div.poster a").attr("href"))
+            selectFirst(".data h3 a") != null -> fixUrl(selectFirst(".data h3 a")!!.attr("href"))
+            selectFirst("h3 a") != null -> fixUrl(selectFirst("h3 a")!!.attr("href"))
+            selectFirst(".poster a") != null -> fixUrl(selectFirst(".poster a")!!.attr("href"))
+            selectFirst(".image a") != null -> fixUrl(selectFirst(".image a")!!.attr("href"))
             else -> fixUrl(selectFirst("a")?.attr("href") ?: "")
         }
         
         if (href.isBlank() || href == mainUrl) return null
         
-        // Try multiple selectors for poster - prioritize div.poster > img
+        // Try multiple selectors for poster using getImageAttr() for lazy loading support
+        // Website structure: article.item > .poster > img
         val posterUrl = when {
-            selectFirst("div.poster img") != null -> fixUrlNull(selectFirst("div.poster img")?.attr("src"))
-            selectFirst("div.poster img[data-src]") != null -> fixUrlNull(selectFirst("div.poster img")?.attr("data-src"))
-            selectFirst("img[src]") != null -> fixUrlNull(selectFirst("img")?.attr("src"))
-            selectFirst("img[data-src]") != null -> fixUrlNull(selectFirst("img")?.attr("data-src"))
+            selectFirst(".poster img") != null -> fixUrlNull(selectFirst(".poster img")?.getImageAttr())
+            selectFirst(".image img") != null -> fixUrlNull(selectFirst(".image img")?.getImageAttr())
+            selectFirst("img") != null -> fixUrlNull(selectFirst("img")?.getImageAttr())
             else -> null
         }
         
