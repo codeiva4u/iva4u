@@ -194,13 +194,21 @@ class CinevoodProvider : MainAPI() {
                     href.contains("hubcdn", ignoreCase = true) ||
                     href.contains("gamester", ignoreCase = true) ||
                     href.contains("gamerxyt", ignoreCase = true) ||
+                    href.contains("filepress", ignoreCase = true) ||
+                    href.contains("filebee", ignoreCase = true) ||
                     href.contains("streamwish", ignoreCase = true) ||
+                    href.contains("embedwish", ignoreCase = true) ||
+                    href.contains("wishembed", ignoreCase = true) ||
                     href.contains("swhoi", ignoreCase = true) ||
                     href.contains("wishfast", ignoreCase = true) ||
+                    href.contains("sfastwish", ignoreCase = true) ||
+                    href.contains("awish", ignoreCase = true) ||
+                    href.contains("dwish", ignoreCase = true) ||
                     href.contains("streamvid", ignoreCase = true) ||
                     href.contains("dood", ignoreCase = true) ||
                     href.contains("doodstream", ignoreCase = true) ||
                     href.contains("d0o0d", ignoreCase = true) ||
+                    href.contains("d000d", ignoreCase = true) ||
                     href.contains("ds2play", ignoreCase = true) ||
                     href.contains("do0od", ignoreCase = true) ||
                     text.contains("download", ignoreCase = true) ||
@@ -285,10 +293,22 @@ class CinevoodProvider : MainAPI() {
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
-                        // StreamWish patterns
+                        // FilePress patterns
+                        link.contains("filepress", ignoreCase = true) ||
+                        link.contains("filebee", ignoreCase = true) -> {
+                            Log.d(TAG, "Using FilePress extractor")
+                            FilePressExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+
+                        // StreamWish patterns (incluiding embedwish)
                         link.contains("streamwish", ignoreCase = true) ||
+                        link.contains("embedwish", ignoreCase = true) ||
+                        link.contains("wishembed", ignoreCase = true) ||
                         link.contains("swhoi", ignoreCase = true) ||
                         link.contains("wishfast", ignoreCase = true) ||
+                        link.contains("sfastwish", ignoreCase = true) ||
+                        link.contains("awish", ignoreCase = true) ||
+                        link.contains("dwish", ignoreCase = true) ||
                         link.contains("streamvid", ignoreCase = true) -> {
                             Log.d(TAG, "Using StreamWish extractor")
                             StreamWishExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
@@ -298,6 +318,7 @@ class CinevoodProvider : MainAPI() {
                         link.contains("dood", ignoreCase = true) ||
                         link.contains("doodstream", ignoreCase = true) ||
                         link.contains("d0o0d", ignoreCase = true) ||
+                        link.contains("d000d", ignoreCase = true) ||
                         link.contains("ds2play", ignoreCase = true) ||
                         link.contains("do0od", ignoreCase = true) -> {
                             Log.d(TAG, "Using DoodStream extractor")

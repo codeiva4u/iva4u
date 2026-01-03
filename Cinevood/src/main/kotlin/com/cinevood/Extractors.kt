@@ -338,8 +338,29 @@ class HubCloud : ExtractorApi() {
 
 open class StreamWishExtractor : ExtractorApi() {
     override val name = "Streamwish"
-    override val mainUrl = "https://swhoi.com/"
+    override val mainUrl = "https://embedwish.com"
     override val requiresReferer = true
+
+    companion object {
+        private val STREAMWISH_DOMAINS = listOf(
+            "embedwish.com",
+            "wishembed.pro",
+            "streamwish.com",
+            "streamwish.to",
+            "swhoi.com",
+            "wishfast.top",
+            "sfastwish.com",
+            "flaswish.com",
+            "awish.pro",
+            "dwish.pro",
+            "ewish.pro",
+            "wish4me.net"
+        )
+
+        fun isStreamWishUrl(url: String): Boolean {
+            return STREAMWISH_DOMAINS.any { url.contains(it, ignoreCase = true) }
+        }
+    }
 
     override suspend fun getUrl(
         url: String,
@@ -347,82 +368,184 @@ open class StreamWishExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val headers = mapOf(
-            "Accept" to "*/*",
-            "Connection" to "keep-alive",
-            "Sec-Fetch-Dest" to "empty",
-            "Sec-Fetch-Mode" to "cors",
-            "Sec-Fetch-Site" to "cross-site",
-            "Referer" to "$mainUrl/",
-            "Origin" to "$mainUrl/",
-            "User-Agent" to USER_AGENT
-        )
+        val tag = "StreamWishExtractor"
+        Log.d(tag, "Processing StreamWish URL: $url")
 
-        val pageResponse = app.get(resolveEmbedUrl(url), referer = referer)
+        try {
+            val actualUrl = resolveEmbedUrl(url)
+            val baseUrl = getBaseUrl(actualUrl)
 
-        val playerScriptData = when {
-            !getPacked(pageResponse.text).isNullOrEmpty() -> getAndUnpack(pageResponse.text)
-            pageResponse.document.select("script").any { it.html().contains("jwplayer(\"vplayer\").setup(") } ->
-                pageResponse.document.select("script").firstOrNull {
-                    it.html().contains("jwplayer(\"vplayer\").setup(")
-                }?.html()
-            else -> pageResponse.document.selectFirst("script:containsData(sources:)")?.data()
-        }
-
-        val directStreamUrl = playerScriptData?.let {
-            Regex("""file:\s*"(.*?m3u8.*?)"""").find(it)?.groupValues?.getOrNull(1)
-        }
-
-        if (!directStreamUrl.isNullOrEmpty()) {
-            M3u8Helper.generateM3u8(
-                name,
-                directStreamUrl,
-                mainUrl,
-                headers = headers
-            ).forEach(callback)
-        } else {
-            val webViewM3u8Resolver = WebViewResolver(
-                interceptUrl = Regex("""txt|m3u8"""),
-                additionalUrls = listOf(Regex("""txt|m3u8""")),
-                useOkhttp = false,
-                timeout = 15_000L
+            val headers = mapOf(
+                "Accept" to "*/*",
+                "Connection" to "keep-alive",
+                "Sec-Fetch-Dest" to "empty",
+                "Sec-Fetch-Mode" to "cors",
+                "Sec-Fetch-Site" to "cross-site",
+                "Referer" to "$baseUrl/",
+                "Origin" to baseUrl,
+                "User-Agent" to USER_AGENT
             )
 
-            val interceptedStreamUrl = app.get(
-                url,
-                referer = referer,
-                interceptor = webViewM3u8Resolver
-            ).url
+            val pageResponse = app.get(actualUrl, referer = referer ?: baseUrl)
+            val responseText = pageResponse.text
 
-            if (interceptedStreamUrl.isNotEmpty()) {
+            // Check if file is available
+            if (responseText.contains("File is no longer available") ||
+                responseText.contains("File not found") ||
+                responseText.contains("deleted")) {
+                Log.d(tag, "File not available: $url")
+                return
+            }
+
+            // Try to find m3u8 URL from various sources
+            var m3u8Url: String? = null
+
+            // Method 1: Check packed JavaScript
+            if (!getPacked(responseText).isNullOrEmpty()) {
+                val unpacked = getAndUnpack(responseText)
+                m3u8Url = Regex("""file\s*:\s*["']([^"']*\.m3u8[^"']*)["']""").find(unpacked)?.groupValues?.get(1)
+                    ?: Regex("""source\s*:\s*["']([^"']*\.m3u8[^"']*)["']""").find(unpacked)?.groupValues?.get(1)
+                Log.d(tag, "Found m3u8 from packed JS: $m3u8Url")
+            }
+
+            // Method 2: JWPlayer setup
+            if (m3u8Url.isNullOrEmpty()) {
+                val jwPlayerScript = pageResponse.document.select("script").find {
+                    it.html().contains("jwplayer") && it.html().contains("setup")
+                }?.html()
+
+                m3u8Url = jwPlayerScript?.let {
+                    Regex("""file\s*:\s*["']([^"']*\.m3u8[^"']*)["']""").find(it)?.groupValues?.get(1)
+                }
+                Log.d(tag, "Found m3u8 from JWPlayer: $m3u8Url")
+            }
+
+            // Method 3: sources in script
+            if (m3u8Url.isNullOrEmpty()) {
+                val sourcesScript = pageResponse.document.selectFirst("script:containsData(sources:)")?.data()
+                    ?: pageResponse.document.selectFirst("script:containsData(source:)")?.data()
+
+                m3u8Url = sourcesScript?.let {
+                    Regex("""["']([^"']*\.m3u8[^"']*)["']""").find(it)?.groupValues?.get(1)
+                }
+                Log.d(tag, "Found m3u8 from sources script: $m3u8Url")
+            }
+
+            // Method 4: Direct regex on full response
+            if (m3u8Url.isNullOrEmpty()) {
+                m3u8Url = Regex("""https?://[^"'\s]*\.m3u8[^"'\s]*""").find(responseText)?.value
+                Log.d(tag, "Found m3u8 from full response: $m3u8Url")
+            }
+
+            if (!m3u8Url.isNullOrEmpty()) {
+                Log.d(tag, "Generating M3u8 links from: $m3u8Url")
                 M3u8Helper.generateM3u8(
                     name,
-                    interceptedStreamUrl,
-                    mainUrl,
+                    m3u8Url,
+                    baseUrl,
                     headers = headers
                 ).forEach(callback)
             } else {
-                Log.d("StreamwishExtractor", "No m3u8 found in fallback either.")
+                Log.d(tag, "No m3u8 found, trying WebView resolver")
+                // Fallback to WebView resolver
+                try {
+                    val webViewM3u8Resolver = WebViewResolver(
+                        interceptUrl = Regex("""\.m3u8"""),
+                        additionalUrls = listOf(Regex("""\.m3u8""")),
+                        useOkhttp = false,
+                        timeout = 20_000L
+                    )
+
+                    val interceptedStreamUrl = app.get(
+                        actualUrl,
+                        referer = referer ?: baseUrl,
+                        interceptor = webViewM3u8Resolver
+                    ).url
+
+                    if (interceptedStreamUrl.isNotEmpty() && interceptedStreamUrl.contains(".m3u8")) {
+                        Log.d(tag, "WebView resolver found: $interceptedStreamUrl")
+                        M3u8Helper.generateM3u8(
+                            name,
+                            interceptedStreamUrl,
+                            baseUrl,
+                            headers = headers
+                        ).forEach(callback)
+                    } else {
+                        Log.d(tag, "No m3u8 found in WebView either")
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "WebView resolver failed: ${e.message}")
+                }
             }
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing StreamWish: ${e.message}")
+            e.printStackTrace()
         }
     }
 
     private fun resolveEmbedUrl(inputUrl: String): String {
-        return if (inputUrl.contains("/f/")) {
-            val videoId = inputUrl.substringAfter("/f/")
-            "$mainUrl/$videoId"
-        } else {
-            inputUrl
+        // Convert /f/ URLs to /e/ embed URLs
+        return when {
+            inputUrl.contains("/f/") -> {
+                val videoId = inputUrl.substringAfter("/f/").substringBefore("/").substringBefore("?")
+                val baseUrl = getBaseUrl(inputUrl)
+                "$baseUrl/e/$videoId"
+            }
+            inputUrl.contains("/d/") -> {
+                val videoId = inputUrl.substringAfter("/d/").substringBefore("/").substringBefore("?")
+                val baseUrl = getBaseUrl(inputUrl)
+                "$baseUrl/e/$videoId"
+            }
+            !inputUrl.contains("/e/") -> {
+                // If it's just a video ID, use default domain
+                if (!inputUrl.startsWith("http")) {
+                    "$mainUrl/e/$inputUrl"
+                } else {
+                    inputUrl
+                }
+            }
+            else -> inputUrl
+        }
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (_: Exception) {
+            mainUrl
         }
     }
 }
 
 open class DoodLaExtractor : ExtractorApi() {
     override var name = "DoodStream"
-    override var mainUrl = "https://dood.la"
+    override var mainUrl = "https://dood.to"
     override val requiresReferer = false
 
     private val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+    companion object {
+        private val DOOD_DOMAINS = listOf(
+            "dood.to",
+            "dood.la",
+            "dood.so",
+            "dood.wf",
+            "dood.cx",
+            "dood.pm",
+            "dood.sh",
+            "dood.watch",
+            "doodstream.com",
+            "dooood.com",
+            "d0o0d.com",
+            "d000d.com",
+            "ds2play.com",
+            "do0od.com"
+        )
+
+        fun isDoodUrl(url: String): Boolean {
+            return DOOD_DOMAINS.any { url.contains(it, ignoreCase = true) }
+        }
+    }
 
     override suspend fun getUrl(
         url: String,
@@ -430,27 +553,80 @@ open class DoodLaExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val embedUrl = url.replace("/d/", "/e/")
-        val req = app.get(embedUrl)
-        val host = getBaseUrl(req.url)
-        val response0 = req.text
-        val md5 = host + (Regex("/pass_md5/[^']*").find(response0)?.value ?: return)
-        val trueUrl = app.get(md5, referer = req.url).text + createHashTable() + "?token=" + md5.substringAfterLast("/")
-        val quality = Regex("\\d{3,4}p")
-            .find(response0.substringAfter("<title>").substringBefore("</title>"))
-            ?.groupValues
-            ?.getOrNull(0)
+        val tag = "DoodLaExtractor"
+        Log.d(tag, "Processing DoodStream URL: $url")
 
-        callback.invoke(
-            newExtractorLink(
-                this.name,
-                this.name,
-                trueUrl,
-            ) {
-                this.referer = "$mainUrl/"
-                this.quality = getQualityFromName(quality)
+        try {
+            val embedUrl = resolveEmbedUrl(url)
+            Log.d(tag, "Embed URL: $embedUrl")
+
+            val req = app.get(embedUrl)
+            val host = getBaseUrl(req.url)
+            val responseText = req.text
+
+            // Check if file is available
+            if (responseText.contains("File not found") ||
+                responseText.contains("has been removed") ||
+                responseText.contains("no longer available") ||
+                responseText.contains("Video not found")) {
+                Log.d(tag, "File not available: $url")
+                return
             }
-        )
+
+            // Find pass_md5 URL
+            val md5Path = Regex("""/pass_md5/[^'"]*""").find(responseText)?.value
+            if (md5Path.isNullOrEmpty()) {
+                Log.e(tag, "Could not find pass_md5 in response")
+                return
+            }
+
+            val md5Url = host + md5Path
+            Log.d(tag, "MD5 URL: $md5Url")
+
+            // Get the partial URL from md5 endpoint
+            val partialUrl = app.get(md5Url, referer = req.url).text
+            if (partialUrl.isEmpty()) {
+                Log.e(tag, "MD5 response is empty")
+                return
+            }
+
+            // Build final URL with hash and token
+            val token = md5Path.substringAfterLast("/")
+            val trueUrl = partialUrl + createHashTable() + "?token=$token&expiry=${System.currentTimeMillis()}"
+            Log.d(tag, "Final URL: $trueUrl")
+
+            // Extract quality from title
+            val quality = Regex("""\d{3,4}p""")
+                .find(responseText.substringAfter("<title>").substringBefore("</title>"))
+                ?.value
+
+            callback.invoke(
+                newExtractorLink(
+                    this.name,
+                    this.name,
+                    trueUrl,
+                ) {
+                    this.referer = "$host/"
+                    this.quality = getQualityFromName(quality)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing DoodStream: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun resolveEmbedUrl(inputUrl: String): String {
+        return when {
+            inputUrl.contains("/d/") -> inputUrl.replace("/d/", "/e/")
+            inputUrl.contains("/f/") -> inputUrl.replace("/f/", "/e/")
+            !inputUrl.contains("/e/") && inputUrl.matches(Regex(".*[a-zA-Z0-9]{10,}.*")) -> {
+                // If it's just a video ID
+                val videoId = inputUrl.substringAfterLast("/").substringBefore("?")
+                "$mainUrl/e/$videoId"
+            }
+            else -> inputUrl
+        }
     }
 
     private fun createHashTable(): String {
@@ -462,8 +638,141 @@ open class DoodLaExtractor : ExtractorApi() {
     }
 
     private fun getBaseUrl(url: String): String {
-        return URI(url).let {
-            "${it.scheme}://${it.host}"
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (_: Exception) {
+            mainUrl
+        }
+    }
+}
+
+// FilePress Extractor - handles filepress.cloud links containing StreamWish/DoodStream
+class FilePressExtractor : ExtractorApi() {
+    override val name = "FilePress"
+    override val mainUrl = "https://new4.filepress.cloud"
+    override val requiresReferer = false
+
+    companion object {
+        private val FILEPRESS_DOMAINS = listOf(
+            "filepress.cloud",
+            "filepress.run",
+            "filebee.xyz",
+            "filebee.cloud"
+        )
+
+        fun isFilePressUrl(url: String): Boolean {
+            return FILEPRESS_DOMAINS.any { url.contains(it, ignoreCase = true) }
+        }
+    }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "FilePressExtractor"
+        Log.d(tag, "Processing FilePress URL: $url")
+
+        try {
+            val baseUrl = getBaseUrl(url)
+
+            // Convert /file/ to /video/ URL
+            val videoPageUrl = if (url.contains("/file/")) {
+                url.replace("/file/", "/video/")
+            } else if (url.contains("/video/")) {
+                url
+            } else {
+                Log.e(tag, "Unknown FilePress URL format: $url")
+                return
+            }
+
+            Log.d(tag, "Video page URL: $videoPageUrl")
+
+            // Get video page and find iframe src
+            val videoPageDoc = app.get(videoPageUrl, referer = referer ?: baseUrl).document
+
+            // Look for embedded iframe with video player
+            val iframes = videoPageDoc.select("iframe[src]")
+            Log.d(tag, "Found ${iframes.size} iframes on page")
+
+            for (iframe in iframes) {
+                val iframeSrc = iframe.attr("src")
+                if (iframeSrc.isBlank()) continue
+
+                Log.d(tag, "Found iframe src: $iframeSrc")
+
+                when {
+                    // StreamWish/EmbedWish embed
+                    StreamWishExtractor.isStreamWishUrl(iframeSrc) -> {
+                        Log.d(tag, "Using StreamWish extractor for: $iframeSrc")
+                        StreamWishExtractor().getUrl(iframeSrc, videoPageUrl, subtitleCallback, callback)
+                    }
+                    // DoodStream embed
+                    DoodLaExtractor.isDoodUrl(iframeSrc) -> {
+                        Log.d(tag, "Using DoodStream extractor for: $iframeSrc")
+                        DoodLaExtractor().getUrl(iframeSrc, videoPageUrl, subtitleCallback, callback)
+                    }
+                    // Try generic loadExtractor for other sources
+                    else -> {
+                        Log.d(tag, "Using generic extractor for: $iframeSrc")
+                        loadExtractor(iframeSrc, videoPageUrl, subtitleCallback, callback)
+                    }
+                }
+            }
+
+            // If no iframes found, try to get links from API
+            if (iframes.isEmpty()) {
+                Log.d(tag, "No iframes found, trying API approach")
+                val fileId = url.substringAfterLast("/").substringBefore("?")
+                val apiUrl = "$baseUrl/api/file/video/$fileId/"
+
+                try {
+                    val apiResponse = app.get(apiUrl, referer = videoPageUrl).text
+                    val jsonObject = JSONObject(apiResponse)
+
+                    if (jsonObject.optBoolean("status", false)) {
+                        val data = jsonObject.optJSONObject("data")
+                        val thirdPartyDetails = data?.optJSONArray("thirdPartyDetails")
+
+                        thirdPartyDetails?.let { details ->
+                            for (i in 0 until details.length()) {
+                                val item = details.getJSONObject(i)
+                                val type = item.optString("type", "")
+                                val filecode = item.optString("filecode", "")
+
+                                if (filecode.isNotBlank()) {
+                                    Log.d(tag, "Found $type with filecode: $filecode")
+                                    when (type.uppercase()) {
+                                        "STREAMWISH" -> {
+                                            val embedUrl = "https://embedwish.com/e/$filecode"
+                                            StreamWishExtractor().getUrl(embedUrl, videoPageUrl, subtitleCallback, callback)
+                                        }
+                                        "DOODSTREAM" -> {
+                                            val embedUrl = "https://dood.to/e/$filecode"
+                                            DoodLaExtractor().getUrl(embedUrl, videoPageUrl, subtitleCallback, callback)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "API request failed: ${e.message}")
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing FilePress: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun getBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (_: Exception) {
+            mainUrl
         }
     }
 }
