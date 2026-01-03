@@ -771,3 +771,89 @@ class UpnShareExtractor : ExtractorApi() {
         }
     }
 }
+
+// StreamHG Extractor - For multimoviesshg.com
+class StreamHGExtractor : ExtractorApi() {
+    override val name = "StreamHG"
+    override val mainUrl = "https://multimoviesshg.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("StreamHG", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("StreamHG", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("StreamHG", "Extraction error: ${e.message}")
+        }
+    }
+}
+
+// EarnVids Extractor - For smoothpre.com
+class EarnVidsExtractor : ExtractorApi() {
+    override val name = "EarnVids"
+    override val mainUrl = "https://smoothpre.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("EarnVids", "Fetching: $url")
+            
+            val response = app.get(
+                url,
+                referer = referer,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
+                )
+            )
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("EarnVids", "Found M3U8: ${response.url}")
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = referer ?: url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("EarnVids", "Extraction error: ${e.message}")
+        }
+    }
+}

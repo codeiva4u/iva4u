@@ -681,6 +681,20 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
 
+        // StreamHG - multimoviesshg.com
+        if (url.contains("multimoviesshg", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using StreamHGExtractor")
+            StreamHGExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+
+        // EarnVids - smoothpre.com
+        if (url.contains("smoothpre", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using EarnVidsExtractor")
+            EarnVidsExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+
         // Use built-in CloudStream extractors for all other hosters
         Log.d("MultiMovies", "Using built-in loadExtractor")
         loadExtractor(url, referer, subtitleCallback, callback)
