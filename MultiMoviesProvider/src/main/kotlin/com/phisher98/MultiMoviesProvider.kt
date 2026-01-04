@@ -608,12 +608,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
 
-        // MultiMoviesShg - handled by StreamHG below
-        /*if (url.contains("multimoviesshg", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using MultiMoviesShgExtractor")
-            MultiMoviesShgExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }*/
+
 
         // Streamwish
         if (url.contains("streamwish", ignoreCase = true)) {

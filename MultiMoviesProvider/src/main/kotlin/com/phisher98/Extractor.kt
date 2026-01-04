@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.JsUnpacker
 import org.json.JSONObject
 import java.net.URI
 
@@ -648,27 +649,86 @@ class StreamHGExtractor : ExtractorApi() {
         try {
             Log.d("StreamHG", "Fetching: $url")
             
-            val response = app.get(
-                url,
-                referer = referer,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
+            // Method 1: WebView Resolver (Standard Method)
+            try {
+                val response = app.get(
+                    url,
+                    referer = referer,
+                    interceptor = WebViewResolver(
+                        Regex("""(master|playlist|index)\.m3u8""")
+                    )
                 )
-            )
-            
-            if (response.url.contains("m3u8")) {
-                Log.d("StreamHG", "Found M3U8: ${response.url}")
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.P1080.value
+                
+                if (response.url.contains("m3u8")) {
+                    Log.d("StreamHG", "Found M3U8 via WebView: ${response.url}")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            name,
+                            response.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = referer ?: url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("StreamHG", "WebView extraction failed: ${e.message}")
+            }
+
+            // Method 2: Direct HTML/JS Extraction (Fallback)
+             try {
+                val response = app.get(url, referer = referer)
+                val html = response.text
+                
+                // Regex search for m3u8
+                val m3u8Regex = Regex("""(https?://[^"'\s]*\.(?:m3u8)[^"'\s]*)""")
+                val match = m3u8Regex.find(html)
+                
+                if (match != null) {
+                    val m3u8Url = match.groupValues[1]
+                     Log.d("StreamHG", "Found M3U8 via Regex: $m3u8Url")
+                     callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name [Regex]",
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                             this.referer = referer ?: url
+                             this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+
+                // Packed JS Unpacking
+                val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)""")
+                if (packedRegex.containsMatchIn(html)) {
+                    Log.d("StreamHG", "Found packed JS, unpacking...")
+                    val unpacked = JsUnpacker(html).unpack()
+                    val unpackedMatch = m3u8Regex.find(unpacked ?: "")
+                    if (unpackedMatch != null) {
+                         val m3u8Url = unpackedMatch.groupValues[1]
+                         Log.d("StreamHG", "Found M3U8 via Unpacking: $m3u8Url")
+                         callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name [Unpacked]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                 this.referer = referer ?: url
+                                 this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
                     }
-                )
+                }
+            } catch (e: Exception) {
+                Log.e("StreamHG", "Direct extraction failed: ${e.message}")
             }
         } catch (e: Exception) {
             Log.e("StreamHG", "Extraction error: ${e.message}")
@@ -691,28 +751,88 @@ class EarnVidsExtractor : ExtractorApi() {
         try {
             Log.d("EarnVids", "Fetching: $url")
             
-            val response = app.get(
-                url,
-                referer = referer,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
+             // Method 1: WebView Resolver (Standard Method)
+            try {
+                val response = app.get(
+                    url,
+                    referer = referer,
+                    interceptor = WebViewResolver(
+                        Regex("""(master|playlist|index)\.m3u8""")
+                    )
                 )
-            )
-            
-            if (response.url.contains("m3u8")) {
-                Log.d("EarnVids", "Found M3U8: ${response.url}")
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.P1080.value
-                    }
-                )
+                
+                if (response.url.contains("m3u8")) {
+                    Log.d("EarnVids", "Found M3U8 via WebView: ${response.url}")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            name,
+                            response.url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = referer ?: url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                 Log.e("EarnVids", "WebView extraction failed: ${e.message}")
             }
+
+            // Method 2: Direct HTML/JS Extraction (Fallback)
+             try {
+                val response = app.get(url, referer = referer)
+                val html = response.text
+                
+                // Regex search for m3u8
+                val m3u8Regex = Regex("""(https?://[^"'\s]*\.(?:m3u8)[^"'\s]*)""")
+                val match = m3u8Regex.find(html)
+                
+                if (match != null) {
+                    val m3u8Url = match.groupValues[1]
+                     Log.d("EarnVids", "Found M3U8 via Regex: $m3u8Url")
+                     callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name [Regex]",
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                             this.referer = referer ?: url
+                             this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+
+                // Packed JS Unpacking
+                val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)""")
+                if (packedRegex.containsMatchIn(html)) {
+                    Log.d("EarnVids", "Found packed JS, unpacking...")
+                    val unpacked = JsUnpacker(html).unpack()
+                    val unpackedMatch = m3u8Regex.find(unpacked ?: "")
+                    if (unpackedMatch != null) {
+                         val m3u8Url = unpackedMatch.groupValues[1]
+                         Log.d("EarnVids", "Found M3U8 via Unpacking: $m3u8Url")
+                         callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name [Unpacked]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                 this.referer = referer ?: url
+                                 this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                 Log.e("EarnVids", "Direct extraction failed: ${e.message}")
+            }
+
         } catch (e: Exception) {
             Log.e("EarnVids", "Extraction error: ${e.message}")
         }
