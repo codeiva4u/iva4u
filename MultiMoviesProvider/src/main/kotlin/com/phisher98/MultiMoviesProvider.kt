@@ -434,22 +434,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
         Log.d("MultiMovies", "loadLinks called with data: $data")
 
-        // Check if data is JSON (for episodes) or URL (for movies)
-        val linkDataList = try {
-            parseJson<List<LinkData>>(data)
-        } catch (e: Exception) {
-            null
-        }
+        // Check if data is a URL or LinkData JSON - Movierulzhd style
+        val isUrl = data.startsWith("http")
 
-        if (linkDataList != null) {
-            // Handle episodes - data is JSON list of LinkData
-            linkDataList.forEach { linkData ->
-                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
-                if (!iframeUrl.isNullOrEmpty()) {
-                    loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
-                }
-            }
-        } else {
+        if (isUrl) {
             // Handle movies - data is URL  
             // multimovies.golf has Cloudflare on all pages
             val document = app.get(data, interceptor = cfKiller).document
@@ -468,6 +456,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                     }
                 }
+        } else {
+            // Handle episodes - data is JSON list of LinkData
+            try {
+                val linkDataList = parseJson<List<LinkData>>(data)
+                linkDataList.forEach { linkData ->
+                    val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                    if (!iframeUrl.isNullOrEmpty()) {
+                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MultiMovies", "Error parsing episode data: ${e.message}")
+            }
         }
 
         return true
@@ -607,12 +608,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
 
-        // MultiMoviesShg - main video hoster
-        if (url.contains("multimoviesshg", ignoreCase = true)) {
+        // MultiMoviesShg - handled by StreamHG below
+        /*if (url.contains("multimoviesshg", ignoreCase = true)) {
             Log.d("MultiMovies", "Using MultiMoviesShgExtractor")
             MultiMoviesShgExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
-        }
+        }*/
 
         // Streamwish
         if (url.contains("streamwish", ignoreCase = true)) {

@@ -29,116 +29,7 @@ suspend fun getLatestUrl(url: String, source: String): String {
     return link
 }
 
-// MultiMoviesShg Extractor - Main video hoster
-class MultiMoviesShgExtractor : ExtractorApi() {
-    override val name = "MultiMoviesShg"
-    override val mainUrl = "https://multimoviesshg.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            Log.d("MultiMoviesShg", "Starting extraction for URL: $url")
-            
-            // Dynamic URL management - fetch latest domain
-            val latestUrl = getLatestUrl(url, "multimoviesshg")
-            val baseUrl = getBaseUrl(url)
-            val newUrl = url.replace(baseUrl, latestUrl)
-            
-            val doc = app.get(newUrl, referer = referer ?: latestUrl).document
-            
-            // Method 1: Parse HTML/JavaScript for m3u8 URLs
-            try {
-                Log.d("MultiMoviesShg", "Method 1: Trying HTML/JS extraction...")
-                val scripts = doc.select("script")
-                val m3u8Regex = Regex("""(https?://[^\"'\\s]+\.m3u8[^\"'\\s]*)""")
-                
-                scripts.forEach { script ->
-                    val scriptContent = script.html()
-                    val match = m3u8Regex.find(scriptContent)
-                    if (match != null) {
-                        val m3u8Url = match.groupValues[1]
-                        Log.d("MultiMoviesShg", "HTML extraction successful: $m3u8Url")
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [HTML]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.P1080.value
-                            }
-                        )
-                        return
-                    }
-                }
-                Log.d("MultiMoviesShg", "No M3U8 found in scripts, trying body text...")
-                
-                // Try to find m3u8 in page body
-                val bodyText = doc.body().html()
-                val bodyMatch = m3u8Regex.find(bodyText)
-                if (bodyMatch != null) {
-                    val m3u8Url = bodyMatch.groupValues[1]
-                    Log.d("MultiMoviesShg", "Body extraction successful: $m3u8Url")
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name [Body]",
-                            m3u8Url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.e("MultiMoviesShg", "HTML extraction failed: ${e.message}")
-            }
-            
-            // Method 2: Try WebView extraction as fallback
-            try {
-                Log.d("MultiMoviesShg", "Method 2: Trying WebView extraction...")
-                val response = app.get(
-                    url,
-                    referer = referer ?: mainUrl,
-                    interceptor = WebViewResolver(
-                        Regex("""(master\.m3u8|playlist\.m3u8|index\.m3u8|\.m3u8)""")
-                    )
-                )
-                
-                if (response.url.contains("m3u8")) {
-                    Log.d("MultiMoviesShg", "WebView extraction successful: ${response.url}")
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name [WebView]",
-                            response.url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.e("MultiMoviesShg", "WebView extraction failed: ${e.message}")
-            }
-            
-            Log.e("MultiMoviesShg", "All extraction methods failed")
-        } catch (e: Exception) {
-            Log.e("MultiMoviesShg", "Extraction error: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-}
+// MultiMoviesShgExtractor removed - replaced by StreamHGExtractor
 
 // GdMirror/GtxGamer Extractor - Redirects to MultiMoviesShg
 class GdMirrorExtractor : ExtractorApi() {
@@ -160,92 +51,62 @@ class GdMirrorExtractor : ExtractorApi() {
             val baseUrl = getBaseUrl(url)
             val newUrl = url.replace(baseUrl, latestUrl)
             
-            // Method 1: Use WebView to load dynamic content and capture redirects
-            try {
-                Log.d("GdMirror", "Method 1: Using WebView to capture dynamic redirects...")
-                val webViewResponse = app.get(
-                    newUrl,
-                    referer = referer,
-                    interceptor = WebViewResolver(
-                        Regex("""multimoviesshg\.com/e/[a-zA-Z0-9]+""")
-                    )
-                )
+            // Allow redirects to handle potential hops
+            val response = app.get(newUrl, allowRedirects = true)
+            val doc = response.document
+            val finalUrl = response.url
+
+            // 1. Check for default iframe (usually StreamHG)
+            // Structure: <iframe id="vidFrame" src="...">
+            doc.select("iframe[src], iframe#vidFrame").forEach { iframe ->
+                val src = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
+                Log.d("GdMirror", "Found iframe: $src")
                 
-                val capturedUrl = webViewResponse.url
-                Log.d("GdMirror", "WebView captured URL: $capturedUrl")
-                
-                if (capturedUrl.contains("multimoviesshg", ignoreCase = true)) {
-                    Log.d("GdMirror", "Found MultiMoviesShg URL via WebView: $capturedUrl")
-                    MultiMoviesShgExtractor().getUrl(
-                        capturedUrl,
-                        url,
-                        subtitleCallback,
-                        callback
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.e("GdMirror", "WebView method failed: ${e.message}")
+                if (src.contains("multimoviesshg", ignoreCase = true)) {
+                    StreamHGExtractor().getUrl(src, finalUrl, subtitleCallback, callback)
+                } 
+                // Add other iframe checks if needed
             }
-            // Method 2: Follow redirects manually and check for iframes
-            try {
-                Log.d("GdMirror", "Method 2: Following redirects manually...")
-                val response = app.get(newUrl, allowRedirects = true)
-                val finalUrl = response.url
-                val doc = response.document
-                
-                Log.d("GdMirror", "Landed on: $finalUrl")
-                
-                // Check for iframes on any page (gdmirrorbot, gtxgamer, etc.)
-                val iframes = doc.select("iframe[src], iframe#vidFrame")
-                iframes.forEach { iframe ->
-                    val iframeSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
-                    Log.d("GdMirror", "Found iframe: $iframeSrc")
+
+            // 2. Check for server list (The "3 dots" menu items)
+            // Structure: <li class="server-item" data-link="..."><div class="server-meta">Name • ONLINE</div></li>
+            val serverItems = doc.select("li.server-item")
+            if (serverItems.isNotEmpty()) {
+                Log.d("GdMirror", "Found ${serverItems.size} server items")
+                serverItems.forEach { item ->
+                    val link = item.attr("data-link")
+                    val meta = item.select(".server-meta").text()
+                    val name = item.select(".server-name").text()
                     
-                    if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
-                        Log.d("GdMirror", "Found MultiMoviesShg iframe: $iframeSrc")
-                        MultiMoviesShgExtractor().getUrl(
-                            iframeSrc,
-                            finalUrl,
-                            subtitleCallback,
-                            callback
-                        )
-                        return
+                    if (link.isNotBlank()) {
+                         Log.d("GdMirror", "Processing server: $name ($meta) -> $link")
+                         
+                         if (meta.contains("EarnVids", ignoreCase = true) || name.contains("FLLS", ignoreCase = true)) {
+                            EarnVidsExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                         } else if (meta.contains("StreamHG", ignoreCase = true) || name.contains("SMWH", ignoreCase = true)) {
+                            StreamHGExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                         } else if(meta.contains("UpnShare", ignoreCase = true) || name.contains("UPNSHR", ignoreCase = true)) {
+                             UpnShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                         } else if(meta.contains("StreamP2p", ignoreCase = true) || name.contains("STRMP2", ignoreCase = true)) {
+                             StreamP2PExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                         } else if(meta.contains("RpmShare", ignoreCase = true) || name.contains("RPMSHRE", ignoreCase = true)) {
+                             RpmShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                         }
                     }
                 }
+            } else {
+                Log.d("GdMirror", "No server list found, trying fallback extraction methods")
                 
-                // Check body for multimoviesshg URLs
+                // Fallback: Check body text for hidden StreamHG Links
                 val bodyText = doc.body().html()
                 val multiMoviesRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
                 val multiMoviesMatch = multiMoviesRegex.find(bodyText)
                 if (multiMoviesMatch != null) {
-                    val multiMoviesUrl = multiMoviesMatch.groupValues[1]
-                    Log.d("GdMirror", "Found MultiMoviesShg URL in HTML: $multiMoviesUrl")
-                    MultiMoviesShgExtractor().getUrl(
-                        multiMoviesUrl,
-                        finalUrl,
-                        subtitleCallback,
-                        callback
-                    )
-                    return
+                    val foundUrl = multiMoviesMatch.groupValues[1]
+                    StreamHGExtractor().getUrl(foundUrl, finalUrl, subtitleCallback, callback)
                 }
-                
-                // If directly landed on multimoviesshg
-                if (finalUrl.contains("multimoviesshg", ignoreCase = true)) {
-                    Log.d("GdMirror", "Directly landed on MultiMoviesShg: $finalUrl")
-                    MultiMoviesShgExtractor().getUrl(
-                        finalUrl,
-                        url,
-                        subtitleCallback,
-                        callback
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.e("GdMirror", "Manual redirect method failed: ${e.message}")
             }
-            
-            Log.e("GdMirror", "All extraction methods failed for: $url")
+
         } catch (e: Exception) {
             Log.e("GdMirror", "Fatal extraction error: ${e.message}")
             e.printStackTrace()
