@@ -11,7 +11,7 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerMainAPI(MultiMoviesProvider())
         
         // Register all video hosting extractors
-        registerExtractorAPI(MultiMoviesShgExtractor())
+        registerExtractorAPI(StreamHGExtractor())
         registerExtractorAPI(GdMirrorExtractor())
         registerExtractorAPI(TechInMindExtractor())
         registerExtractorAPI(StreamwishExtractor())

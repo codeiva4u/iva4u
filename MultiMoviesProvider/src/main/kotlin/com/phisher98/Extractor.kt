@@ -165,7 +165,7 @@ class TechInMindExtractor : ExtractorApi() {
                         extractFromSSN(iframeSrc, url, subtitleCallback, callback)
                         return
                     } else if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
-                        MultiMoviesShgExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
+                        StreamHGExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
                         return
                     }
                 }
@@ -186,7 +186,7 @@ class TechInMindExtractor : ExtractorApi() {
                 // If iframe directly contains multimoviesshg, extract it
                 if (iframeSrc.contains("multimoviesshg", ignoreCase = true)) {
                     Log.d("TechInMind", "Found MultiMoviesShg iframe directly: $iframeSrc")
-                    MultiMoviesShgExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
+                    StreamHGExtractor().getUrl(iframeSrc, url, subtitleCallback, callback)
                     return
                 }
                 
@@ -224,7 +224,7 @@ class TechInMindExtractor : ExtractorApi() {
                 val finalUrl = videoIframe.attr("abs:src").ifBlank { videoIframe.attr("src") }
                 if (finalUrl.contains("multimoviesshg", ignoreCase = true)) {
                     Log.d("TechInMind", "Found MultiMoviesShg iframe in SSN: $finalUrl")
-                    MultiMoviesShgExtractor().getUrl(finalUrl, ssnUrl, subtitleCallback, callback)
+                    StreamHGExtractor().getUrl(finalUrl, ssnUrl, subtitleCallback, callback)
                     return
                 }
             }
@@ -236,7 +236,7 @@ class TechInMindExtractor : ExtractorApi() {
             if (match != null) {
                 val multiMoviesUrl = match.groupValues[1]
                 Log.d("TechInMind", "Found MultiMoviesShg URL in SSN body: $multiMoviesUrl")
-                MultiMoviesShgExtractor().getUrl(multiMoviesUrl, ssnUrl, subtitleCallback, callback)
+                StreamHGExtractor().getUrl(multiMoviesUrl, ssnUrl, subtitleCallback, callback)
                 return
             }
             
