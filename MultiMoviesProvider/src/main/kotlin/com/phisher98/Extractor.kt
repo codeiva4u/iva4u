@@ -190,22 +190,39 @@ class TechInMindExtractor : ExtractorApi() {
             Log.d("TechInMind", "Extracting from SSN: $ssnUrl")
             val ssnDoc = app.get(ssnUrl, referer = referer).document
             
-            // Find multimoviesshg iframe
-            val streamHgIframe = ssnDoc.selectFirst("iframe[src*=multimoviesshg]")
-            if (streamHgIframe != null) {
-                val streamHgUrl = streamHgIframe.attr("abs:src").ifBlank { streamHgIframe.attr("src") }
-                Log.d("TechInMind", "Found StreamHG iframe: $streamHgUrl")
-                StreamHGExtractor().getUrl(streamHgUrl, ssnUrl, subtitleCallback, callback)
+            // Find video iframe - could be any hoster
+            val videoIframe = ssnDoc.selectFirst("iframe#vidFrame, iframe[allowfullscreen]")
+            if (videoIframe != null) {
+                val iframeSrc = videoIframe.attr("abs:src").ifBlank { videoIframe.attr("src") }
+                Log.d("TechInMind", "Found video iframe: $iframeSrc")
+                
+                // Route to appropriate extractor based on URL
+                when {
+                    iframeSrc.contains("multimoviesshg", true) -> {
+                        StreamHGExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                    iframeSrc.contains("uns.bio", true) -> {
+                        UpnShareExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                    iframeSrc.contains("p2pplay", true) -> {
+                        StreamP2PExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                    iframeSrc.contains("smoothpre", true) -> {
+                        EarnVidsExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                    iframeSrc.contains("rpmhub", true) -> {
+                        RpmShareExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                    else -> {
+                        // For unknown hosters, try StreamHG as fallback
+                        Log.d("TechInMind", "Unknown hoster, trying StreamHG: $iframeSrc")
+                        StreamHGExtractor().getUrl(iframeSrc, ssnUrl, subtitleCallback, callback)
+                    }
+                }
                 return
             }
             
-            // Fallback: Search for multimoviesshg URL in page HTML
-            val bodyText = ssnDoc.html()
-            val streamHgRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
-            streamHgRegex.find(bodyText)?.let {
-                Log.d("TechInMind", "Found StreamHG URL in SSN body: ${it.groupValues[1]}")
-                StreamHGExtractor().getUrl(it.groupValues[1], ssnUrl, subtitleCallback, callback)
-            }
+            Log.e("TechInMind", "No video iframe found in SSN page")
             
         } catch (e: Exception) {
             Log.e("TechInMind", "Error extracting from SSN: ${e.message}")

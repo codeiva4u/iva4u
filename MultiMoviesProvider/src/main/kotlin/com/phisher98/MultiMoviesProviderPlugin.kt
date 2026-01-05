@@ -17,5 +17,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(StreamP2PExtractor())
         registerExtractorAPI(UpnShareExtractor())
         registerExtractorAPI(EarnVidsExtractor())
+       // registerExtractorAPI(EarnVidsExtractor())
     }
 }
