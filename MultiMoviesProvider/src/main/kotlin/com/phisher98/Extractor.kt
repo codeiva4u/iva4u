@@ -98,7 +98,7 @@ open class GDMirror : ExtractorApi() {
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
                 when (friendlyName) {
-                    "StreamHG","EarnVids" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "StreamHG","EarnVids", "Techinmind" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> {
                         Log.d("Phisher", "No local extractor found for: $friendlyName") }
