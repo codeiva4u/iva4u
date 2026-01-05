@@ -28,6 +28,12 @@ open class GDMirror : ExtractorApi() {
     override var mainUrl = "https://gdmirrorbot.nl"
     override val requiresReferer = true
 
+    companion object {
+        // Add new domains here easily
+        val STREAMWISH_DOMAINS = listOf("multimoviesshg", "earnvids", "streamwish", "prostream")
+        val VIDSTACK_DOMAINS = listOf("vidstack", "server1", "upnshare", "rpmshare", "streamp2p")
+    }
+
     override suspend fun getUrl(
         url: String,
         referer: String?,
@@ -41,26 +47,41 @@ open class GDMirror : ExtractorApi() {
             val dataLink = Regex("""data-link\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             
             if (!dataLink.isNullOrBlank()) {
-                val ssnPage = app.get(dataLink).text
-                val finalStream = Regex("""iframe\s+id="vidFrame"\s+[^>]*src="([^"]+)"""").find(ssnPage)?.groupValues?.get(1)
-                                ?: Regex("""source\s*:\s*[{]\s*url\s*:\s*"([^"]+)"""").find(ssnPage)?.groupValues?.get(1) // Fallback for other players
 
-                if (!finalStream.isNullOrBlank()) {
-                     // Check domain to decide extractor
-                     val domain = URI(finalStream).host
-                     when {
-                         domain.contains("multimoviesshg") || domain.contains("earnvids") -> 
-                             Multiprocessing().getUrl(finalStream, referer, subtitleCallback, callback)
-                         domain.contains("vidstack") || domain.contains("server1") -> 
-                             VidStack().getUrl(finalStream, referer, subtitleCallback, callback)
-                         else -> 
-                             Log.d("Phisher", "No local extractor for OTT stream: $finalStream")
-                     }
-                     return
+                 // Convert ssn.techinmind.space/evid/ID -> ID
+                val ssnId = dataLink.substringAfterLast("/").substringBefore("?")
+                val ssnHost = "https://" + URI(dataLink).host
+
+                val postData = mapOf("sid" to ssnId)
+                val ssnResponse = app.post("$ssnHost/embedhelper.php", data = postData, referer = dataLink).text
+                
+                val ssnJson = JsonParser.parseString(ssnResponse).asJsonObject
+                val ssnSiteUrls = ssnJson["siteUrls"]?.asJsonObject
+                val ssnMresult = ssnJson["mresult"]?.asString?.let { 
+                    try { base64Decode(it).let { res -> JsonParser.parseString(res).asJsonObject } } catch (e: Exception) { null } 
+                } ?: ssnJson["mresult"]?.asJsonObject
+
+                if (ssnSiteUrls != null && ssnMresult != null) {
+                      ssnSiteUrls.keySet().intersect(ssnMresult.keySet()).forEach { key ->
+                        val base = ssnSiteUrls[key]?.asString?.trimEnd('/') ?: return@forEach
+                        val path = ssnMresult[key]?.asString?.trimStart('/') ?: return@forEach
+                        val fullUrl = "$base/$path"
+                        val friendlyName = ssnJson["siteFriendlyNames"]?.asJsonObject?.get(key)?.asString ?: key
+
+                         when {
+                             STREAMWISH_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
+                                 Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
+                             VIDSTACK_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
+                                 VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                             else -> 
+                                 Log.d("Phisher", "No local extractor for SSN stream: $fullUrl")
+                         }
+                    }
+                    return
                 }
             }
 
-            // Standard GDMirror API logic continues below if not an OTT embed...
+
             val finalId = Regex("""FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val myKey = Regex("""myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val idType = Regex("""idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
@@ -95,7 +116,8 @@ open class GDMirror : ExtractorApi() {
 
         val siteUrls = root["siteUrls"]?.asJsonObject ?: return
         val siteFriendlyNames = root["siteFriendlyNames"]?.asJsonObject
-
+        
+        // Decoding logic (unchanged)
         val decodedMresult = when {
             root["mresult"]?.isJsonObject == true -> root["mresult"]!!.asJsonObject
             root["mresult"]?.isJsonPrimitive == true -> try {
@@ -116,11 +138,16 @@ open class GDMirror : ExtractorApi() {
 
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
-                when (friendlyName) {
-                    "StreamHG", "EarnVids" -> Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                
+                // Use the lists to check against friendlyName OR the URL itself for maximum match rate
+                when {
+                    STREAMWISH_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } || friendlyName == "StreamHG" ->
+                         Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    
+                    VIDSTACK_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
+                         VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                         
                     else -> {
-                        // Strict mode: Only use local extractors. Do not use CloudStream's loadExtractor.
                         Log.d("Phisher", "No local extractor found for: $friendlyName")
                     }
                 }
