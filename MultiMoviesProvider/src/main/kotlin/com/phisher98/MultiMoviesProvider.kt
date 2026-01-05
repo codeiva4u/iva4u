@@ -28,6 +28,7 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
@@ -227,9 +228,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     )
 
     data class LinkData(
+        val name: String?,
         val type: String,
         val post: String,
-        val nume: String
+        val nume: String,
+        val url: String
     )
 
         override suspend fun load(url: String): LoadResponse? {
@@ -267,18 +270,36 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             }
 
             return if (type == TvType.TvSeries) {
-                val episodes = doc.select("#seasons ul.episodios > li").mapNotNull {
-                    val name = it.select("div.episodiotitle > a").text()
-                    val href = it.select("div.episodiotitle > a").attr("href")
-                    val posterUrl = it.select("div.imagen > img").attr("src")
-                    val season = it.select("div.numerando").text().substringBefore(" -").toIntOrNull()
-                    val episode = it.select("div.numerando").text().substringAfter("- ").toIntOrNull()
-                    newEpisode(href) {
-                        this.name = name
-                        this.posterUrl = posterUrl
-                        this.season = season
-                        this.episode = episode
+                val episodes = if (doc.select("#seasons ul.episodios > li").isNotEmpty()) {
+                    doc.select("#seasons ul.episodios > li").mapNotNull {
+                        val name = it.select("div.episodiotitle > a").text()
+                        val href = it.select("div.episodiotitle > a").attr("href")
+                        val posterUrl = it.select("div.imagen > img").attr("src")
+                        val season = it.select("div.numerando").text().substringBefore(" -").toIntOrNull()
+                        val episode = it.select("div.numerando").text().substringAfter("- ").toIntOrNull()
+                        newEpisode(href) {
+                            this.name = name
+                            this.posterUrl = posterUrl
+                            this.season = season
+                            this.episode = episode
+                        }
                     }
+                } else {
+                    // Fallback: create episodes from player options (like Movierulzhd)
+                    doc.select("ul#playeroptionsul > li")
+                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                        .mapIndexed { index, it ->
+                            val name = it.selectFirst("span.title")?.text()
+                            val type = it.attr("data-type")
+                            val post = it.attr("data-post")
+                            val nume = it.attr("data-nume")
+                            
+                            newEpisode(LinkData(name, type, post, nume, url).toJson()) {
+                                this.name = name
+                                this.episode = index + 1
+                                this.season = 1
+                            }
+                        }
                 }
                 newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                     this.posterUrl = poster
@@ -311,44 +332,42 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-
-        Log.d("MultiMovies", "loadLinks called with data: $data")
-
-        if (data.startsWith("http")) {
-            // Check if it's already an embed link (e.g., from direct extraction)
-            if (data.contains("gdmirrorbot.nl") || data.contains("multimoviesshg") || data.contains("smoothpre")) {
-                loadExtractorLink(data, data, subtitleCallback, callback)
-                return true
-            }
-
-            // Otherwise, it's a page URL, scrape player options
+        
+        // Check if data is a URL or LinkData JSON
+        val isUrl = data.startsWith("http")
+        
+        if (isUrl) {
+            // For movies, data is direct URL
             val document = app.get(data, interceptor = cfKiller).document
-            document.select("ul#playeroptionsul > li").forEach { element ->
-                if (element.attr("data-nume").equals("trailer", ignoreCase = true)) return@forEach
-                
-                val type = element.attr("data-type")
-                val post = element.attr("data-post")
-                val nume = element.attr("data-nume")
-                
-                val iframeUrl = getIframeUrl(type, post, nume)
-                if (!iframeUrl.isNullOrEmpty()) {
-                    loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
-                }
-            }
-        } else {
-            // Json Data (Episodes)
-            try {
-                val linkDataList = parseJson<List<LinkData>>(data)
-                linkDataList.forEach { linkData ->
-                    val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+            
+            // Extract player options
+            document.select("ul#playeroptionsul > li")
+                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                .forEach { element ->
+                    val type = element.attr("data-type")
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    
+                    // Get iframe URL from player API
+                    val iframeUrl = getIframeUrl(type, post, nume)
                     if (!iframeUrl.isNullOrEmpty()) {
                         loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                     }
                 }
+        } else {
+            // For episodes, data is LinkData JSON
+            try {
+                val linkData = parseJson<LinkData>(data)
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
+                }
             } catch (e: Exception) {
                 Log.e("MultiMovies", "Error parsing link data: ${e.message}")
+                e.printStackTrace()
             }
         }
+        
         return true
     }
 
