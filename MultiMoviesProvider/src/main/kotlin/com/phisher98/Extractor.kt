@@ -47,70 +47,65 @@ class GdMirrorExtractor : ExtractorApi() {
         try {
             Log.d("GdMirror", "Starting extraction for: $url")
             
-            // Dynamic URL management - fetch latest domain
             val latestUrl = getLatestUrl(url, "gdmirror")
             val baseUrl = getBaseUrl(url)
             val newUrl = url.replace(baseUrl, latestUrl)
             
-            // Allow redirects to handle potential hops
             val response = app.get(newUrl, allowRedirects = true)
             val doc = response.document
             val finalUrl = response.url
 
-            // 1. Check for default iframe (usually StreamHG)
-            // Structure: <iframe id="vidFrame" src="...">
-            doc.select("iframe[src], iframe#vidFrame").forEach { iframe ->
-                val src = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
-                Log.d("GdMirror", "Found iframe: $src")
+            // 1. Parse split servers (5GDL menu) - Priority
+            // Selector: li.server-item with data-link
+            doc.select("li.server-item").forEach { item ->
+                val link = item.attr("data-link")
+                val text = item.text()
+                val serverName = item.select(".server-name").text()
+                val serverMeta = item.select(".server-meta").text()
                 
-                if (src.contains("multimoviesshg", ignoreCase = true)) {
-                    StreamHGExtractor().getUrl(src, finalUrl, subtitleCallback, callback)
-                } 
-                // Add other iframe checks if needed
-            }
-
-            // 2. Check for server list (The "3 dots" menu items)
-            // Structure: <li class="server-item" data-link="..."><div class="server-meta">Name • ONLINE</div></li>
-            val serverItems = doc.select("li.server-item")
-            if (serverItems.isNotEmpty()) {
-                Log.d("GdMirror", "Found ${serverItems.size} server items")
-                serverItems.forEach { item ->
-                    val link = item.attr("data-link")
-                    val meta = item.select(".server-meta").text()
-                    val name = item.select(".server-name").text()
+                if (link.isNotBlank() && !link.startsWith("#")) {
+                    Log.d("GdMirror", "Found server: $serverName ($serverMeta) -> $link")
                     
-                    if (link.isNotBlank()) {
-                         Log.d("GdMirror", "Processing server: $name ($meta) -> $link")
-                         
-                         if (meta.contains("EarnVids", ignoreCase = true) || name.contains("FLLS", ignoreCase = true)) {
-                            EarnVidsExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
-                         } else if (meta.contains("StreamHG", ignoreCase = true) || name.contains("SMWH", ignoreCase = true)) {
+                    when {
+                        text.contains("StreamHG", true) || text.contains("SMWH", true) -> {
                             StreamHGExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
-                         } else if(meta.contains("UpnShare", ignoreCase = true) || name.contains("UPNSHR", ignoreCase = true)) {
-                             UpnShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
-                         } else if(meta.contains("StreamP2p", ignoreCase = true) || name.contains("STRMP2", ignoreCase = true)) {
-                             StreamP2PExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
-                         } else if(meta.contains("RpmShare", ignoreCase = true) || name.contains("RPMSHRE", ignoreCase = true)) {
-                             RpmShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
-                         }
+                        }
+                        text.contains("EarnVids", true) || text.contains("FLLS", true) -> {
+                            EarnVidsExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        text.contains("StreamP2P", true) || text.contains("STRMP2", true) -> {
+                            StreamP2PExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        text.contains("UpnShare", true) || text.contains("UPNSHR", true) -> {
+                            UpnShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        text.contains("RpmShare", true) || text.contains("RPMSHRE", true) -> {
+                            RpmShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
                     }
                 }
-            } else {
-                Log.d("GdMirror", "No server list found, trying fallback extraction methods")
-                
-                // Fallback: Check body text for hidden StreamHG Links
-                val bodyText = doc.body().html()
-                val multiMoviesRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
-                val multiMoviesMatch = multiMoviesRegex.find(bodyText)
-                if (multiMoviesMatch != null) {
-                    val foundUrl = multiMoviesMatch.groupValues[1]
-                    StreamHGExtractor().getUrl(foundUrl, finalUrl, subtitleCallback, callback)
+            }
+
+            // 2. Check for default iframe (usually StreamHG)
+            doc.select("iframe[src], iframe#vidFrame").forEach { iframe ->
+                val src = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
+                if (src.isNotBlank()) {
+                     Log.d("GdMirror", "Found iframe: $src")
+                     if (src.contains("multimoviesshg", ignoreCase = true)) {
+                        StreamHGExtractor().getUrl(src, finalUrl, subtitleCallback, callback)
+                     }
                 }
+            }
+            
+            // 3. Fallback to hidden inputs or scripts
+            val bodyText = doc.html()
+            val streamHgRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
+            streamHgRegex.find(bodyText)?.let {
+                 StreamHGExtractor().getUrl(it.groupValues[1], finalUrl, subtitleCallback, callback)
             }
 
         } catch (e: Exception) {
             Log.e("GdMirror", "Fatal extraction error: ${e.message}")
-            e.printStackTrace()
         }
     }
 }
@@ -648,88 +643,65 @@ class StreamHGExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("StreamHG", "Fetching: $url")
+            val ref = referer ?: url
             
-            // Method 1: WebView Resolver (Standard Method)
-            try {
-                val response = app.get(
-                    url,
-                    referer = referer,
-                    interceptor = WebViewResolver(
-                        Regex("""(master|playlist|index)\.m3u8""")
-                    )
+            val response = app.get(
+                url,
+                referer = ref,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
                 )
-                
-                if (response.url.contains("m3u8")) {
-                    Log.d("StreamHG", "Found M3U8 via WebView: ${response.url}")
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            name,
-                            response.url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = referer ?: url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.e("StreamHG", "WebView extraction failed: ${e.message}")
+            )
+            
+            if (response.url.contains("m3u8")) {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = ref
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+                return
             }
 
-            // Method 2: Direct HTML/JS Extraction (Fallback)
-             try {
-                val response = app.get(url, referer = referer)
-                val html = response.text
-                
-                // Regex search for m3u8
-                val m3u8Regex = Regex("""(https?://[^"'\s]*\.(?:m3u8)[^"'\s]*)""")
-                val match = m3u8Regex.find(html)
-                
-                if (match != null) {
-                    val m3u8Url = match.groupValues[1]
-                     Log.d("StreamHG", "Found M3U8 via Regex: $m3u8Url")
+            // Fallback: Manually check for m3u8 in page content
+            val text = app.get(url, referer = ref).text
+             // Try standard m3u8 regex
+            Regex("""(https?://.*?\.m3u8.*?)["']""").find(text)?.let {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [Regex]",
+                        it.groupValues[1],
+                        ExtractorLinkType.M3U8
+                    ) {
+                         this.referer = ref
+                         this.quality = Qualities.P1080.value
+                    }
+                )
+                return
+            }
+            // Try unpacking 
+             JsUnpacker(text).unpack()?.let { unpacked ->
+                 Regex("""(https?://.*?\.m3u8.*?)["']""").find(unpacked)?.let {
                      callback.invoke(
                         newExtractorLink(
                             name,
-                            "$name [Regex]",
-                            m3u8Url,
+                            "$name [Unpacked]",
+                            it.groupValues[1],
                             ExtractorLinkType.M3U8
                         ) {
-                             this.referer = referer ?: url
+                             this.referer = ref
                              this.quality = Qualities.P1080.value
                         }
                     )
-                    return
-                }
+                 }
+             }
 
-                // Packed JS Unpacking
-                val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)""")
-                if (packedRegex.containsMatchIn(html)) {
-                    Log.d("StreamHG", "Found packed JS, unpacking...")
-                    val unpacked = JsUnpacker(html).unpack()
-                    val unpackedMatch = m3u8Regex.find(unpacked ?: "")
-                    if (unpackedMatch != null) {
-                         val m3u8Url = unpackedMatch.groupValues[1]
-                         Log.d("StreamHG", "Found M3U8 via Unpacking: $m3u8Url")
-                         callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [Unpacked]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                 this.referer = referer ?: url
-                                 this.quality = Qualities.P1080.value
-                            }
-                        )
-                        return
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("StreamHG", "Direct extraction failed: ${e.message}")
-            }
         } catch (e: Exception) {
             Log.e("StreamHG", "Extraction error: ${e.message}")
         }
@@ -750,88 +722,64 @@ class EarnVidsExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("EarnVids", "Fetching: $url")
-            
-             // Method 1: WebView Resolver (Standard Method)
-            try {
-                val response = app.get(
-                    url,
-                    referer = referer,
-                    interceptor = WebViewResolver(
-                        Regex("""(master|playlist|index)\.m3u8""")
-                    )
+            val ref = referer ?: url
+
+            val response = app.get(
+                url,
+                referer = ref,
+                interceptor = WebViewResolver(
+                    Regex("""(master|playlist|index)\.m3u8""")
                 )
-                
-                if (response.url.contains("m3u8")) {
-                    Log.d("EarnVids", "Found M3U8 via WebView: ${response.url}")
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            name,
-                            response.url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = referer ?: url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                 Log.e("EarnVids", "WebView extraction failed: ${e.message}")
+            )
+            
+            if (response.url.contains("m3u8")) {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        name,
+                        response.url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = ref
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+                return
             }
 
-            // Method 2: Direct HTML/JS Extraction (Fallback)
-             try {
-                val response = app.get(url, referer = referer)
-                val html = response.text
-                
-                // Regex search for m3u8
-                val m3u8Regex = Regex("""(https?://[^"'\s]*\.(?:m3u8)[^"'\s]*)""")
-                val match = m3u8Regex.find(html)
-                
-                if (match != null) {
-                    val m3u8Url = match.groupValues[1]
-                     Log.d("EarnVids", "Found M3U8 via Regex: $m3u8Url")
+            // Fallback: Check for other m3u8 via text or unpacking
+            val text = app.get(url, referer = ref).text
+             // Try standard m3u8 regex
+            Regex("""(https?://.*?\.m3u8.*?)["']""").find(text)?.let {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name [Regex]",
+                        it.groupValues[1],
+                        ExtractorLinkType.M3U8
+                    ) {
+                         this.referer = ref
+                         this.quality = Qualities.P1080.value
+                    }
+                )
+                return
+            }
+             // Try unpacking 
+             JsUnpacker(text).unpack()?.let { unpacked ->
+                 Regex("""(https?://.*?\.m3u8.*?)["']""").find(unpacked)?.let {
                      callback.invoke(
                         newExtractorLink(
                             name,
-                            "$name [Regex]",
-                            m3u8Url,
+                            "$name [Unpacked]",
+                            it.groupValues[1],
                             ExtractorLinkType.M3U8
                         ) {
-                             this.referer = referer ?: url
+                             this.referer = ref
                              this.quality = Qualities.P1080.value
                         }
                     )
-                    return
-                }
-
-                // Packed JS Unpacking
-                val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)""")
-                if (packedRegex.containsMatchIn(html)) {
-                    Log.d("EarnVids", "Found packed JS, unpacking...")
-                    val unpacked = JsUnpacker(html).unpack()
-                    val unpackedMatch = m3u8Regex.find(unpacked ?: "")
-                    if (unpackedMatch != null) {
-                         val m3u8Url = unpackedMatch.groupValues[1]
-                         Log.d("EarnVids", "Found M3U8 via Unpacking: $m3u8Url")
-                         callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name [Unpacked]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                 this.referer = referer ?: url
-                                 this.quality = Qualities.P1080.value
-                            }
-                        )
-                        return
-                    }
-                }
-            } catch (e: Exception) {
-                 Log.e("EarnVids", "Direct extraction failed: ${e.message}")
-            }
+                 }
+             }
 
         } catch (e: Exception) {
             Log.e("EarnVids", "Extraction error: ${e.message}")

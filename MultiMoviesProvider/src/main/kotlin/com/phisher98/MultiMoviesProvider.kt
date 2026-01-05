@@ -195,147 +195,27 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d("MultiMovies", "Searching for: $query")
-        // multimovies.golf always has Cloudflare
         val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
 
-        return document.select("div.result-item").mapNotNull { result ->
-            // Extract title with multiple fallback selectors
-            val title = when {
-                result.selectFirst("article > div.details > div.title > a") != null ->
-                    result.selectFirst("article > div.details > div.title > a")?.text()?.trim()
-                result.selectFirst("div.title > a") != null ->
-                    result.selectFirst("div.title > a")?.text()?.trim()
-                result.selectFirst("h3 > a") != null ->
-                    result.selectFirst("h3 > a")?.text()?.trim()
-                result.selectFirst(".title a") != null ->
-                    result.selectFirst(".title a")?.text()?.trim()
-                else -> null
-            }
-
-            if (title.isNullOrBlank()) return@mapNotNull null
-
-            // Extract href with multiple fallback selectors
-            val href = when {
-                result.selectFirst("article > div.details > div.title > a") != null ->
-                    fixUrl(result.selectFirst("article > div.details > div.title > a")?.attr("href").toString())
-                result.selectFirst("div.title > a") != null ->
-                    fixUrl(result.selectFirst("div.title > a")?.attr("href").toString())
-                result.selectFirst("h3 > a") != null ->
-                    fixUrl(result.selectFirst("h3 > a")?.attr("href").toString())
-                result.selectFirst(".title a") != null ->
-                    fixUrl(result.selectFirst(".title a")?.attr("href").toString())
-                else -> return@mapNotNull null
-            }
-
-            // ✅ FIXED: Enhanced poster extraction for search results
-            // Using getImageAttr() for compatibility + proper selector priority
-            var posterUrl = when {
-                // Priority 1: Search result article structure (Most common)
-                // Structure: article > div.image > div.thumbnail.animation-2 > a > img
-                result.selectFirst("div.image > div.thumbnail.animation-2 > a > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > div.thumbnail.animation-2 > a > img")?.getImageAttr())
-
-                //Priority 2: Direct poster structure
-                result.selectFirst("div.poster > img") != null ->
-                    fixUrlNull(result.selectFirst("div.poster > img")?.getImageAttr())
-
-                // Priority 3: Simple image in div
-                result.selectFirst("div.image > a > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > a > img")?.getImageAttr())
-                result.selectFirst("div.image > img") != null ->
-                    fixUrlNull(result.selectFirst("div.image > img")?.getImageAttr())
-                result.selectFirst("div.thumbnail > img") != null ->
-                    fixUrlNull(result.selectFirst("div.thumbnail > img")?.getImageAttr())
-                result.selectFirst("div.imagen > img") != null ->
-                    fixUrlNull(result.selectFirst("div.imagen > img")?.getImageAttr())
-
-                // Priority 4: Fallback to parent divs
-                result.selectFirst("div.poster") != null ->
-                    fixUrlNull(result.selectFirst("div.poster")?.getImageAttr())
-                result.selectFirst("div.image") != null ->
-                    fixUrlNull(result.selectFirst("div.image")?.getImageAttr())
-                result.selectFirst("div.thumbnail") != null ->
-                    fixUrlNull(result.selectFirst("div.thumbnail")?.getImageAttr())
-
-                // Priority 5: Generic class selectors
-                result.selectFirst(".poster img") != null ->
-                    fixUrlNull(result.selectFirst(".poster img")?.getImageAttr())
-                result.selectFirst(".image img") != null ->
-                    fixUrlNull(result.selectFirst(".image img")?.getImageAttr())
-                result.selectFirst(".thumbnail img") != null ->
-                    fixUrlNull(result.selectFirst(".thumbnail img")?.getImageAttr())
-
-                // Priority 6: Generic img tags (lowest priority)
-                result.selectFirst("img[src]") != null ->
-                    fixUrlNull(result.selectFirst("img[src]")?.getImageAttr())
-                result.selectFirst("img[data-src]") != null ->
-                    fixUrlNull(result.selectFirst("img[data-src]")?.getImageAttr())
-                result.selectFirst("img[data-lazy-src]") != null ->
-                    fixUrlNull(result.selectFirst("img[data-lazy-src]")?.getImageAttr())
-
-                else -> null
-            }
-
-            // Enhanced fallback poster extraction
-            if (posterUrl.isNullOrBlank()) {
-                // Try direct img tag in article
-                posterUrl = fixUrlNull(result.selectFirst("img")?.getImageAttr())
-            }
-
-            // Enhanced fallback: Try background image and style attributes
-            if (posterUrl.isNullOrBlank()) {
-                val articleImg = result.selectFirst("article > div.image > div.thumbnail.animation-2, div.thumbnail, .image, div.imagen")
-                if (articleImg != null) {
-                    posterUrl = fixUrlNull(articleImg.getImageAttr())
-                }
-            }
-
-            // Additional fallback: Try style background-image
-            if (posterUrl.isNullOrBlank()) {
-                val styleBg = result.selectFirst("[style*='background-image']")
-                if (styleBg != null) {
-                    posterUrl = fixUrlNull(styleBg.getImageAttr())
-                }
-            }
-
-            // Final fallback: Try data-bg attributes
-            if (posterUrl.isNullOrBlank()) {
-                val dataBg = result.selectFirst("[data-bg], [data-background]")
-                if (dataBg != null) {
-                    posterUrl = fixUrlNull(dataBg.getImageAttr())
-                }
-            }
-
-            Log.d("MultiMovies", "Search - Title: $title, Poster: $posterUrl")
-
-            val quality = when {
-                result.select("div.poster > div.mepo > span").isNotEmpty() ->
-                    getQualityFromString(result.select("div.poster > div.mepo > span").text())
-                result.select(".mepo .quality").isNotEmpty() ->
-                    getQualityFromString(result.select(".mepo .quality").text())
-                else -> null
-            }
-
-            // Determine content type
-            val isMovie = when {
-                href.contains("movie", ignoreCase = true) -> true
-                href.contains("tvshow", ignoreCase = true) -> false
-                result.select("article > div.image > div.thumbnail.animation-2 > a > span").text().contains("Movie", ignoreCase = true) -> true
-                result.select("article > div.image > div.thumbnail.animation-2 > a > span").text().contains("TV", ignoreCase = true) -> false
-                result.hasClass("movies") -> true
-                result.hasClass("tvshows") -> false
-                else -> true // Default to movie
-            }
+        return document.select("div.result-item article").mapNotNull { article ->
+            val titleElement = article.selectFirst("div.details > div.title > a") ?: return@mapNotNull null
+            val title = titleElement.text().trim()
+            val href = fixUrl(titleElement.attr("href"))
+            
+            val imageDiv = article.selectFirst("div.image > div.thumbnail > a")
+            val posterUrl = fixUrlNull(imageDiv?.selectFirst("img")?.getImageAttr())
+            
+            val typeText = imageDiv?.selectFirst("span.movies, span.tvshows")?.text()
+            val isMovie = typeText?.contains("Movie", ignoreCase = true) == true || 
+                          !href.contains("tvshows", ignoreCase = true)
 
             if (isMovie) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
                     this.posterUrl = posterUrl
-                    this.quality = quality
                 }
             } else {
                 newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
                     this.posterUrl = posterUrl
-                    this.quality = quality
                 }
             }
         }
@@ -434,30 +314,29 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
 
         Log.d("MultiMovies", "loadLinks called with data: $data")
 
-        // Check if data is a URL or LinkData JSON - Movierulzhd style
-        val isUrl = data.startsWith("http")
+        if (data.startsWith("http")) {
+            // Check if it's already an embed link (e.g., from direct extraction)
+            if (data.contains("gdmirrorbot.nl") || data.contains("multimoviesshg") || data.contains("smoothpre")) {
+                loadExtractorLink(data, data, subtitleCallback, callback)
+                return true
+            }
 
-        if (isUrl) {
-            // Handle movies - data is URL  
-            // multimovies.golf has Cloudflare on all pages
+            // Otherwise, it's a page URL, scrape player options
             val document = app.get(data, interceptor = cfKiller).document
-
-            // Extract player options (excluding trailer)
-            document.select("ul#playeroptionsul > li")
-                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                .forEach { element ->
-                    val type = element.attr("data-type")
-                    val post = element.attr("data-post")
-                    val nume = element.attr("data-nume")
-
-                    // Get iframe URL from player API
-                    val iframeUrl = getIframeUrl(type, post, nume)
-                    if (!iframeUrl.isNullOrEmpty()) {
-                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
-                    }
+            document.select("ul#playeroptionsul > li").forEach { element ->
+                if (element.attr("data-nume").equals("trailer", ignoreCase = true)) return@forEach
+                
+                val type = element.attr("data-type")
+                val post = element.attr("data-post")
+                val nume = element.attr("data-nume")
+                
+                val iframeUrl = getIframeUrl(type, post, nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
                 }
+            }
         } else {
-            // Handle episodes - data is JSON list of LinkData
+            // Json Data (Episodes)
             try {
                 val linkDataList = parseJson<List<LinkData>>(data)
                 linkDataList.forEach { linkData ->
@@ -467,10 +346,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MultiMovies", "Error parsing episode data: ${e.message}")
+                Log.e("MultiMovies", "Error parsing link data: ${e.message}")
             }
         }
-
         return true
     }
 
