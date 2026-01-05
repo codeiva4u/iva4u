@@ -17,7 +17,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(Multiprocessing())
         registerExtractorAPI(StreamWishExtractor())
         registerExtractorAPI(Streamcasthub())
-        registerExtractorAPI(Strwishcom())
         registerExtractorAPI(GDMirror())
     }
 }
