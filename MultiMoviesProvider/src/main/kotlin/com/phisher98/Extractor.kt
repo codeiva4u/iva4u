@@ -32,7 +32,7 @@ suspend fun getLatestUrl(url: String, source: String): String {
 
 // MultiMoviesShgExtractor removed - replaced by StreamHGExtractor
 
-// GdMirror/GtxGamer Extractor - Redirects to MultiMoviesShg
+// GdMirror/GtxGamer Extractor - Handles 5GDL menu page
 class GdMirrorExtractor : ExtractorApi() {
     override val name = "GdMirror"
     override val mainUrl = "https://gdmirrorbot.nl"
@@ -55,18 +55,32 @@ class GdMirrorExtractor : ExtractorApi() {
             val doc = response.document
             val finalUrl = response.url
 
-            // 1. Parse split servers (5GDL menu) - Priority
-            // Selector: li.server-item with data-link
-            doc.select("li.server-item").forEach { item ->
+            // 1. Parse streaming server items (5GDL menu) - data-link elements only
+            doc.select("li.server-item[data-link]").forEach { item ->
                 val link = item.attr("data-link")
                 val text = item.text()
-                val serverName = item.select(".server-name").text()
-                val serverMeta = item.select(".server-meta").text()
                 
                 if (link.isNotBlank() && !link.startsWith("#")) {
-                    Log.d("GdMirror", "Found server: $serverName ($serverMeta) -> $link")
+                    Log.d("GdMirror", "Found streaming server: $text -> $link")
                     
+                    // Route to appropriate extractor based on URL patterns
                     when {
+                        link.contains("multimoviesshg", true) -> {
+                            StreamHGExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        link.contains("smoothpre", true) -> {
+                            EarnVidsExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        link.contains("p2pplay", true) -> {
+                            StreamP2PExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        link.contains("uns.bio", true) -> {
+                            UpnShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        link.contains("rpmhub", true) -> {
+                            RpmShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
+                        // Fallback based on text labels
                         text.contains("StreamHG", true) || text.contains("SMWH", true) -> {
                             StreamHGExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
                         }
@@ -82,6 +96,11 @@ class GdMirrorExtractor : ExtractorApi() {
                         text.contains("RpmShare", true) || text.contains("RPMSHRE", true) -> {
                             RpmShareExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
                         }
+                        else -> {
+                            // For unknown servers, try StreamHG as default
+                            Log.d("GdMirror", "Unknown server, trying StreamHG: $link")
+                            StreamHGExtractor().getUrl(link, finalUrl, subtitleCallback, callback)
+                        }
                     }
                 }
             }
@@ -89,20 +108,22 @@ class GdMirrorExtractor : ExtractorApi() {
             // 2. Check for default iframe (usually StreamHG)
             doc.select("iframe[src], iframe#vidFrame").forEach { iframe ->
                 val src = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
-                if (src.isNotBlank()) {
-                     Log.d("GdMirror", "Found iframe: $src")
-                     if (src.contains("multimoviesshg", ignoreCase = true)) {
-                        StreamHGExtractor().getUrl(src, finalUrl, subtitleCallback, callback)
-                     }
+                if (src.isNotBlank() && src.contains("multimoviesshg", ignoreCase = true)) {
+                    Log.d("GdMirror", "Found StreamHG iframe: $src")
+                    StreamHGExtractor().getUrl(src, finalUrl, subtitleCallback, callback)
                 }
             }
             
-            // 3. Fallback to hidden inputs or scripts
+            // 3. Fallback: Search for multimoviesshg URL in page HTML
             val bodyText = doc.html()
             val streamHgRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
             streamHgRegex.find(bodyText)?.let {
-                 StreamHGExtractor().getUrl(it.groupValues[1], finalUrl, subtitleCallback, callback)
+                Log.d("GdMirror", "Found StreamHG URL in HTML: ${it.groupValues[1]}")
+                StreamHGExtractor().getUrl(it.groupValues[1], finalUrl, subtitleCallback, callback)
             }
+            
+            // NOTE: We intentionally do NOT call loadExtractor for download links
+            // to prevent built-in extractors (VidHidePro, Vidstack) from being used
 
         } catch (e: Exception) {
             Log.e("GdMirror", "Fatal extraction error: ${e.message}")
