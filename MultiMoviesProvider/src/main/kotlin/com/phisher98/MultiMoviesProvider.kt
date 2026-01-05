@@ -15,6 +15,7 @@ import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -26,12 +27,10 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
-import okhttp3.FormBody
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
@@ -221,11 +220,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
-    data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("type") val type: String? = null,
-    )
-
     data class LinkData(
         val name: String?,
         val type: String,
@@ -331,218 +325,55 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        
-        // Check if data is a URL or LinkData JSON
-        val isUrl = data.startsWith("http")
-        
-        if (isUrl) {
-            // For movies, data is direct URL
-            val document = app.get(data, interceptor = cfKiller).document
-            
-            // Extract player options
-            document.select("ul#playeroptionsul > li")
-                .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                .forEach { element ->
-                    val type = element.attr("data-type")
-                    val post = element.attr("data-post")
-                    val nume = element.attr("data-nume")
-                    
-                    // Get iframe URL from player API
-                    val iframeUrl = getIframeUrl(type, post, nume)
-                    if (!iframeUrl.isNullOrEmpty()) {
-                        loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+        val req = app.get(data).documentLarge
+        req.select("ul#playeroptionsul li").map {
+            Triple(
+                it.attr("data-post"),
+                it.attr("data-nume"),
+                it.attr("data-type")
+            )
+        }.amap { (id, nume, type) ->
+            if (!nume.contains("trailer")) {
+                val source = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = mainUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+                ).parsed<ResponseHash>().embed_url
+                val link = source.substringAfter("\"").substringBefore("\"").trim()
+                when {
+                    !link.contains("youtube") -> {
+                        if (link.contains("deaddrive.xyz")) {
+                            app.get(link).documentLarge.select("ul.list-server-items > li").map {
+                                val server = it.attr("data-video")
+                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                            }
+                        } else
+                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
                     }
+
+                    else -> return@amap
                 }
-        } else {
-            // For episodes, data is LinkData JSON
-            try {
-                val linkData = parseJson<LinkData>(data)
-                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
-                if (!iframeUrl.isNullOrEmpty()) {
-                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
-                }
-            } catch (e: Exception) {
-                Log.e("MultiMovies", "Error parsing link data: ${e.message}")
-                e.printStackTrace()
             }
         }
-        
         return true
     }
 
-    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
-        return try {
-            Log.d("MultiMovies", "Calling player API with type=$type, post=$post, nume=$nume")
+    data class ResponseHash(
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("key") val key: String? = null,
+        @JsonProperty("type") val type: String? = null,
+    )
 
-            // Call player API
-            val requestBody = FormBody.Builder()
-                .addEncoded("action", "doo_player_ajax")
-                .addEncoded("post", post)
-                .addEncoded("nume", nume)
-                .addEncoded("type", type)
-                .build()
 
-            // Direct call with CloudflareKiller as multimovies always has protections
-            val response = app.post(
-                "$mainUrl/wp-admin/admin-ajax.php",
-                requestBody = requestBody,
-                headers = mapOf(
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to mainUrl
-                ),
-                interceptor = cfKiller
-            ).parsedSafe<ResponseHash>()
-
-            val embedUrl = response?.embed_url
-            Log.d("MultiMovies", "Got embed URL from API: $embedUrl")
-
-            embedUrl
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "Error getting iframe URL: ${e.message}")
-            e.printStackTrace()
-            null
-        }
-    }
-
-    /**
-     * Enhanced image attribute extraction with comprehensive lazy loading support
-     * and URL validation
-     */
-        private fun Element.getImageAttr(): String? {
-            val imageUrl = when {
-                this.hasAttr("data-src") -> this.attr("abs:data-src")
-                this.hasAttr("src") -> this.attr("abs:src")
-                this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
-                this.hasAttr("data-original") -> this.attr("abs:data-original")
-                this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
-                else -> null
-            }
-            return validateAndCleanUrl(imageUrl)
-        }
-    /**
-     * Validate and clean image URL with comprehensive error handling
-     */
-    private fun validateAndCleanUrl(url: String?): String? {
-        if (url.isNullOrBlank()) return null
-
-        var cleanUrl = url.trim()
-
-        // Remove common prefixes that might cause issues
-        cleanUrl = cleanUrl.replace("url(", "").replace(")", "").replace("'", "").replace("\"", "")
-
-        // Skip invalid URLs
-        if (cleanUrl.isBlank() ||
-            cleanUrl.startsWith("data:") ||
-            cleanUrl.startsWith("javascript:") ||
-            cleanUrl.contains("<script") ||
-            cleanUrl.contains("</script>")) {
-            return null
-        }
-
-        // If the image is from TMDB, try to use a higher quality version
-        if (cleanUrl.contains("image.tmdb.org")) {
-            cleanUrl = cleanUrl.replace("/w300/", "/w780/")
-                                .replace("/w185/", "/w780/")
-                                .replace("/w500/", "/w780/")
-        }
-
-        // Remove thumbnail suffix for WordPress uploads (e.g., -185x278.jpg -> .jpg)
-        if (cleanUrl.contains("/wp-content/uploads/") && cleanUrl.matches(Regex(".*-\\d+x\\d+\\.[a-zA-Z]{3,4}$"))) {
-            cleanUrl = cleanUrl.replace(Regex("-\\d+x\\d+(\\.\\w+)$"), "$1")
-        }
-
-        // If the image is from WordPress upload, ensure it's a valid URL
-        if (cleanUrl.contains("/wp-content/uploads/") && !cleanUrl.startsWith("http")) {
-            cleanUrl = mainUrl.trimEnd('/') + cleanUrl
-        }
-
-        // If relative URL, make it absolute
-        if (cleanUrl.startsWith("//")) {
-            cleanUrl = "https:$cleanUrl"
-        } else if (cleanUrl.startsWith("/")) {
-            cleanUrl = mainUrl.trimEnd('/') + cleanUrl
-        }
-
-        // Validate final URL format
-        if (cleanUrl.startsWith("http")) {
-            // Additional URL validation
-            try {
-                val uri = java.net.URI(cleanUrl)
-                if (uri.scheme in listOf("http", "https") && uri.host != null) {
-                    return cleanUrl
-                }
-            } catch (e: Exception) {
-                Log.d("MultiMovies", "Invalid URL format: $cleanUrl, error: ${e.message}")
-            }
-        }
-
-        return null
-    }
-
-    private suspend fun loadExtractorLink(
-        url: String,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        Log.d("MultiMovies", "loadExtractorLink called for: $url")
-
-        // GdMirror/GtxGamer domains - handles 5GDL menu
-        if (url.contains("gdmirrorbot", ignoreCase = true) ||
-            url.contains("gdmirror", ignoreCase = true) ||
-            url.contains("gtxgamer", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using GdMirrorExtractor")
-            GdMirrorExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // TechInMind - stream.techinmind.space and ssn.techinmind.space
-        if (url.contains("techinmind", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using TechInMindExtractor")
-            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // RpmShare
-        if (url.contains("rpmshare", ignoreCase = true) ||
-            url.contains("rpmhub", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using RpmShareExtractor")
-            RpmShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // StreamP2P
-        if (url.contains("streamp2p", ignoreCase = true) ||
-            url.contains("p2pplay", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using StreamP2PExtractor")
-            StreamP2PExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // UpnShare
-        if (url.contains("upnshare", ignoreCase = true) ||
-            url.contains("uns.bio", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using UpnShareExtractor")
-            UpnShareExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // StreamHG - multimoviesshg.com
-        if (url.contains("multimoviesshg", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using StreamHGExtractor")
-            StreamHGExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // EarnVids - smoothpre.com
-        if (url.contains("smoothpre", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using EarnVidsExtractor")
-            EarnVidsExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // Use built-in CloudStream extractors for all other hosters
-        Log.d("MultiMovies", "Using built-in loadExtractor")
-        loadExtractor(url, referer, subtitleCallback, callback)
+    private fun Element.getImageAttr(): String? {
+        return this.attr("data-src")
+            .takeIf { it.isNotBlank() && it.startsWith("http") }
+            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
     }
 }
