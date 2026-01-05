@@ -55,11 +55,18 @@ open class GDMirror : ExtractorApi() {
                 val postData = mapOf("sid" to ssnId)
                 val ssnResponse = app.post("$ssnHost/embedhelper.php", data = postData, referer = dataLink).text
                 
-                val ssnJson = JsonParser.parseString(ssnResponse).asJsonObject
-                val ssnSiteUrls = ssnJson["siteUrls"]?.asJsonObject
-                val ssnMresult = ssnJson["mresult"]?.asString?.let { 
+                val ssnJson = try {
+                    JsonParser.parseString(ssnResponse).asJsonObject
+                } catch (e: Exception) {
+                    Log.e("Phisher", "SSN JSON parsing failed: ${e.message}")
+                    Log.d("Phisher", "SSN response (first 300 chars): ${ssnResponse.take(300)}")
+                    null
+                }
+                
+                val ssnSiteUrls = ssnJson?.get("siteUrls")?.asJsonObject
+                val ssnMresult = ssnJson?.get("mresult")?.asString?.let { 
                     try { base64Decode(it).let { res -> JsonParser.parseString(res).asJsonObject } } catch (e: Exception) { null } 
-                } ?: ssnJson["mresult"]?.asJsonObject
+                } ?: ssnJson?.get("mresult")?.asJsonObject
 
                 if (ssnSiteUrls != null && ssnMresult != null) {
                       ssnSiteUrls.keySet().intersect(ssnMresult.keySet()).forEach { key ->
@@ -93,8 +100,18 @@ open class GDMirror : ExtractorApi() {
                 pageText = app.get(apiUrl).text
             }
 
-            val jsonElement = JsonParser.parseString(pageText)
-            if (!jsonElement.isJsonObject) return
+            val jsonElement = try {
+                JsonParser.parseString(pageText)
+            } catch (e: Exception) {
+                Log.e("Phisher", "JSON parsing failed for mymovieapi: ${e.message}")
+                Log.d("Phisher", "Raw response (first 300 chars): ${pageText.take(300)}")
+                return
+            }
+            
+            if (!jsonElement.isJsonObject) {
+                Log.e("Phisher", "mymovieapi response is not a JSON object")
+                return
+            }
             val jsonObject = jsonElement.asJsonObject
 
             val embedId = url.substringAfterLast("/")
@@ -110,8 +127,18 @@ open class GDMirror : ExtractorApi() {
         val postData = mapOf("sid" to sid)
         val responseText = app.post("$host/embedhelper.php", data = postData).text
 
-        val rootElement = JsonParser.parseString(responseText)
-        if (!rootElement.isJsonObject) return
+        val rootElement = try {
+            JsonParser.parseString(responseText)
+        } catch (e: Exception) {
+            Log.e("Phisher", "embedhelper.php JSON parsing failed: ${e.message}")
+            Log.d("Phisher", "embedhelper.php response (first 300 chars): ${responseText.take(300)}")
+            return
+        }
+        
+        if (!rootElement.isJsonObject) {
+            Log.e("Phisher", "embedhelper.php response is not a JSON object")
+            return
+        }
         val root = rootElement.asJsonObject
 
         val siteUrls = root["siteUrls"]?.asJsonObject ?: return
