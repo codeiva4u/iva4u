@@ -370,68 +370,61 @@ class StreamHGExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("StreamHG", "Fetching: $url")
+            Log.d("StreamHG", "Starting extraction for: $url")
             val ref = referer ?: url
             
-            val response = app.get(
-                url,
-                referer = ref,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
-                )
-            )
+            // Method 1: Get page source and try JsUnpacker first (for packed JavaScript)
+            val pageText = app.get(url, referer = ref).text
+            Log.d("StreamHG", "Got page text, length: ${pageText.length}")
             
-            if (response.url.contains("m3u8")) {
+            // Try JsUnpacker first
+            JsUnpacker(pageText).unpack()?.let { unpacked ->
+                Log.d("StreamHG", "Unpacked JS successfully")
+                val m3u8Regex = Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""")
+                m3u8Regex.find(unpacked)?.let { match ->
+                    val m3u8Url = match.groupValues[1]
+                    Log.d("StreamHG", "Found M3U8 from JsUnpacker: $m3u8Url")
+                    callback.invoke(
+                        newExtractorLink(name, "$name [Unpacked]", m3u8Url, ExtractorLinkType.M3U8) {
+                            this.referer = ref
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            }
+            
+            // Try direct regex on page source
+            Regex("""(https?://[^"'\s]+master\.m3u8[^"'\s]*)""").find(pageText)?.let {
+                Log.d("StreamHG", "Found M3U8 from direct regex: ${it.groupValues[1]}")
                 callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
+                    newExtractorLink(name, "$name [Regex]", it.groupValues[1], ExtractorLinkType.M3U8) {
                         this.referer = ref
                         this.quality = Qualities.P1080.value
                     }
                 )
                 return
             }
-
-            // Fallback: Manually check for m3u8 in page content
-            val text = app.get(url, referer = ref).text
-             // Try standard m3u8 regex
-            Regex("""(https?://.*?\.m3u8.*?)["']""").find(text)?.let {
+            
+            // Method 2: WebViewResolver fallback
+            Log.d("StreamHG", "Trying WebViewResolver fallback...")
+            val response = app.get(url, referer = ref, interceptor = WebViewResolver(Regex("""(master|playlist|index)\.m3u8""")))
+            
+            if (response.url.contains("m3u8")) {
+                Log.d("StreamHG", "Found M3U8 from WebViewResolver: ${response.url}")
                 callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name [Regex]",
-                        it.groupValues[1],
-                        ExtractorLinkType.M3U8
-                    ) {
-                         this.referer = ref
-                         this.quality = Qualities.P1080.value
+                    newExtractorLink(name, "$name [WebView]", response.url, ExtractorLinkType.M3U8) {
+                        this.referer = ref
+                        this.quality = Qualities.P1080.value
                     }
                 )
                 return
             }
-            // Try unpacking 
-             JsUnpacker(text).unpack()?.let { unpacked ->
-                 Regex("""(https?://.*?\.m3u8.*?)["']""").find(unpacked)?.let {
-                     callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name [Unpacked]",
-                            it.groupValues[1],
-                            ExtractorLinkType.M3U8
-                        ) {
-                             this.referer = ref
-                             this.quality = Qualities.P1080.value
-                        }
-                    )
-                 }
-             }
-
+            
+            Log.e("StreamHG", "No M3U8 URL found")
         } catch (e: Exception) {
             Log.e("StreamHG", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
