@@ -131,8 +131,87 @@ class GdMirrorExtractor : ExtractorApi() {
     }
 }
 
+// TechInMind Extractor - Handles stream.techinmind.space and ssn.techinmind.space
+// Chain: stream.techinmind.space → ssn.techinmind.space → multimoviesshg.com
+class TechInMindExtractor : ExtractorApi() {
+    override val name = "TechInMind"
+    override val mainUrl = "https://stream.techinmind.space"
+    override val requiresReferer = true
 
-// RpmShare Extractor
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMind", "Starting extraction for: $url")
+            val ref = referer ?: url
+            
+            val doc = app.get(url, referer = ref).document
+            
+            // Step 1: If on stream.techinmind.space/embed, find ssn.techinmind.space iframe
+            if (url.contains("stream.techinmind.space")) {
+                val ssnIframe = doc.selectFirst("iframe[src*=ssn.techinmind]")
+                if (ssnIframe != null) {
+                    val ssnUrl = ssnIframe.attr("abs:src").ifBlank { ssnIframe.attr("src") }
+                    Log.d("TechInMind", "Found SSN iframe: $ssnUrl")
+                    extractFromSSN(ssnUrl, url, subtitleCallback, callback)
+                    return
+                }
+                
+                // Check for data-link elements
+                doc.select("a[data-link]").forEach { link ->
+                    val dataLink = link.attr("data-link")
+                    if (dataLink.contains("ssn.techinmind")) {
+                        Log.d("TechInMind", "Found SSN data-link: $dataLink")
+                        extractFromSSN(dataLink, url, subtitleCallback, callback)
+                    }
+                }
+            }
+            
+            // Step 2: If already on ssn.techinmind.space, extract directly
+            if (url.contains("ssn.techinmind.space")) {
+                extractFromSSN(url, ref, subtitleCallback, callback)
+            }
+            
+        } catch (e: Exception) {
+            Log.e("TechInMind", "Extraction error: ${e.message}")
+        }
+    }
+    
+    private suspend fun extractFromSSN(
+        ssnUrl: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMind", "Extracting from SSN: $ssnUrl")
+            val ssnDoc = app.get(ssnUrl, referer = referer).document
+            
+            // Find multimoviesshg iframe
+            val streamHgIframe = ssnDoc.selectFirst("iframe[src*=multimoviesshg]")
+            if (streamHgIframe != null) {
+                val streamHgUrl = streamHgIframe.attr("abs:src").ifBlank { streamHgIframe.attr("src") }
+                Log.d("TechInMind", "Found StreamHG iframe: $streamHgUrl")
+                StreamHGExtractor().getUrl(streamHgUrl, ssnUrl, subtitleCallback, callback)
+                return
+            }
+            
+            // Fallback: Search for multimoviesshg URL in page HTML
+            val bodyText = ssnDoc.html()
+            val streamHgRegex = Regex("""(https?://[^"'\s]*multimoviesshg[^"'\s]*/e/[a-zA-Z0-9]+)""")
+            streamHgRegex.find(bodyText)?.let {
+                Log.d("TechInMind", "Found StreamHG URL in SSN body: ${it.groupValues[1]}")
+                StreamHGExtractor().getUrl(it.groupValues[1], ssnUrl, subtitleCallback, callback)
+            }
+            
+        } catch (e: Exception) {
+            Log.e("TechInMind", "Error extracting from SSN: ${e.message}")
+        }
+    }
+}// RpmShare Extractor
 class RpmShareExtractor : ExtractorApi() {
     override val name = "RpmShare"
     override val mainUrl = "https://rpmshare.com"

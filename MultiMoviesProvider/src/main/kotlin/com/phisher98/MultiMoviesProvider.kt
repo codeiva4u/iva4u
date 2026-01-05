@@ -496,6 +496,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             return
         }
 
+        // TechInMind - stream.techinmind.space and ssn.techinmind.space
+        if (url.contains("techinmind", ignoreCase = true)) {
+            Log.d("MultiMovies", "Using TechInMindExtractor")
+            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
+            return
+        }
+
         // RpmShare
         if (url.contains("rpmshare", ignoreCase = true) ||
             url.contains("rpmhub", ignoreCase = true)) {
