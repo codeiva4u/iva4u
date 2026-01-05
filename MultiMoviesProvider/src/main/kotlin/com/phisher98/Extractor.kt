@@ -242,31 +242,55 @@ class RpmShareExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("RpmShare", "Fetching: $url")
+            val ref = referer ?: url
             
-            val response = app.get(
-                url,
-                referer = referer,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
-                )
+            // Extract hash from URL fragment (#as1nrm)
+            val hash = url.substringAfter("#").takeIf { it.isNotBlank() } ?: run {
+                Log.e("RpmShare", "No hash found in URL: $url")
+                return
+            }
+            
+            // Get base URL from the actual URL
+            val baseUrl = url.substringBefore("#")
+            val domain = baseUrl.substringAfter("://").substringBefore("/")
+            
+            // Call API: /api/v1/info?id={hash}
+            val apiUrl = "https://$domain/api/v1/info?id=$hash"
+            Log.d("RpmShare", "Calling API: $apiUrl")
+            
+            val apiResponse = app.get(apiUrl, referer = ref).text
+            Log.d("RpmShare", "API Response length: ${apiResponse.length}")
+            
+            // Extract M3U8 URL from API response
+            val m3u8Patterns = listOf(
+                Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)"""),
+                Regex("""["']([^"']+\.m3u8[^"']*)["']"""),
+                Regex("""url["']?\s*[:=]\s*["']([^"']+\.m3u8)""")
             )
             
-            if (response.url.contains("m3u8")) {
-                Log.d("RpmShare", "Found M3U8: ${response.url}")
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+            for (pattern in m3u8Patterns) {
+                pattern.find(apiResponse)?.let { match ->
+                    val m3u8Url = match.groupValues[1]
+                    Log.d("RpmShare", "Found M3U8 from API: $m3u8Url")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            name,
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = ref
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
             }
+            
+            Log.e("RpmShare", "No M3U8 URL found in API response")
         } catch (e: Exception) {
             Log.e("RpmShare", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -285,31 +309,55 @@ class StreamP2PExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("StreamP2P", "Fetching: $url")
+            val ref = referer ?: url
             
-            val response = app.get(
-                url,
-                referer = referer,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
-                )
+            // Extract hash from URL fragment (#osgsns)
+            val hash = url.substringAfter("#").takeIf { it.isNotBlank() } ?: run {
+                Log.e("StreamP2P", "No hash found in URL: $url")
+                return
+            }
+            
+            // Get base URL
+            val baseUrl = url.substringBefore("#")
+            val domain = baseUrl.substringAfter("://").substringBefore("/")
+            
+            // Call API
+            val apiUrl = "https://$domain/api/v1/info?id=$hash"
+            Log.d("StreamP2P", "Calling API: $apiUrl")
+            
+            val apiResponse = app.get(apiUrl, referer = ref).text
+            Log.d("StreamP2P", "API Response length: ${apiResponse.length}")
+            
+            // Extract M3U8 URL
+            val m3u8Patterns = listOf(
+                Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)"""),
+                Regex("""["']([^"']+\.m3u8[^"']*)["']"""),
+                Regex("""url["']?\s*[:=]\s*["']([^"']+\.m3u8)""")
             )
             
-            if (response.url.contains("m3u8")) {
-                Log.d("StreamP2P", "Found M3U8: ${response.url}")
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+            for (pattern in m3u8Patterns) {
+                pattern.find(apiResponse)?.let { match ->
+                    val m3u8Url = match.groupValues[1]
+                    Log.d("StreamP2P", "Found M3U8 from API: $m3u8Url")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            name,
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = ref
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
             }
+            
+            Log.e("StreamP2P", "No M3U8 URL found in API response")
         } catch (e: Exception) {
             Log.e("StreamP2P", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -328,31 +376,55 @@ class UpnShareExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("UpnShare", "Fetching: $url")
+            val ref = referer ?: url
             
-            val response = app.get(
-                url,
-                referer = referer,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
-                )
+            // Extract hash from URL fragment (#ujs1aw)
+            val hash = url.substringAfter("#").takeIf { it.isNotBlank() } ?: run {
+                Log.e("UpnShare", "No hash found in URL: $url")
+                return
+            }
+            
+            // Get base URL
+            val baseUrl = url.substringBefore("#")
+            val domain = baseUrl.substringAfter("://").substringBefore("/")
+            
+            // Call API
+            val apiUrl = "https://$domain/api/v1/info?id=$hash"
+            Log.d("UpnShare", "Calling API: $apiUrl")
+            
+            val apiResponse = app.get(apiUrl, referer = ref).text
+            Log.d("UpnShare", "API Response length: ${apiResponse.length}")
+            
+            // Extract M3U8 URL
+            val m3u8Patterns = listOf(
+                Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)"""),
+                Regex("""["']([^"']+\.m3u8[^"']*)["']"""),
+                Regex("""url["']?\s*[:=]\s*["']([^"']+\.m3u8)""")
             )
             
-            if (response.url.contains("m3u8")) {
-                Log.d("UpnShare", "Found M3U8: ${response.url}")
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = referer ?: url
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
+            for (pattern in m3u8Patterns) {
+                pattern.find(apiResponse)?.let { match ->
+                    val m3u8Url = match.groupValues[1]
+                    Log.d("UpnShare", "Found M3U8 from API: $m3u8Url")
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            name,
+                            m3u8Url,
+                            ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = ref
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
             }
+            
+            Log.e("UpnShare", "No M3U8 URL found in API response")
         } catch (e: Exception) {
             Log.e("UpnShare", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
@@ -377,33 +449,64 @@ class StreamHGExtractor : ExtractorApi() {
             val pageText = app.get(url, referer = ref).text
             Log.d("StreamHG", "Got page text, length: ${pageText.length}")
             
+            
+            // CDN patterns found in analysis (centaurus, pixora, pixibay)
+            val cdnPatterns = listOf(
+                Regex("""(https?://[^"'\s]*centaurus[^"'\s]*\.m3u8[^"'\s]*)"""),
+                Regex("""(https?://[^"'\s]*pixora[^"'\s]*\.m3u8[^"'\s]*)"""),
+                Regex("""(https?://[^"'\s]*pixibay[^"'\s]*\.m3u8[^"'\s]*)"""),
+                Regex("""file["']?\s*[:=]\s*["']([^"']+\.m3u8[^"']*)"""),
+                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+\.m3u8)"""),
+                Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""")
+            )
+            
             // Try JsUnpacker first
             JsUnpacker(pageText).unpack()?.let { unpacked ->
-                Log.d("StreamHG", "Unpacked JS successfully")
-                val m3u8Regex = Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""")
-                m3u8Regex.find(unpacked)?.let { match ->
-                    val m3u8Url = match.groupValues[1]
-                    Log.d("StreamHG", "Found M3U8 from JsUnpacker: $m3u8Url")
+                Log.d("StreamHG", "Unpacked JS successfully, length: ${unpacked.length}")
+                
+                // Try all CDN patterns on unpacked content
+                for (pattern in cdnPatterns) {
+                    pattern.find(unpacked)?.let { match ->
+                        var m3u8Url = match.groupValues[1]
+                        // Make URL absolute if relative
+                        if (m3u8Url.startsWith("/")) {
+                            m3u8Url = "https://$mainUrl$m3u8Url"
+                        } else if (!m3u8Url.startsWith("http")) {
+                            m3u8Url = "https://$m3u8Url"
+                        }
+                        
+                        Log.d("StreamHG", "Found M3U8 from unpacked JS: $m3u8Url")
+                        callback.invoke(
+                            newExtractorLink(name, "$name [Unpacked]", m3u8Url, ExtractorLinkType.M3U8) {
+                                this.referer = ref
+                                this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
+                    }
+                }
+            }
+            
+            
+            // Try CDN patterns on original page source
+            for (pattern in cdnPatterns) {
+                pattern.find(pageText)?.let { match ->
+                    var m3u8Url = match.groupValues[1]
+                    if (m3u8Url.startsWith("/")) {
+                        m3u8Url = "https://$mainUrl$m3u8Url"
+                    } else if (!m3u8Url.startsWith("http")) {
+                        m3u8Url = "https://$m3u8Url"
+                    }
+                    
+                    Log.d("StreamHG", "Found M3U8 from page source: $m3u8Url")
                     callback.invoke(
-                        newExtractorLink(name, "$name [Unpacked]", m3u8Url, ExtractorLinkType.M3U8) {
+                        newExtractorLink(name, "$name [Direct]", m3u8Url, ExtractorLinkType.M3U8) {
                             this.referer = ref
                             this.quality = Qualities.P1080.value
                         }
                     )
                     return
                 }
-            }
-            
-            // Try direct regex on page source
-            Regex("""(https?://[^"'\s]+master\.m3u8[^"'\s]*)""").find(pageText)?.let {
-                Log.d("StreamHG", "Found M3U8 from direct regex: ${it.groupValues[1]}")
-                callback.invoke(
-                    newExtractorLink(name, "$name [Regex]", it.groupValues[1], ExtractorLinkType.M3U8) {
-                        this.referer = ref
-                        this.quality = Qualities.P1080.value
-                    }
-                )
-                return
             }
             
             // Method 2: WebViewResolver fallback
@@ -445,65 +548,80 @@ class EarnVidsExtractor : ExtractorApi() {
             Log.d("EarnVids", "Fetching: $url")
             val ref = referer ?: url
 
-            val response = app.get(
-                url,
-                referer = ref,
-                interceptor = WebViewResolver(
-                    Regex("""(master|playlist|index)\.m3u8""")
-                )
+            // Get page source
+            val text = app.get(url, referer = ref).text
+            
+            // Confirmed working patterns from analysis
+            val earnVidsPatterns = listOf(
+                // Full URL pattern (confirmed: smoothpre.com/stream/.../master.m3u8)
+                Regex("""(https?://smoothpre\.com/stream/[^"'\s]+/master\.m3u8)"""),
+                Regex("""(https?://[^"'\s]*smoothpre[^"'\s]*\.m3u8[^"'\s]*)"""),
+                // Relative URL pattern
+                Regex("""file["']?\s*[:=]\s*["'](/stream/[^"']+/master\.m3u8)"""),
+                Regex("""file["']?\s*[:=]\s*["']([^"']+\.m3u8[^"']*)"""),
+                // Generic m3u8 pattern
+                Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""")
             )
             
-            if (response.url.contains("m3u8")) {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        name,
-                        response.url,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = ref
-                        this.quality = Qualities.P1080.value
+            // Try JsUnpacker first
+            JsUnpacker(text).unpack()?.let { unpacked ->
+                Log.d("EarnVids", "Unpacked JS successfully, length: ${unpacked.length}")
+                
+                for (pattern in earnVidsPatterns) {
+                    pattern.find(unpacked)?.let { match ->
+                        var m3u8Url = match.groupValues[1]
+                        
+                        // Make URL absolute if relative
+                        if (m3u8Url.startsWith("/")) {
+                            m3u8Url = "$mainUrl$m3u8Url"
+                        }
+                        
+                        Log.d("EarnVids", "Found M3U8 from unpacked: $m3u8Url")
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name [Unpacked]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = ref
+                                this.quality = Qualities.P1080.value
+                            }
+                        )
+                        return
                     }
-                )
-                return
+                }
             }
-
-            // Fallback: Check for other m3u8 via text or unpacking
-            val text = app.get(url, referer = ref).text
-             // Try standard m3u8 regex
-            Regex("""(https?://.*?\.m3u8.*?)["']""").find(text)?.let {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name [Regex]",
-                        it.groupValues[1],
-                        ExtractorLinkType.M3U8
-                    ) {
-                         this.referer = ref
-                         this.quality = Qualities.P1080.value
+            
+            // Try patterns on original page source
+            for (pattern in earnVidsPatterns) {
+                pattern.find(text)?.let { match ->
+                    var m3u8Url = match.groupValues[1]
+                    
+                    if (m3u8Url.startsWith("/")) {
+                        m3u8Url = "$mainUrl$m3u8Url"
                     }
-                )
-                return
-            }
-             // Try unpacking 
-             JsUnpacker(text).unpack()?.let { unpacked ->
-                 Regex("""(https?://.*?\.m3u8.*?)["']""").find(unpacked)?.let {
-                     callback.invoke(
+                    
+                    Log.d("EarnVids", "Found M3U8 from page source: $m3u8Url")
+                    callback.invoke(
                         newExtractorLink(
                             name,
-                            "$name [Unpacked]",
-                            it.groupValues[1],
+                            "$name [Direct]",
+                            m3u8Url,
                             ExtractorLinkType.M3U8
                         ) {
-                             this.referer = ref
-                             this.quality = Qualities.P1080.value
+                            this.referer = ref
+                            this.quality = Qualities.P1080.value
                         }
                     )
-                 }
-             }
+                    return
+                }
+            }
 
+            Log.e("EarnVids", "No M3U8 URL found")
         } catch (e: Exception) {
             Log.e("EarnVids", "Extraction error: ${e.message}")
+            e.printStackTrace()
         }
     }
 }
