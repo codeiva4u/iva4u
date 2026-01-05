@@ -488,65 +488,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ) {
         Log.d("MultiMovies", "loadExtractorLink called for: $url")
 
-        // GdMirror/GtxGamer domains
+        // GdMirror/GtxGamer domains - handles 5GDL menu
         if (url.contains("gdmirrorbot", ignoreCase = true) ||
             url.contains("gdmirror", ignoreCase = true) ||
             url.contains("gtxgamer", ignoreCase = true)) {
             Log.d("MultiMovies", "Using GdMirrorExtractor")
             GdMirrorExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // TechInMind domains
-        if (url.contains("techinmind.space", ignoreCase = true) ||
-            url.contains("ssn.techinmind", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using TechInMindExtractor")
-            TechInMindExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-
-
-        // Streamwish
-        if (url.contains("streamwish", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using StreamwishExtractor")
-            StreamwishExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // VidHide
-        if (url.contains("vidhide", ignoreCase = true) ||
-            url.contains("filelion", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using VidHideExtractor")
-            VidHideExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // Filepress
-        if (url.contains("filepress", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using FilepressExtractor")
-            FilepressExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // Gofile
-        if (url.contains("gofile", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using GofileExtractor")
-            GofileExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // Buzzheavier
-        if (url.contains("buzzheavier", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using BuzzheavierExtractor")
-            BuzzheavierExtractor().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-
-        // GDtot
-        if (url.contains("gdtot", ignoreCase = true)) {
-            Log.d("MultiMovies", "Using GDtotExtractor")
-            GDtotExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
 
