@@ -22,17 +22,15 @@ import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-
+class Techinmind: GDMirror() {
+    override var name = "Techinmind Cloud AIO"
+    override var mainUrl = "https://stream.techinmind.space"
+    override var requiresReferer = true
+}
 open class GDMirror : ExtractorApi() {
-    override var name = "GDMirror"
+    override var name = "GDMirrorbot"
     override var mainUrl = "https://gdmirrorbot.nl"
     override val requiresReferer = true
-
-    companion object {
-        // Add new domains here easily
-        val STREAMWISH_DOMAINS = listOf("multimoviesshg", "earnvids", "streamwish", "prostream")
-        val VIDSTACK_DOMAINS = listOf("vidstack", "server1", "upnshare", "rpmshare", "streamp2p")
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -44,51 +42,6 @@ open class GDMirror : ExtractorApi() {
             Pair(url.substringAfterLast("embed/"), getBaseUrl(app.get(url).url))
         } else {
             var pageText = app.get(url).text
-            val dataLink = Regex("""data-link\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            
-            if (!dataLink.isNullOrBlank()) {
-
-                 // Convert ssn.techinmind.space/evid/ID -> ID
-                val ssnId = dataLink.substringAfterLast("/").substringBefore("?")
-                val ssnHost = "https://" + URI(dataLink).host
-
-                val postData = mapOf("sid" to ssnId)
-                val ssnResponse = app.post("$ssnHost/embedhelper.php", data = postData, referer = dataLink).text
-                
-                val ssnJson = try {
-                    JsonParser.parseString(ssnResponse).asJsonObject
-                } catch (e: Exception) {
-                    Log.e("Phisher", "SSN JSON parsing failed: ${e.message}")
-                    Log.d("Phisher", "SSN response (first 300 chars): ${ssnResponse.take(300)}")
-                    null
-                }
-                
-                val ssnSiteUrls = ssnJson?.get("siteUrls")?.asJsonObject
-                val ssnMresult = ssnJson?.get("mresult")?.asString?.let { 
-                    try { base64Decode(it).let { res -> JsonParser.parseString(res).asJsonObject } } catch (e: Exception) { null } 
-                } ?: ssnJson?.get("mresult")?.asJsonObject
-
-                if (ssnSiteUrls != null && ssnMresult != null) {
-                      ssnSiteUrls.keySet().intersect(ssnMresult.keySet()).forEach { key ->
-                        val base = ssnSiteUrls[key]?.asString?.trimEnd('/') ?: return@forEach
-                        val path = ssnMresult[key]?.asString?.trimStart('/') ?: return@forEach
-                        val fullUrl = "$base/$path"
-                        val friendlyName = ssnJson["siteFriendlyNames"]?.asJsonObject?.get(key)?.asString ?: key
-
-                         when {
-                             STREAMWISH_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
-                                 Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
-                             VIDSTACK_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
-                                 VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
-                             else -> 
-                                 Log.d("Phisher", "No local extractor for SSN stream: $fullUrl")
-                         }
-                    }
-                    return
-                }
-            }
-
-
             val finalId = Regex("""FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val myKey = Regex("""myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val idType = Regex("""idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
@@ -100,18 +53,8 @@ open class GDMirror : ExtractorApi() {
                 pageText = app.get(apiUrl).text
             }
 
-            val jsonElement = try {
-                JsonParser.parseString(pageText)
-            } catch (e: Exception) {
-                Log.e("Phisher", "JSON parsing failed for mymovieapi: ${e.message}")
-                Log.d("Phisher", "Raw response (first 300 chars): ${pageText.take(300)}")
-                return
-            }
-            
-            if (!jsonElement.isJsonObject) {
-                Log.e("Phisher", "mymovieapi response is not a JSON object")
-                return
-            }
+            val jsonElement = JsonParser.parseString(pageText)
+            if (!jsonElement.isJsonObject) return
             val jsonObject = jsonElement.asJsonObject
 
             val embedId = url.substringAfterLast("/")
@@ -127,24 +70,13 @@ open class GDMirror : ExtractorApi() {
         val postData = mapOf("sid" to sid)
         val responseText = app.post("$host/embedhelper.php", data = postData).text
 
-        val rootElement = try {
-            JsonParser.parseString(responseText)
-        } catch (e: Exception) {
-            Log.e("Phisher", "embedhelper.php JSON parsing failed: ${e.message}")
-            Log.d("Phisher", "embedhelper.php response (first 300 chars): ${responseText.take(300)}")
-            return
-        }
-        
-        if (!rootElement.isJsonObject) {
-            Log.e("Phisher", "embedhelper.php response is not a JSON object")
-            return
-        }
+        val rootElement = JsonParser.parseString(responseText)
+        if (!rootElement.isJsonObject) return
         val root = rootElement.asJsonObject
 
         val siteUrls = root["siteUrls"]?.asJsonObject ?: return
         val siteFriendlyNames = root["siteFriendlyNames"]?.asJsonObject
-        
-        // Decoding logic (unchanged)
+
         val decodedMresult = when {
             root["mresult"]?.isJsonObject == true -> root["mresult"]!!.asJsonObject
             root["mresult"]?.isJsonPrimitive == true -> try {
@@ -165,18 +97,11 @@ open class GDMirror : ExtractorApi() {
 
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
-                
-                // Use the lists to check against friendlyName OR the URL itself for maximum match rate
-                when {
-                    STREAMWISH_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } || friendlyName == "StreamHG" ->
-                         Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    
-                    VIDSTACK_DOMAINS.any { friendlyName.contains(it, true) || fullUrl.contains(it, true) } -> 
-                         VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
-                         
+                when (friendlyName) {
+                    "StreamHG","EarnVids" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> {
-                        Log.d("Phisher", "No local extractor found for: $friendlyName")
-                    }
+                        Log.d("Phisher", "No local extractor found for: $friendlyName") }
                 }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to extract from $friendlyName at $fullUrl: $e")
@@ -305,7 +230,7 @@ open class VidStack : ExtractorApi() {
         val decryptedText = ivList.firstNotNullOfOrNull { iv ->
             try {
                 AesHelper.decryptAES(encoded, key, iv)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
         } ?: throw Exception("Failed to decrypt with all IVs")
