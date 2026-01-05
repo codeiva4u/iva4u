@@ -29,7 +29,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -358,10 +357,16 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         if (link.contains("deaddrive.xyz")) {
                             app.get(link).documentLarge.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
-                                loadExtractor(server, referer = mainUrl, subtitleCallback, callback)
+                                // Only support known local extractors here if possible, or GDMirror logic
+                                // Since logic is complex here, we can route via GDMirror().getUrl which we already fixed?
+                                // OR directly call specific extractors if we know the domain.
+                                // For now, let's use GDMirror's logic which we made strict.
+                                GDMirror().getUrl(server, referer = mainUrl, subtitleCallback, callback)
                             }
-                        } else
-                            loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                        } else {
+                           // Route single links through GDMirror logic which handles the dispatching strictly
+                           GDMirror().getUrl(link, referer = mainUrl, subtitleCallback, callback)
+                        }
                     }
 
                     else -> return@amap
