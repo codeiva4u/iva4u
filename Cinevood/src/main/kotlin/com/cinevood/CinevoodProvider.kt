@@ -19,7 +19,6 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -286,48 +285,48 @@ class CinevoodProvider : MainAPI() {
 
                         // HubCloud patterns
                         link.contains("hubcloud", ignoreCase = true) ||
-                        link.contains("hubcdn", ignoreCase = true) ||
-                        link.contains("gamester", ignoreCase = true) ||
-                        link.contains("gamerxyt", ignoreCase = true) -> {
+                                link.contains("hubcdn", ignoreCase = true) ||
+                                link.contains("gamester", ignoreCase = true) ||
+                                link.contains("gamerxyt", ignoreCase = true) -> {
                             Log.d(TAG, "Using HubCloud extractor")
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         // FilePress patterns
                         link.contains("filepress", ignoreCase = true) ||
-                        link.contains("filebee", ignoreCase = true) -> {
+                                link.contains("filebee", ignoreCase = true) -> {
                             Log.d(TAG, "Using FilePress extractor")
                             FilePressExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         // StreamWish patterns (incluiding embedwish)
                         link.contains("streamwish", ignoreCase = true) ||
-                        link.contains("embedwish", ignoreCase = true) ||
-                        link.contains("wishembed", ignoreCase = true) ||
-                        link.contains("swhoi", ignoreCase = true) ||
-                        link.contains("wishfast", ignoreCase = true) ||
-                        link.contains("sfastwish", ignoreCase = true) ||
-                        link.contains("awish", ignoreCase = true) ||
-                        link.contains("dwish", ignoreCase = true) ||
-                        link.contains("streamvid", ignoreCase = true) -> {
+                                link.contains("embedwish", ignoreCase = true) ||
+                                link.contains("wishembed", ignoreCase = true) ||
+                                link.contains("swhoi", ignoreCase = true) ||
+                                link.contains("wishfast", ignoreCase = true) ||
+                                link.contains("sfastwish", ignoreCase = true) ||
+                                link.contains("awish", ignoreCase = true) ||
+                                link.contains("dwish", ignoreCase = true) ||
+                                link.contains("streamvid", ignoreCase = true) -> {
                             Log.d(TAG, "Using StreamWish extractor")
                             StreamWishExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         // DoodStream patterns
                         link.contains("dood", ignoreCase = true) ||
-                        link.contains("doodstream", ignoreCase = true) ||
-                        link.contains("d0o0d", ignoreCase = true) ||
-                        link.contains("d000d", ignoreCase = true) ||
-                        link.contains("ds2play", ignoreCase = true) ||
-                        link.contains("do0od", ignoreCase = true) -> {
+                                link.contains("doodstream", ignoreCase = true) ||
+                                link.contains("d0o0d", ignoreCase = true) ||
+                                link.contains("d000d", ignoreCase = true) ||
+                                link.contains("ds2play", ignoreCase = true) ||
+                                link.contains("do0od", ignoreCase = true) -> {
                             Log.d(TAG, "Using DoodStream extractor")
                             DoodLaExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         else -> {
                             Log.d(TAG, "Using generic extractor for: $link")
-                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            Log.d("Phisher", "No local extractor found for:")
                         }
                     }
                 } catch (e: Exception) {

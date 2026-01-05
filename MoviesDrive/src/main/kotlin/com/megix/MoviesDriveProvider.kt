@@ -1,5 +1,6 @@
 package com.megix
 
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -25,7 +26,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -302,9 +302,10 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     ): Boolean {
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
         sources.amap {
-            val source = it.source
-            loadExtractor(source, subtitleCallback, callback)
+            it.source
         }
+            Log.d("Phisher", "No local extractor found for:")
+
         return true
     }
 

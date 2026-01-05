@@ -13,7 +13,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getAndUnpack
 import com.lagradost.cloudstream3.utils.getPacked
 import com.lagradost.cloudstream3.utils.getQualityFromName
-import com.lagradost.cloudstream3.utils.loadExtractor
+// import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
@@ -120,7 +120,7 @@ class HubCloud : ExtractorApi() {
             try { URI(it).toURL(); true } catch (e: Exception) { Log.e(tag, "Invalid URL: ${e.message}"); false }
         } ?: return
 
-        val baseUrl=getBaseUrl(realUrl)
+        val baseUrl=getHubBaseUrl(realUrl)
 
         val href = try {
             if ("hubcloud.php" in realUrl) {
@@ -276,7 +276,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 else -> {
-                    loadExtractor(link, "", subtitleCallback, callback)
+                    // loadExtractor(link, "", subtitleCallback, callback)
                 }
             }
         }
@@ -287,7 +287,7 @@ class HubCloud : ExtractorApi() {
             ?: Qualities.P2160.value
     }
 
-    private fun getBaseUrl(url: String): String {
+    private fun getHubBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -373,7 +373,7 @@ open class StreamWishExtractor : ExtractorApi() {
 
         try {
             val actualUrl = resolveEmbedUrl(url)
-            val baseUrl = getBaseUrl(actualUrl)
+            val baseUrl = getWishBaseUrl(actualUrl)
 
             val headers = mapOf(
                 "Accept" to "*/*",
@@ -488,12 +488,12 @@ open class StreamWishExtractor : ExtractorApi() {
         return when {
             inputUrl.contains("/f/") -> {
                 val videoId = inputUrl.substringAfter("/f/").substringBefore("/").substringBefore("?")
-                val baseUrl = getBaseUrl(inputUrl)
+                val baseUrl = getWishBaseUrl(inputUrl)
                 "$baseUrl/e/$videoId"
             }
             inputUrl.contains("/d/") -> {
                 val videoId = inputUrl.substringAfter("/d/").substringBefore("/").substringBefore("?")
-                val baseUrl = getBaseUrl(inputUrl)
+                val baseUrl = getWishBaseUrl(inputUrl)
                 "$baseUrl/e/$videoId"
             }
             !inputUrl.contains("/e/") -> {
@@ -508,7 +508,7 @@ open class StreamWishExtractor : ExtractorApi() {
         }
     }
 
-    private fun getBaseUrl(url: String): String {
+    private fun getWishBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -561,7 +561,7 @@ open class DoodLaExtractor : ExtractorApi() {
             Log.d(tag, "Embed URL: $embedUrl")
 
             val req = app.get(embedUrl)
-            val host = getBaseUrl(req.url)
+            val host = getDoodBaseUrl(req.url)
             val responseText = req.text
 
             // Check if file is available
@@ -637,7 +637,7 @@ open class DoodLaExtractor : ExtractorApi() {
         }
     }
 
-    private fun getBaseUrl(url: String): String {
+    private fun getDoodBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -675,7 +675,7 @@ class FilePressExtractor : ExtractorApi() {
         Log.d(tag, "Processing FilePress URL: $url")
 
         try {
-            val baseUrl = getBaseUrl(url)
+            val baseUrl = getFilePressBaseUrl(url)
 
             // Convert /file/ to /video/ URL
             val videoPageUrl = if (url.contains("/file/")) {
@@ -716,7 +716,7 @@ class FilePressExtractor : ExtractorApi() {
                     // Try generic loadExtractor for other sources
                     else -> {
                         Log.d(tag, "Using generic extractor for: $iframeSrc")
-                        loadExtractor(iframeSrc, videoPageUrl, subtitleCallback, callback)
+                        // loadExtractor(iframeSrc, videoPageUrl, subtitleCallback, callback)
                     }
                 }
             }
@@ -768,7 +768,7 @@ class FilePressExtractor : ExtractorApi() {
         }
     }
 
-    private fun getBaseUrl(url: String): String {
+    private fun getFilePressBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {

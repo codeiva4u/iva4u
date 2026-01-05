@@ -13,7 +13,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 
@@ -122,7 +121,7 @@ class Hubdrive : ExtractorApi() {
     ) {
         val href=app.get(url, timeout = 2000).documentLarge.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
         if (href.contains("hubcloud",ignoreCase = true)) HubCloud().getUrl(href,"HubDrive",subtitleCallback,callback)
-        else loadExtractor(href,"HubDrive",subtitleCallback, callback)
+        Log.d("Phisher", "No local extractor found for:")
     }
 }
 
@@ -306,7 +305,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 else -> {
-                    loadExtractor(link, "", subtitleCallback, callback)
+                    Log.d("Phisher", "No local extractor found for:")
                 }
             }
         }
@@ -366,8 +365,6 @@ class HubCloud : ExtractorApi() {
     }
 }
 
-
-
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
     override val mainUrl = "https://hubcdn.*"
@@ -405,4 +402,3 @@ class HUBCDN : ExtractorApi() {
         }
     }
 }
-

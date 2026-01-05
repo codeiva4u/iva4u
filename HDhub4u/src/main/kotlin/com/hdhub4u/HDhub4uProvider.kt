@@ -26,7 +26,6 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.toNewSearchResponseList
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -442,7 +441,9 @@ class HDhub4uProvider : MainAPI() {
                 if (finalLink.contains("Hubdrive",ignoreCase = true))
                 {
                     Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
-                } else loadExtractor(finalLink, subtitleCallback, callback)
+                } else {
+                     Log.d("Phisher", "No local extractor found for: $finalLink")
+                }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to process $link: ${e.message}")
             }

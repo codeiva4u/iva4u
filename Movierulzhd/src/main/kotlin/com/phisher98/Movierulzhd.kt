@@ -28,7 +28,7 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
+// import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import java.net.URI
@@ -390,6 +390,6 @@ open class Movierulzhd : MainAPI() {
         }
         
         // Use built-in CloudStream extractors for all other video hosters
-        loadExtractor(url, referer, subtitleCallback, callback)
+        // loadExtractor(url, referer, subtitleCallback, callback)
     }
 }
