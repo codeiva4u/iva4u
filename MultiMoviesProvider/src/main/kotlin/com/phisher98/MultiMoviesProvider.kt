@@ -268,8 +268,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         val name = it.select("div.episodiotitle > a").text()
                         val href = it.select("div.episodiotitle > a").attr("href")
                         val posterUrl = it.select("div.imagen > img").attr("src")
-                        val season = it.select("div.numerando").text().substringBefore(" -").toIntOrNull()
-                        val episode = it.select("div.numerando").text().substringAfter("- ").toIntOrNull()
+                        
+                        // Robust Regex for 100% matching of Season/Episode formats
+                        // Handles: "1 - 1", "1-1", "S1 E1", "Season 1 Episode 1", "19 - 72"
+                        val numerandoText = it.select("div.numerando").text().trim()
+                        val match = Regex("""(?i)(?:s(?:eason)?\s*)?(\d+)(?:\s*[-–]\s*|\s*e(?:pisode)?\s*)(\d+)""").find(numerandoText)
+                        
+                        val season = match?.groupValues?.get(1)?.toIntOrNull()
+                        val episode = match?.groupValues?.get(2)?.toIntOrNull()
+                        
                         newEpisode(href) {
                             this.name = name
                             this.posterUrl = posterUrl

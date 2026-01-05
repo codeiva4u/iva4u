@@ -95,7 +95,7 @@ open class GDMirror : ExtractorApi() {
             try {
                 Log.d("Phisher","$friendlyName $fullUrl")
                 when (friendlyName) {
-                    "StreamHG","EarnVids" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "StreamHG", "EarnVids" -> Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
                     else -> loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
                 }
