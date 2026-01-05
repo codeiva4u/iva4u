@@ -97,7 +97,10 @@ open class GDMirror : ExtractorApi() {
                 when (friendlyName) {
                     "StreamHG", "EarnVids" -> Multiprocessing().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
-                    else -> loadExtractor(fullUrl, referer ?: mainUrl, subtitleCallback, callback)
+                    else -> {
+                        // Strict mode: Only use local extractors. Do not use CloudStream's loadExtractor.
+                        Log.d("Phisher", "No local extractor found for: $friendlyName")
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to extract from $friendlyName at $fullUrl: $e")
