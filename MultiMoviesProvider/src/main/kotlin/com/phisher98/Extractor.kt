@@ -38,6 +38,29 @@ open class GDMirror : ExtractorApi() {
             Pair(url.substringAfterLast("embed/"), getBaseUrl(app.get(url).url))
         } else {
             var pageText = app.get(url).text
+            val dataLink = Regex("""data-link\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
+            
+            if (!dataLink.isNullOrBlank()) {
+                val ssnPage = app.get(dataLink).text
+                val finalStream = Regex("""iframe\s+id="vidFrame"\s+[^>]*src="([^"]+)"""").find(ssnPage)?.groupValues?.get(1)
+                                ?: Regex("""source\s*:\s*[{]\s*url\s*:\s*"([^"]+)"""").find(ssnPage)?.groupValues?.get(1) // Fallback for other players
+
+                if (!finalStream.isNullOrBlank()) {
+                     // Check domain to decide extractor
+                     val domain = URI(finalStream).host
+                     when {
+                         domain.contains("multimoviesshg") || domain.contains("earnvids") -> 
+                             Multiprocessing().getUrl(finalStream, referer, subtitleCallback, callback)
+                         domain.contains("vidstack") || domain.contains("server1") -> 
+                             VidStack().getUrl(finalStream, referer, subtitleCallback, callback)
+                         else -> 
+                             Log.d("Phisher", "No local extractor for OTT stream: $finalStream")
+                     }
+                     return
+                }
+            }
+
+            // Standard GDMirror API logic continues below if not an OTT embed...
             val finalId = Regex("""FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val myKey = Regex("""myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val idType = Regex("""idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
