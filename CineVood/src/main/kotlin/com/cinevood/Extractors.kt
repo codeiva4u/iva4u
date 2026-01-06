@@ -13,7 +13,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getAndUnpack
 import com.lagradost.cloudstream3.utils.getPacked
 import com.lagradost.cloudstream3.utils.getQualityFromName
-// import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
@@ -32,58 +32,6 @@ suspend fun getLatestUrl(url: String, source: String): String {
         return getBaseUrl(url)
     }
     return link
-}
-
-// Parse file size string to MB (e.g., "1.8GB" -> 1843, "500MB" -> 500)
-fun parseSizeToMB(sizeStr: String): Double {
-    val cleanSize = sizeStr.replace("[", "").replace("]", "").trim()
-    val regex = Regex("""([\d.]+)\s*(GB|MB|gb|mb)""", RegexOption.IGNORE_CASE)
-    val match = regex.find(cleanSize) ?: return Double.MAX_VALUE
-    val value = match.groupValues[1].toDoubleOrNull() ?: return Double.MAX_VALUE
-    val unit = match.groupValues[2].uppercase()
-    return when (unit) {
-        "GB" -> value * 1024
-        "MB" -> value
-        else -> Double.MAX_VALUE
-    }
-}
-
-// Server speed priority (higher = faster/preferred)
-fun getServerPriority(serverName: String): Int {
-    return when {
-        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
-        serverName.contains("Direct", true) -> 90
-        serverName.contains("FSLv2", true) -> 85
-        serverName.contains("FSL", true) -> 80
-        serverName.contains("10Gbps", true) -> 88
-        serverName.contains("Download File", true) -> 70
-        serverName.contains("Pixel", true) -> 60
-        serverName.contains("Buzz", true) -> 55
-        else -> 50
-    }
-}
-
-// Adjust quality to prioritize 1080p with smallest size and fastest server
-fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): Int {
-    var adjustedQuality = quality
-    
-    // 1080p gets size bonus (smaller = higher bonus)
-    if (quality == 1080) {
-        val sizeMB = parseSizeToMB(sizeStr)
-        val sizeBonus = when {
-            sizeMB <= 800 -> 50   // HEVC compressed
-            sizeMB <= 1200 -> 40
-            sizeMB <= 1500 -> 30
-            sizeMB <= 2000 -> 20
-            else -> 10
-        }
-        adjustedQuality += sizeBonus
-    }
-    
-    // Add server speed bonus
-    adjustedQuality += getServerPriority(serverName)
-    
-    return adjustedQuality
 }
 
 // OxxFile Extractor - handles oxxfile.info links from Cinevood
@@ -172,7 +120,7 @@ class HubCloud : ExtractorApi() {
             try { URI(it).toURL(); true } catch (e: Exception) { Log.e(tag, "Invalid URL: ${e.message}"); false }
         } ?: return
 
-        val baseUrl=getHubBaseUrl(realUrl)
+        val baseUrl=getBaseUrl(realUrl)
 
         val href = try {
             if ("hubcloud.php" in realUrl) {
@@ -205,12 +153,11 @@ class HubCloud : ExtractorApi() {
             if (headerDetails.isNotEmpty()) append("[$headerDetails]")
             if (size.isNotEmpty()) append("[$size]")
         }
-        val baseQuality = getIndexQuality(header)
+        val quality = getIndexQuality(header)
 
         document.select("div.card-body h2 a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
-            val serverQuality = getAdjustedQuality(baseQuality, size, text)
 
             when {
                 text.contains("FSL Server", ignoreCase = true) -> {
@@ -219,7 +166,7 @@ class HubCloud : ExtractorApi() {
                             "$referer [FSL Server]",
                             "$referer [FSL Server] $labelExtras",
                             link,
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -229,7 +176,7 @@ class HubCloud : ExtractorApi() {
                             "$referer",
                             "$referer $labelExtras",
                             link,
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -242,7 +189,7 @@ class HubCloud : ExtractorApi() {
                                 "$referer [BuzzServer]",
                                 "$referer [BuzzServer] $labelExtras",
                                 dlink,
-                            ) { this.quality = serverQuality }
+                            ) { this.quality = quality }
                         )
                     } else {
                         Log.w(tag, "BuzzServer: No redirect")
@@ -259,7 +206,7 @@ class HubCloud : ExtractorApi() {
                             "Pixeldrain",
                             "Pixeldrain $labelExtras",
                             finalURL
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -269,7 +216,7 @@ class HubCloud : ExtractorApi() {
                             "$referer S3 Server",
                             "$referer S3 Server $labelExtras",
                             link,
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -279,7 +226,7 @@ class HubCloud : ExtractorApi() {
                             "$referer FSLv2",
                             "$referer FSLv2 $labelExtras",
                             link,
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -289,7 +236,7 @@ class HubCloud : ExtractorApi() {
                             "$referer [Mega Server]",
                             "$referer [Mega Server] $labelExtras",
                             link,
-                        ) { this.quality = serverQuality }
+                        ) { this.quality = quality }
                     )
                 }
 
@@ -315,7 +262,7 @@ class HubCloud : ExtractorApi() {
                                     "10Gbps [Download]",
                                     "10Gbps [Download] $labelExtras",
                                     finalLink
-                                ) { this.quality = serverQuality }
+                                ) { this.quality = quality }
                             )
                             return@amap
                         }
@@ -329,7 +276,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 else -> {
-                    // loadExtractor(link, "", subtitleCallback, callback)
+                    loadExtractor(link, "", subtitleCallback, callback)
                 }
             }
         }
@@ -340,7 +287,7 @@ class HubCloud : ExtractorApi() {
             ?: Qualities.P2160.value
     }
 
-    private fun getHubBaseUrl(url: String): String {
+    private fun getBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -426,7 +373,7 @@ open class StreamWishExtractor : ExtractorApi() {
 
         try {
             val actualUrl = resolveEmbedUrl(url)
-            val baseUrl = getWishBaseUrl(actualUrl)
+            val baseUrl = getBaseUrl(actualUrl)
 
             val headers = mapOf(
                 "Accept" to "*/*",
@@ -541,12 +488,12 @@ open class StreamWishExtractor : ExtractorApi() {
         return when {
             inputUrl.contains("/f/") -> {
                 val videoId = inputUrl.substringAfter("/f/").substringBefore("/").substringBefore("?")
-                val baseUrl = getWishBaseUrl(inputUrl)
+                val baseUrl = getBaseUrl(inputUrl)
                 "$baseUrl/e/$videoId"
             }
             inputUrl.contains("/d/") -> {
                 val videoId = inputUrl.substringAfter("/d/").substringBefore("/").substringBefore("?")
-                val baseUrl = getWishBaseUrl(inputUrl)
+                val baseUrl = getBaseUrl(inputUrl)
                 "$baseUrl/e/$videoId"
             }
             !inputUrl.contains("/e/") -> {
@@ -561,7 +508,7 @@ open class StreamWishExtractor : ExtractorApi() {
         }
     }
 
-    private fun getWishBaseUrl(url: String): String {
+    private fun getBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -614,7 +561,7 @@ open class DoodLaExtractor : ExtractorApi() {
             Log.d(tag, "Embed URL: $embedUrl")
 
             val req = app.get(embedUrl)
-            val host = getDoodBaseUrl(req.url)
+            val host = getBaseUrl(req.url)
             val responseText = req.text
 
             // Check if file is available
@@ -690,7 +637,7 @@ open class DoodLaExtractor : ExtractorApi() {
         }
     }
 
-    private fun getDoodBaseUrl(url: String): String {
+    private fun getBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
@@ -728,7 +675,7 @@ class FilePressExtractor : ExtractorApi() {
         Log.d(tag, "Processing FilePress URL: $url")
 
         try {
-            val baseUrl = getFilePressBaseUrl(url)
+            val baseUrl = getBaseUrl(url)
 
             // Convert /file/ to /video/ URL
             val videoPageUrl = if (url.contains("/file/")) {
@@ -769,7 +716,7 @@ class FilePressExtractor : ExtractorApi() {
                     // Try generic loadExtractor for other sources
                     else -> {
                         Log.d(tag, "Using generic extractor for: $iframeSrc")
-                        // loadExtractor(iframeSrc, videoPageUrl, subtitleCallback, callback)
+                        loadExtractor(iframeSrc, videoPageUrl, subtitleCallback, callback)
                     }
                 }
             }
@@ -821,7 +768,7 @@ class FilePressExtractor : ExtractorApi() {
         }
     }
 
-    private fun getFilePressBaseUrl(url: String): String {
+    private fun getBaseUrl(url: String): String {
         return try {
             URI(url).let { "${it.scheme}://${it.host}" }
         } catch (_: Exception) {
