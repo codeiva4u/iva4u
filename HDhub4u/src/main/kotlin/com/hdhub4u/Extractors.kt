@@ -33,6 +33,58 @@ suspend fun getLatestUrl(url: String, source: String): String {
     return link
 }
 
+// Parse file size string to MB (e.g., "1.8GB" -> 1843, "500MB" -> 500)
+fun parseSizeToMB(sizeStr: String): Double {
+    val cleanSize = sizeStr.replace("[", "").replace("]", "").replace("⚡", "").trim()
+    val regex = Regex("""([\d.]+)\s*(GB|MB|gb|mb)""", RegexOption.IGNORE_CASE)
+    val match = regex.find(cleanSize) ?: return Double.MAX_VALUE
+    val value = match.groupValues[1].toDoubleOrNull() ?: return Double.MAX_VALUE
+    val unit = match.groupValues[2].uppercase()
+    return when (unit) {
+        "GB" -> value * 1024
+        "MB" -> value
+        else -> Double.MAX_VALUE
+    }
+}
+
+// Server speed priority (higher = faster/preferred)
+fun getServerPriority(serverName: String): Int {
+    return when {
+        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
+        serverName.contains("Direct", true) -> 90
+        serverName.contains("FSLv2", true) -> 85
+        serverName.contains("FSL", true) -> 80
+        serverName.contains("10Gbps", true) -> 88
+        serverName.contains("Download File", true) -> 70
+        serverName.contains("Pixel", true) -> 60
+        serverName.contains("Buzz", true) -> 55
+        else -> 50
+    }
+}
+
+// Adjust quality to prioritize 1080p with smallest size and fastest server
+fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): Int {
+    var adjustedQuality = quality
+    
+    // 1080p gets size bonus (smaller = higher bonus)
+    if (quality == 1080) {
+        val sizeMB = parseSizeToMB(sizeStr)
+        val sizeBonus = when {
+            sizeMB <= 1000 -> 50   // HEVC compressed
+            sizeMB <= 1500 -> 40
+            sizeMB <= 2000 -> 30
+            sizeMB <= 3000 -> 20
+            else -> 10
+        }
+        adjustedQuality += sizeBonus
+    }
+    
+    // Add server speed bonus
+    adjustedQuality += getServerPriority(serverName)
+    
+    return adjustedQuality
+}
+
 class HdStream4u : VidHidePro() {
     override var mainUrl = "https://hdstream4u.*"
 }
@@ -178,11 +230,12 @@ class HubCloud : ExtractorApi() {
             if (headerDetails.isNotEmpty()) append("[$headerDetails]")
             if (size.isNotEmpty()) append("[$size]")
         }
-        val quality = getIndexQuality(header)
+        val baseQuality = getIndexQuality(header)
 
         document.select("div.card-body h2 a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
+            val serverQuality = getAdjustedQuality(baseQuality, size, text)
             Log.d("Phisher",headerDetails)
 
             Log.d("Phisher",text)
@@ -195,7 +248,7 @@ class HubCloud : ExtractorApi() {
                             "$referer [FSL Server]",
                             "$referer [FSL Server] $labelExtras",
                             link,
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -205,7 +258,7 @@ class HubCloud : ExtractorApi() {
                             "$referer",
                             "$referer $labelExtras",
                             link,
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -218,7 +271,7 @@ class HubCloud : ExtractorApi() {
                                 "$referer [BuzzServer]",
                                 "$referer [BuzzServer] $labelExtras",
                                 dlink,
-                            ) { this.quality = quality }
+                            ) { this.quality = serverQuality }
                         )
                     } else {
                         Log.w(tag, "BuzzServer: No redirect")
@@ -235,7 +288,7 @@ class HubCloud : ExtractorApi() {
                             "Pixeldrain",
                             "Pixeldrain $labelExtras",
                             finalURL
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -245,7 +298,7 @@ class HubCloud : ExtractorApi() {
                             "$referer S3 Server",
                             "$referer S3 Server $labelExtras",
                             link,
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -255,7 +308,7 @@ class HubCloud : ExtractorApi() {
                             "$referer FSLv2",
                             "$referer FSLv2 $labelExtras",
                             link,
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -265,7 +318,7 @@ class HubCloud : ExtractorApi() {
                             "$referer [Mega Server]",
                             "$referer [Mega Server] $labelExtras",
                             link,
-                        ) { this.quality = quality }
+                        ) { this.quality = serverQuality }
                     )
                 }
 
@@ -291,7 +344,7 @@ class HubCloud : ExtractorApi() {
                                     "10Gbps [Download]",
                                     "10Gbps [Download] $labelExtras",
                                     finalLink
-                                ) { this.quality = quality }
+                                ) { this.quality = serverQuality }
                             )
                             return@amap
                         }
