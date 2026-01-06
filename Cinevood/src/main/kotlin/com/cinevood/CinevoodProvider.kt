@@ -19,6 +19,14 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.google.gson.annotations.SerializedName
+import com.lagradost.cloudstream3.Actor
+import com.lagradost.cloudstream3.ActorData
+import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.Episode
+import com.lagradost.cloudstream3.newEpisode
+import com.lagradost.cloudstream3.addDate
+import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -53,6 +61,11 @@ class CinevoodProvider : MainAPI() {
         }
 
         private val cfKiller by lazy { CloudflareKiller() }
+
+        // TMDB Configuration
+        const val TMDBAPIKEY = "1865f43a0549ca50d341dd9ab8b29f49"
+        const val TMDBBASE = "https://image.tmdb.org/t/p/original"
+        const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
     }
 
     override var name = "CineVood"
@@ -214,15 +227,15 @@ class CinevoodProvider : MainAPI() {
                     text.contains("watch", ignoreCase = true) ||
                     text.contains("stream", ignoreCase = true)
                 )) {
-                    // Parse metadata from link text and surrounding context
-                    val quality = parseQuality(text)
+                    // Parse metadata with enhanced quality detection
+                    val qualityInfo = parseQualityEnhanced(text)
                     val size = parseSize(text)
                     val serverName = parseServerName(text)
 
                     downloadLinks.add(
                         DownloadLink(
                             url = href,
-                            quality = quality,
+                            qualityInfo = qualityInfo,
                             sizeInMB = size,
                             serverName = serverName
                         )
@@ -232,40 +245,171 @@ class CinevoodProvider : MainAPI() {
 
         // Smart sorting: 1080p priority -> smallest size -> fastest server
         val sortedLinks = downloadLinks.sortedWith(
-            compareByDescending<DownloadLink> { it.quality == 1080 }  // 1080p first
-                .thenBy { if (it.quality == 1080) it.sizeInMB else Double.MAX_VALUE }  // Smallest 1080p
+            compareByDescending<DownloadLink> { it.qualityInfo.resolution== 1080 }  // 1080p first
+                .thenBy { if (it.qualityInfo.resolution == 1080) it.sizeInMB else Double.MAX_VALUE }  // Smallest 1080p
                 .thenByDescending { getServerPriority(it.serverName) }  // Fastest server
-                .thenByDescending { it.quality }  // Then by quality (720p, 480p, etc.)
+                .thenByDescending { it.qualityInfo.resolution }  // Then by quality (720p, 480p, etc.)
                 .thenBy { it.sizeInMB }  // Then by size
         )
 
         Log.d(TAG, "Total download links found: ${sortedLinks.size}")
         sortedLinks.take(10).forEach { 
-            Log.d(TAG, "Link: ${it.quality}p, ${it.sizeInMB}MB, ${it.serverName} -> ${it.url}") 
+            val qualityLabel = formatQualityLabel(it.qualityInfo)
+            Log.d(TAG, "Link: $qualityLabel, ${it.sizeInMB}MB, ${it.serverName} -> ${it.url}") 
         }
 
         // Convert sorted links back to URLs for serialization
         val finalLinks = sortedLinks.map { it.url }
 
+        // Extract season number for TV series
+        val seasonNumber = Regex("(?i)\\bSeason\\s*(\\d+)\\b")
+            .find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
+
         val isSeries = rawTitle.contains("Season", ignoreCase = true) ||
                 rawTitle.contains("S0", ignoreCase = true) ||
                 rawTitle.contains("Episode", ignoreCase = true)
 
+        // ========== TMDB Metadata Integration ==========
+        var tmdbData: ResponseDataLocal? = null
+        
+        try {
+            // Extract IMDB or TMDB URL from page
+            val imdbUrl = document.select("div span a[href*='imdb.com'], a[href*='imdb.com']").attr("href")
+            val tmdbHref = document.select("div span a[href*='themoviedb.org'], a[href*='themoviedb.org']").attr("href")
+            
+            var tmdbId = ""
+            
+            // Try to get TMDB ID directly from URL
+            if (tmdbHref.isNotBlank()) {
+                tmdbId = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
+                Log.d(TAG, "Found TMDB ID from page: $tmdbId")
+            }
+            
+            // If no TMDB ID but IMDB URL exists, resolve via TMDB API
+            if (tmdbId.isBlank() && imdbUrl.isNotBlank()) {
+                val imdbId = imdbUrl.substringAfter("title/").substringBefore("/")
+                Log.d(TAG, "Resolving TMDB ID from IMDB: $imdbId")
+                
+                try {
+                    val findResponse = app.get("$TMDBAPI/find/$imdbId?api_key=$TMDBAPIKEY&external_source=imdb_id")
+                    val findJson = JSONObject(findResponse.text)
+                    val tvArr = findJson.optJSONArray("tv_results")
+                    val movieArr = findJson.optJSONArray("movie_results")
+                    
+                    tmdbId = when {
+                        tvArr != null && tvArr.length() > 0 -> tvArr.optJSONObject(0)?.optInt("id")?.toString().orEmpty()
+                        movieArr != null && movieArr.length() > 0 -> movieArr.optJSONObject(0)?.optInt("id")?.toString().orEmpty()
+                        else -> ""
+                    }
+                    Log.d(TAG, "Resolved TMDB ID: $tmdbId")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error resolving TMDB ID from IM DB: ${e.message}")
+                }
+            }
+            
+            // Fetch TMDB metadata if ID found
+            if (tmdbId.isNotBlank()) {
+                val type = if (isSeries) "tv" else "movie"
+                val detailsResponse = app.get("$TMDBAPI/$type/$tmdbId?api_key=$TMDBAPIKEY&append_to_response=credits")
+                val detailsJson = JSONObject(detailsResponse.text)
+                
+                // Extract metadata
+                var metaName = detailsJson.optString("name")
+                    .takeIf { it.isNotBlank() }
+                    ?: detailsJson.optString("title").takeIf { it.isNotBlank() }
+                    ?: title
+                
+                if (seasonNumber != null && !metaName.contains("Season $seasonNumber", ignoreCase = true)) {
+                    metaName = "$metaName (Season $seasonNumber)"
+                }
+                
+                val metaDesc = detailsJson.optString("overview").takeIf { it.isNotBlank() } ?: description
+                
+                val yearRaw = detailsJson.optString("release_date").ifBlank { detailsJson.optString("first_air_date") }
+                val metaYear = yearRaw.takeIf { it.isNotBlank() }?.take(4)
+                
+                val metaRating = detailsJson.optString("vote_average")
+                
+                val metaBackground = detailsJson.optString("backdrop_path")
+                    .takeIf { it.isNotBlank() }?.let { TMDBBASE + it } ?: poster
+                
+                // Extract cast
+                val actorDataList = mutableListOf<ActorData>()
+                detailsJson.optJSONObject("credits")?.optJSONArray("cast")?.let { castArr ->
+                    for (i in 0 until minOf(castArr.length(), 20)) {  // Limit to 20 cast members
+                        val c = castArr.optJSONObject(i) ?: continue
+                        val name = c.optString("name").takeIf { it.isNotBlank() } 
+                            ?: c.optString("original_name").orEmpty()
+                        val profile = c.optString("profile_path").takeIf { it.isNotBlank() }
+                            ?.let { TMDBBASE + it }
+                        val character = c.optString("character").takeIf { it.isNotBlank() }
+                        val actor = Actor(name, profile)
+                        actorDataList += ActorData(actor = actor, roleString = character)
+                    }
+                }
+                
+                // Extract genres
+                val metaGenres = mutableListOf<String>()
+                detailsJson.optJSONArray("genres")?.let { arr ->
+                    for (i in 0 until arr.length()) {
+                        arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?.let(metaGenres::add)
+                    }
+                }
+                
+                tmdbData = ResponseDataLocal(
+                    MetaLocal(
+                        name = metaName,
+                        description = metaDesc,
+                        actorsData = actorDataList.ifEmpty { null },
+                        year = metaYear,
+                        background = metaBackground,
+                        genres = metaGenres.ifEmpty { null },
+                        videos = null,  // Will add episodes later
+                        rating = Score.from10(metaRating)
+                    )
+                )
+                
+                Log.d(TAG, "TMDB metadata loaded: $metaName, Year: $metaYear, Rating: $metaRating")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching TMDB metadata: ${e.message}")
+        }
+        // ========== End TMDB Integration ==========
+
         return if (isSeries) {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, emptyList()) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = description
-                this.tags = tags
+            newTvSeriesLoadResponse(
+                tmdbData?.meta?.name ?: title, 
+                url, 
+                TvType.TvSeries, 
+                emptyList()
+            ) {
+                this.posterUrl = tmdbData?.meta?.background ?: poster
+                this.year = tmdbData?.meta?.year?.toIntOrNull() ?: year
+                this.plot = tmdbData?.meta?.description ?: description
+                this.tags = tmdbData?.meta?.genres ?: tags
+                tmdbData?.meta?.rating?.let { this.score = it }
+                tmdbData?.meta?.actorsData?.let { actorList ->
+                    addActors(actorList.map { Pair(it.actor, it.roleString) })
+                }
             }
         } else {
             // Return as comma-separated string
             val data = finalLinks.joinToString(",")
-            newMovieLoadResponse(title, url, TvType.Movie, data) {
-                this.posterUrl = poster
-                this.year = year
-                this.plot = description
-                this.tags = tags
+            newMovieLoadResponse(
+                tmdbData?.meta?.name ?: title,
+                url, 
+                TvType.Movie, 
+                data
+            ) {
+                this.posterUrl = tmdbData?.meta?.background ?: poster
+                this.year = tmdbData?.meta?.year?.toIntOrNull() ?: year
+                this.plot = tmdbData?.meta?.description ?: description
+                this.tags = tmdbData?.meta?.genres ?: tags
+                tmdbData?.meta?.rating?.let { this.score = it }
+                tmdbData?.meta?.actorsData?.let { actorList ->
+                    addActors(actorList.map { Pair(it.actor, it.roleString) })
+                }
             }
         }
     }
@@ -375,21 +519,107 @@ class CinevoodProvider : MainAPI() {
     }
 
     /**
-     * Data class for structured download link with quality, size, and server metadata
+     * Enhanced data class for structured download link with advanced quality info
      */
     private data class DownloadLink(
         val url: String,
-        val quality: Int,      // 1080, 720, 480, etc.
-        val sizeInMB: Double,  // Parsed from text like "1.8GB" -> 1843.2
-        val serverName: String // Instant DL, FSL, Direct, etc.
+        val qualityInfo: QualityInfo,  // Enhanced quality info
+        val sizeInMB: Double,
+        val serverName: String
     )
 
     /**
-     * Parse quality from link text (e.g., "1080p", "720p")
+     * Enhanced quality information with 4K/HDR/codec support
+     */
+    data class QualityInfo(
+        val resolution: Int,              // 2160, 1080, 720, 480
+        val isHDR: Boolean = false,
+        val isDolbyVision: Boolean = false,
+        val codec: String? = null,         // HEVC, H.265, AVC, H.264
+        val source: String? = null         // BluRay, WEB-DL, WEBRip, CAM
+    )
+
+    /**
+     * Parse enhanced quality from link text (supports 4K, HDR, HEVC, BluRay, etc.)
+     */
+    private fun parseQualityEnhanced(text: String): QualityInfo {
+        // Parse resolution
+        val resolution = when {
+            text.contains("4K", ignoreCase = true) || 
+            text.contains("2160p", ignoreCase = true) -> 2160
+            text.contains("2K", ignoreCase = true) -> 1440
+            text.contains("1080p", ignoreCase = true) -> 1080
+            text.contains("720p", ignoreCase = true) -> 720
+            text.contains("480p", ignoreCase = true) -> 480
+            else -> {
+                val match = Regex("(\\d{3,4})p").find(text)
+                match?.groupValues?.get(1)?.toIntOrNull() ?: 1080
+            }
+        }
+        
+        // Parse HDR
+        val isHDR = text.contains("HDR", ignoreCase = true) ||
+                    text.contains("HDR10", ignoreCase = true) ||
+                    text.contains("HDR10+", ignoreCase = true)
+        
+        val isDolbyVision = text.contains("Dolby Vision", ignoreCase = true) ||
+                             text.contains(" DV ", ignoreCase = true) ||
+                             text.contains("DV]", ignoreCase = true)
+        
+        // Parse codec
+        val codec = when {
+            text.contains("HEVC", ignoreCase = true) || 
+            text.contains("H.265", ignoreCase = true) || 
+            text.contains("x265", ignoreCase = true) -> "HEVC"
+            text.contains("AVC", ignoreCase = true) || 
+            text.contains("H.264", ignoreCase = true) || 
+            text.contains("x264", ignoreCase = true) -> "H.264"
+            else -> null
+        }
+        
+        // Parse source
+        val source = when {
+            text.contains("BluRay", ignoreCase = true) || 
+            text.contains("BDRip", ignoreCase = true) || 
+            text.contains("BRRip", ignoreCase = true) || 
+            text.contains("Blu-Ray", ignoreCase = true) -> "BluRay"
+            text.contains("WEB-DL", ignoreCase = true) || 
+            text.contains("WEBDL", ignoreCase = true) -> "WEB-DL"
+            text.contains("WEBRip", ignoreCase = true) || 
+            text.contains("Web-Rip", ignoreCase = true) -> "WEBRip"
+            text.contains("HDRip", ignoreCase = true) -> "HDRip"
+            text.contains("HDTS", ignoreCase = true) || 
+            text.contains("HDCAM", ignoreCase = true) || 
+            text.contains("HD-CAM", ignoreCase = true) -> "HDCAM"
+            text.contains("CAMRip", ignoreCase = true) || 
+            text.contains("CAM Rip", ignoreCase = true) -> "CAMRip"
+            text.contains("CAM", ignoreCase = true) -> "CAM"
+            text.contains("DVDRip", ignoreCase = true) || 
+            text.contains("DVD-Rip", ignoreCase = true) -> "DVDRip"
+            else -> null
+        }
+        
+        return QualityInfo(resolution, isHDR, isDolbyVision, codec, source)
+    }
+
+    /**
+     * Format quality info into readable label
+     */
+    private fun formatQualityLabel(info: QualityInfo): String {
+        return buildString {
+            append("${info.resolution}p")
+            if (info.isHDR) append(" HDR")
+            if (info.isDolbyVision) append(" DV")
+            info.codec?.let { append(" $it") }
+            info.source?.let { append(" $it") }
+        }
+    }
+
+    /**
+     * Parse quality from link text (legacy function for backward compatibility)
      */
     private fun parseQuality(text: String): Int {
-        val qualityMatch = Regex("(\\d{3,4})p").find(text)
-        return qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 480
+        return parseQualityEnhanced(text).resolution
     }
 
     /**
@@ -439,3 +669,32 @@ class CinevoodProvider : MainAPI() {
         }
     }
 }
+
+// TMDB Data Classes
+data class IMDB(
+    @SerializedName("imdb_id")
+    val imdbId: String? = null
+)
+
+data class ResponseDataLocal(val meta: MetaLocal?)
+
+data class MetaLocal(
+    val name: String? = null,
+    val description: String? = null,
+    val actorsData: List<ActorData>? = null,
+    val year: String? = null,
+    val background: String? = null,
+    val genres: List<String>? = null,
+    val videos: List<VideoLocal>? = null,
+    val rating: Score?
+)
+
+data class VideoLocal(
+    val title: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val overview: String? = null,
+    val thumbnail: String? = null,
+    val released: String? = null,
+    val rating: Score?
+)
