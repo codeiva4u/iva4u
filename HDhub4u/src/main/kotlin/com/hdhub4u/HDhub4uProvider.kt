@@ -26,6 +26,8 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.toNewSearchResponseList
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.INFER_TYPE
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -90,23 +92,18 @@ class HDhub4uProvider : MainAPI() {
             "$mainUrl/${request.data}page/$page/",
             cacheTime = 60,
             headers = headers,
-            allowRedirects = true
         ).documentLarge
-        val home = doc.select(".movie-card").mapNotNull { toResult(it) }
+        val home = doc.select("li.thumb").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
     private fun toResult(post: Element): SearchResponse {
-        val titleText = post.select(".movie-title, h3.movie-title").text().ifEmpty {
-            post.select("a").attr("title").ifEmpty {
-                post.select("img").attr("alt")
-            }
-        }
+        val titleText = post.select("figcaption p").text().trim()
         val title = cleanTitle(titleText)
-        val url = post.select("a").attr("href").let {
+        val url = post.select("figure a").attr("href").let {
             if (it.startsWith("http")) it else "$mainUrl$it"
         }
-        val posterUrl = post.select("img").attr("src")
+        val posterUrl = post.select("figure img").attr("src")
         return newMovieSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = getSearchQuality(titleText)
@@ -119,7 +116,7 @@ class HDhub4uProvider : MainAPI() {
             cacheTime = 60,
             headers = headers
         ).documentLarge
-        return doc.select(".movie-card").mapNotNull { toResult(it) }.toNewSearchResponseList()
+        return doc.select("li.thumb").mapNotNull { toResult(it) }.toNewSearchResponseList()
     }
 
     private fun extractLinksATags(aTags: Elements): List<String> {
@@ -145,22 +142,22 @@ class HDhub4uProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url, cacheTime = 60, headers = headers).documentLarge
-        var title = doc.select(
-            ".page-body h2[data-ved=\"2ahUKEwjL0NrBk4vnAhWlH7cAHRCeAlwQ3B0oATAfegQIFBAM\"], " +
-                    "h2[data-ved=\"2ahUKEwiP0pGdlermAhUFYVAKHV8tAmgQ3B0oATAZegQIDhAM\"]"
-        ).text()
+        var title = doc.select("header.entry-header h1.entry-title").text().trim()
+            .ifEmpty { doc.select("h1.page-title").text().trim() }
+
         val seasontitle = title
         val seasonNumber = Regex("(?i)\\bSeason\\s*(\\d+)\\b").find(seasontitle)?.groupValues?.get(1)?.toIntOrNull()
 
         val image = doc.select("meta[property=og:image]").attr("content")
-        val plot = doc.selectFirst(".kno-rdesc .kno-rdesc")?.text()
-        val tags = doc.select(".page-meta em").eachText().toMutableList()
-        val poster = doc.select("main.page-body img.aligncenter").attr("src")
+        val plot = doc.selectFirst("div.entry-content p")?.text()?.trim()
+        val tags = doc.select(".cat-links a").eachText().toMutableList()
+        val poster = doc.select("div.entry-content img").attr("src")
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
             ?.replace("/embed/", "/watch?v=")
-        extractLinksATags(doc.select(".page-body > div a"))
-        val typeraw = doc.select("h1.page-title span").text()
-        val tvtype = if (typeraw.contains("movie", ignoreCase = true)) TvType.Movie else TvType.TvSeries
+        
+        // Removed extractLinksATags call as it's not effectively used and we implement smart logic below
+
+        val tvtype = if (title.contains("movie", ignoreCase = true) || title.contains("download", ignoreCase = true)) TvType.Movie else TvType.TvSeries
 
         var actorData: List<ActorData> = emptyList()
         var genre: List<String>? = null
@@ -168,35 +165,17 @@ class HDhub4uProvider : MainAPI() {
         var background: String = image
         var description: String? = null
 
-
-        val imdbUrl = doc.select("div span a[href*='imdb.com']").attr("href")
-            .ifEmpty {
-                val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
-                val isTv = tmdbHref.contains("/tv/")
-                val tmdbId = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
-
-                if (tmdbId.isNotEmpty()) {
-                    val type = if (isTv) "tv" else "movie"
-                    val imdbId = app.get(
-                        "$TMDBAPI/$type/$tmdbId/external_ids?api_key=$TMDBAPIKEY"
-                    ).parsedSafe<IMDB>()?.imdbId
-                    imdbId ?: ""
-                } else {
-                    ""
-                }
-            }
-
+        val imdbUrl = doc.select("a[href*='imdb.com']").attr("href")
+        val tmdbHref = doc.select("a[href*='themoviedb.org']").attr("href")
+        
         var tmdbIdResolved = ""
-        run {
-            val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
-            if (tmdbHref.isNotBlank()) {
-                tmdbIdResolved = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
-            }
+        if (tmdbHref.isNotBlank()) {
+            tmdbIdResolved = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
         }
 
         if (tmdbIdResolved.isBlank() && imdbUrl.isNotBlank()) {
             val imdbIdOnly = imdbUrl.substringAfter("title/").substringBefore("/")
-            try {
+             try {
                 val findText = app.get("$TMDBAPI/find/$imdbIdOnly?api_key=$TMDBAPIKEY&external_source=imdb_id").text
                 if (findText.isNotBlank()) {
                     val findJson = JSONObject(findText)
@@ -209,13 +188,10 @@ class HDhub4uProvider : MainAPI() {
                     }
                 }
             } catch (_: Exception) {
-                // ignore resolve errors
             }
         }
 
-
         val responseData: ResponseDataLocal? = if (tmdbIdResolved.isBlank()) null else kotlin.runCatching {
-
             val type = if (tvtype == TvType.TvSeries) "tv" else "movie"
             val detailsText = app.get(
                 "$TMDBAPI/$type/$tmdbIdResolved?api_key=$TMDBAPIKEY&append_to_response=credits"
@@ -294,7 +270,6 @@ class HDhub4uProvider : MainAPI() {
                         }
                     }
                 } catch (_: Exception) {
-                    // ignore season fetch errors
                 }
             }
 
@@ -322,15 +297,22 @@ class HDhub4uProvider : MainAPI() {
                 genre = g
                 for (gn in g) if (!tags.contains(gn)) tags.add(gn)
             }
-            responseData.meta?.rating
         }
 
         if (tvtype == TvType.Movie) {
             val movieList = mutableListOf<String>()
-            movieList.addAll(
-                doc.select("h3 a:matches(480|720|1080|2160|4K), h4 a:matches(480|720|1080|2160|4K)")
-                    .map { it.attr("href") }
-            )
+            // Capture Link + Text for Sorting
+            doc.select("h3 a, h4 a, p a").forEach { link ->
+                val href = link.attr("href")
+                val text = link.text()
+                // Simple check to avoid junk links
+                if(href.urlOrNull() != null && (text.contains("Download", true) || text.contains("480p") || text.contains("720p") || text.contains("1080p"))) {
+                     val json = JSONObject()
+                     json.put("url", href)
+                     json.put("text", text)
+                     movieList.add(json.toString())
+                }
+            }
 
             return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
                 this.backgroundPosterUrl = background
@@ -429,25 +411,115 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
+    private fun String.urlOrNull() : String? {
+        return if(this.startsWith("http")) this else null
+    }
+
+    private fun getSize(text: String): Long {
+         val sizeRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(MB|GB)", RegexOption.IGNORE_CASE)
+         val match = sizeRegex.find(text) ?: return Long.MAX_VALUE
+         
+         val value = match.groupValues[1].toDoubleOrNull() ?: return Long.MAX_VALUE
+         val unit = match.groupValues[2].uppercase()
+         
+         return when(unit) {
+             "GB" -> (value * 1024 * 1024 * 1024).toLong()
+             "MB" -> (value * 1024 * 1024).toLong()
+             else -> Long.MAX_VALUE
+         }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val linksList: List<String> = data.removePrefix("[").removeSuffix("]").replace("\"", "").split(',', ' ').map { it.trim() }.filter { it.isNotBlank() }
-        for (link in linksList) {
-            try {
+        val linksList = try {
+             // Try parsing as our JSON format
+             val jsonArray = data.removePrefix("[").removeSuffix("]").split("}, {", "},{")
+             jsonArray.map { 
+                 val clean = it.replace("{", "").replace("}", "")
+                 var url = ""
+                 var text = ""
+                 // naive json parse for the simple structure we made
+                 val parts = clean.split("\", \"")
+                 parts.forEach { part ->
+                     val p = part.replace("\"", "")
+                     if(p.startsWith("url:")) url = p.substringAfter("url:")
+                     if(p.startsWith("text:")) text = p.substringAfter("text:")
+                 }
+                 // If naive parse fails, fall back to standard string if it doesn't look like json
+                 if(url.isEmpty()) Pair(clean.trim(), "") else Pair(url, text)
+             }
+        } catch (e: Exception) {
+             // Fallback for clean strings
+             data.removePrefix("[").removeSuffix("]").split(",").map { Pair(it.trim().replace("\"", ""), "") }
+        }
+
+        // Smart Sorting Logic
+        // 1. Quality (1080p > 720p > 480p)
+        // 2. Size (Smallest first)
+        // 3. Host (Fastest/Direct first)
+
+        data class LinkInfo(
+            val url: String,
+            val text: String,
+            val quality: Int, // 3=1080p, 2=720p, 1=480p, 0=Other
+            val size: Long,
+            val isDirect: Boolean
+        )
+
+        val parsedLinks = linksList.map { (url, text) ->
+            val q = when {
+                text.contains("1080p", true) -> 3
+                text.contains("720p", true) -> 2
+                text.contains("480p", true) -> 1
+                else -> 0
+            }
+            val s = getSize(text)
+            // Known fast hosts
+            val isDirect = url.contains("hubdrive", true) || url.contains("gdrive", true) || url.contains("katdrive", true)
+            
+            LinkInfo(url, text, q, s, isDirect)
+        }
+
+        val sortedLinks = parsedLinks.sortedWith(
+            compareByDescending<LinkInfo> { it.quality }
+                .thenBy { it.size }
+                .thenByDescending { it.isDirect }
+        )
+
+        for (info in sortedLinks) {
+             val link = info.url
+             if (link.isBlank()) continue
+             
+             try {
                 val finalLink = if ("?id=" in link) {
                     getRedirectLinks(link)
                 } else {
                     link
                 }
-                if (finalLink.contains("Hubdrive",ignoreCase = true))
-                {
-                    Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
+                
+                // Pass text for quality reference if possible, or just the link
+                if (finalLink.contains("Hubdrive",ignoreCase = true)) {
+                     Hubdrive().getUrl(finalLink, "", subtitleCallback, callback)
                 } else {
-                     Log.d("Phisher", "No local extractor found for: $finalLink")
+                     // Generic support? Or just log. User mainly wants HDHub support which uses specific extractors.
+                     // Assuming other extractors might pick it up if registered, or we just emit it.
+                     // HDHub usually relies on HubDrive/etc.
+                     // If no extractor found, we can try to callback generic if it's a direct file
+                     callback.invoke(
+                         newExtractorLink(
+                             name,
+                             name,
+                             finalLink,
+                             INFER_TYPE
+                         ) {
+                             this.quality = if (info.quality == 3) 1080 else 720
+                             this.referer = "page"
+                         }
+                     )
                 }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to process $link: ${e.message}")

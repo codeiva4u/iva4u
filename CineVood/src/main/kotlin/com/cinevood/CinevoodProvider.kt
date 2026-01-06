@@ -12,7 +12,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.network.WebViewResolver
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
@@ -52,10 +52,17 @@ class CinevoodProvider : MainAPI() {
                 }
             }
         }
+
+        // Automatic Cloudflare Bypass without WebView UI
+        private val cfKiller by lazy { CloudflareKiller() }
     }
 
-    private val cfInterceptor = WebViewResolver(
-        Regex("""Just a moment|Verifying you are human|Checking your browser|cloudflare|challenge""")
+    // Modern User-Agent to pass Cloudflare checks
+    private val headers = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language" to "en-US,en;q=0.5",
+        "Referer" to "$mainUrl/"
     )
 
     override var name = "CineVood"
@@ -89,7 +96,8 @@ class CinevoodProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, interceptor = cfInterceptor).document
+        // Use CloudflareKiller + Headers for automatic bypass
+        val document = app.get(url, headers = headers, interceptor = cfKiller).document
 
         val home = document.select("article.latestPost, article.post").mapNotNull {
             it.toSearchResult()
@@ -130,7 +138,7 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query", interceptor = cfInterceptor).document
+        val document = app.get("$mainUrl/?s=$query", headers = headers, interceptor = cfKiller).document
 
         return document.select("article.latestPost, article.post").mapNotNull { result ->
             result.toSearchResult()
@@ -140,7 +148,7 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        val document = app.get(url, interceptor = cfInterceptor).document
+        val document = app.get(url, headers = headers, interceptor = cfKiller).document
 
         // Extract title
         val rawTitle = document.selectFirst("h1.page-title, .entry-title, h1.post-title")?.text()?.trim() 

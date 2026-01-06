@@ -1,0 +1,41 @@
+> Task :HDhub4u:preBuild UP-TO-DATE
+> Task :HDhub4u:preDebugBuild UP-TO-DATE
+> Task :HDhub4u:mergeDebugJniLibFolders UP-TO-DATE
+> Task :HDhub4u:mergeDebugNativeLibs NO-SOURCE
+> Task :HDhub4u:stripDebugDebugSymbols NO-SOURCE
+> Task :HDhub4u:copyDebugJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :HDhub4u:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :HDhub4u:generateDebugResValues UP-TO-DATE
+> Task :HDhub4u:generateDebugResources UP-TO-DATE
+> Task :HDhub4u:packageDebugResources UP-TO-DATE
+> Task :HDhub4u:parseDebugLocalResources UP-TO-DATE
+> Task :HDhub4u:generateDebugRFile UP-TO-DATE
+> Task :HDhub4u:extractDeepLinksForAarDebug UP-TO-DATE
+> Task :HDhub4u:javaPreCompileDebug UP-TO-DATE
+> Task :HDhub4u:mergeDebugShaders UP-TO-DATE
+> Task :HDhub4u:compileDebugShaders NO-SOURCE
+> Task :HDhub4u:generateDebugAssets UP-TO-DATE
+> Task :HDhub4u:packageDebugAssets UP-TO-DATE
+> Task :HDhub4u:prepareDebugArtProfile UP-TO-DATE
+> Task :HDhub4u:prepareLintJarForPublish UP-TO-DATE
+> Task :HDhub4u:processDebugManifest UP-TO-DATE
+> Task :HDhub4u:writeDebugAarMetadata UP-TO-DATE
+
+> Task :HDhub4u:compileDebugKotlin FAILED
+e: file:///C:/Users/Admin/Desktop/iva4u/HDhub4u/src/main/kotlin/com/hdhub4u/HDhub4uProvider.kt:511:26 'constructor(source: String, name: String, url: String, referer: String, quality: Int, isM3u8: Boolean = ..., headers: Map<String, String> = ..., extractorData: String? = ...): ExtractorLink' is deprecated. Use newExtractorLink.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':HDhub4u:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s
+16 actionable tasks: 1 executed, 15 up-to-date
