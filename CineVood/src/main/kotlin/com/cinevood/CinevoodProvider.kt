@@ -37,7 +37,7 @@ class CinevoodProvider : MainAPI() {
     }
 
     companion object {
-        private const val TAG = "Cinevood"
+        private const val TAG = "CineVood"
 
         val baseMainUrl: String? by lazy {
             runBlocking {
@@ -56,7 +56,7 @@ class CinevoodProvider : MainAPI() {
         private val cfKiller by lazy { CloudflareKiller() }
     }
 
-    override var name = "Cinevood"
+    override var name = "CineVood"
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true

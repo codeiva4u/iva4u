@@ -4,7 +4,7 @@ version = 1
 cloudstream {
     // All of these properties are optional, you can safely remove them
 
-    description = "Cinevood - Hindi Movies & Web Series Provider"
+    description = "CineVood - Hindi Movies & Web Series Provider"
     language = "hi"
     authors = listOf("codeiva4u")
 
