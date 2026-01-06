@@ -177,14 +177,14 @@ class CinevoodProvider : MainAPI() {
         // Extract tags/genres
         val tags = document.select(".entry-categories a, .post-categories a").map { it.text() }
 
-        // Extract ALL download links from entry-content area
-        val downloadLinks = mutableListOf<String>()
+        // Extract ALL download links from entry-content area with metadata
+        val downloadLinks = mutableListOf<DownloadLink>()
 
         // Look for links in entry-content (main content area)
         document.select(".entry-content a[href], .post-content a[href], article a[href]")
             .forEach { element ->
                 val href = element.attr("href")
-                val text = element.text().lowercase(getDefault())
+                val text = element.text()
 
                 // Filter for download-related links
                 if (href.isNotBlank() && (
@@ -214,14 +214,38 @@ class CinevoodProvider : MainAPI() {
                     text.contains("watch", ignoreCase = true) ||
                     text.contains("stream", ignoreCase = true)
                 )) {
-                    if (!downloadLinks.contains(href)) {
-                        downloadLinks.add(href)
-                    }
+                    // Parse metadata from link text and surrounding context
+                    val quality = parseQuality(text)
+                    val size = parseSize(text)
+                    val serverName = parseServerName(text)
+
+                    downloadLinks.add(
+                        DownloadLink(
+                            url = href,
+                            quality = quality,
+                            sizeInMB = size,
+                            serverName = serverName
+                        )
+                    )
                 }
             }
 
-        Log.d(TAG, "Total download links found: ${downloadLinks.size}")
-        downloadLinks.forEach { Log.d(TAG, "Link: $it") }
+        // Smart sorting: 1080p priority -> smallest size -> fastest server
+        val sortedLinks = downloadLinks.sortedWith(
+            compareByDescending<DownloadLink> { it.quality == 1080 }  // 1080p first
+                .thenBy { if (it.quality == 1080) it.sizeInMB else Double.MAX_VALUE }  // Smallest 1080p
+                .thenByDescending { getServerPriority(it.serverName) }  // Fastest server
+                .thenByDescending { it.quality }  // Then by quality (720p, 480p, etc.)
+                .thenBy { it.sizeInMB }  // Then by size
+        )
+
+        Log.d(TAG, "Total download links found: ${sortedLinks.size}")
+        sortedLinks.take(10).forEach { 
+            Log.d(TAG, "Link: ${it.quality}p, ${it.sizeInMB}MB, ${it.serverName} -> ${it.url}") 
+        }
+
+        // Convert sorted links back to URLs for serialization
+        val finalLinks = sortedLinks.map { it.url }
 
         val isSeries = rawTitle.contains("Season", ignoreCase = true) ||
                 rawTitle.contains("S0", ignoreCase = true) ||
@@ -236,7 +260,7 @@ class CinevoodProvider : MainAPI() {
             }
         } else {
             // Return as comma-separated string
-            val data = downloadLinks.joinToString(",")
+            val data = finalLinks.joinToString(",")
             newMovieLoadResponse(title, url, TvType.Movie, data) {
                 this.posterUrl = poster
                 this.year = year
@@ -245,6 +269,7 @@ class CinevoodProvider : MainAPI() {
             }
         }
     }
+
 
     override suspend fun loadLinks(
         data: String,
@@ -347,5 +372,70 @@ class CinevoodProvider : MainAPI() {
             .replace(Regex("\\[.*?\\]"), "")
             .replace(Regex("Download|Free|Full|Movie|HD|Watch", RegexOption.IGNORE_CASE), "")
             .trim()
+    }
+
+    /**
+     * Data class for structured download link with quality, size, and server metadata
+     */
+    private data class DownloadLink(
+        val url: String,
+        val quality: Int,      // 1080, 720, 480, etc.
+        val sizeInMB: Double,  // Parsed from text like "1.8GB" -> 1843.2
+        val serverName: String // Instant DL, FSL, Direct, etc.
+    )
+
+    /**
+     * Parse quality from link text (e.g., "1080p", "720p")
+     */
+    private fun parseQuality(text: String): Int {
+        val qualityMatch = Regex("(\\d{3,4})p").find(text)
+        return qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 480
+    }
+
+    /**
+     * Parse file size from text (e.g., "1.8GB" -> 1843.2 MB, "500MB" -> 500.0)
+     */
+    private fun parseSize(text: String): Double {
+        val sizeMatch = Regex("([\\d.]+)\\s*(GB|MB)", RegexOption.IGNORE_CASE).find(text)
+        if (sizeMatch != null) {
+            val value = sizeMatch.groupValues[1].toDoubleOrNull() ?: return Double.MAX_VALUE
+            val unit = sizeMatch.groupValues[2].uppercase()
+            return when (unit) {
+                "GB" -> value * 1024
+                "MB" -> value
+                else -> Double.MAX_VALUE
+            }
+        }
+        return Double.MAX_VALUE
+    }
+
+    /**
+     * Extract server name from link text
+     */
+    private fun parseServerName(text: String): String {
+        return when {
+            text.contains("Instant", ignoreCase = true) -> "Instant DL"
+            text.contains("Direct", ignoreCase = true) -> "Direct"
+            text.contains("FSL", ignoreCase = true) -> "FSL"
+            text.contains("Download", ignoreCase = true) -> "Download"
+            else -> "Standard"
+        }
+    }
+
+    /**
+     * Get server priority score (higher = faster/preferred)
+     */
+    private fun getServerPriority(serverName: String): Int {
+        return when {
+            serverName.contains("Instant", ignoreCase = true) -> 100  // Instant DL = fastest
+            serverName.contains("Direct", ignoreCase = true) -> 90
+            serverName.contains("FSLv2", ignoreCase = true) -> 85
+            serverName.contains("FSL", ignoreCase = true) -> 80
+            serverName.contains("10Gbps", ignoreCase = true) -> 88
+            serverName.contains("Download", ignoreCase = true) -> 70
+            serverName.contains("Pixel", ignoreCase = true) -> 60
+            serverName.contains("Buzz", ignoreCase = true) -> 55
+            else -> 50
+        }
     }
 }
