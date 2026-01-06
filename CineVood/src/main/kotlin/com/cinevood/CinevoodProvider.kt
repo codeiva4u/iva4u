@@ -26,7 +26,7 @@ import org.jsoup.nodes.Element
 import java.util.Locale.getDefault
 
 class CinevoodProvider : MainAPI() {
-    override var mainUrl: String = "https://1cinevood.codes"
+    override var mainUrl: String = "https://1cinevood.fyi"
 
     init {
         runBlocking {
@@ -89,7 +89,7 @@ class CinevoodProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, interceptor = cfKiller).document
 
-        val home = document.select("article.latestPost").mapNotNull {
+        val home = document.select("article.latestPost, article.post").mapNotNull {
             it.toSearchResult()
         }
 
@@ -97,15 +97,16 @@ class CinevoodProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Title extraction
-        val title = selectFirst("h2.title a, .front-view-title a")?.text()?.trim() ?: return null
+        // Title extraction - updated selectors
+        val titleElement = selectFirst("h2.title a, .front-view-title a, .entry-title a")
+        val title = titleElement?.text()?.trim() ?: return null
 
         // URL extraction
-        val href = selectFirst("h2.title a, .front-view-title a")?.attr("href") ?: return null
+        val href = titleElement.attr("href")
         val fixedUrl = fixUrl(href)
 
         // Poster extraction - prioritize TMDB images
-        val posterUrl = selectFirst(".featured-thumbnail img")?.let { img ->
+        val posterUrl = selectFirst(".featured-thumbnail img, .post-thumbnail img")?.let { img ->
             fixUrlNull(img.attr("src").ifBlank { img.attr("data-src") })
         }
 
@@ -129,27 +130,8 @@ class CinevoodProvider : MainAPI() {
         Log.d(TAG, "Searching for: $query")
         val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
 
-        return document.select("article.latestPost").mapNotNull { result ->
-            val title = result.selectFirst("h2.title a, .front-view-title a")?.text()?.trim()
-                ?: return@mapNotNull null
-            val href = result.selectFirst("h2.title a, .front-view-title a")?.attr("href")
-                ?: return@mapNotNull null
-            val posterUrl = result.selectFirst(".featured-thumbnail img")?.let { img ->
-                fixUrlNull(img.attr("src").ifBlank { img.attr("data-src") })
-            }
-
-            val isSeries = title.contains("Season", ignoreCase = true) ||
-                    title.contains("S0", ignoreCase = true)
-
-            if (isSeries) {
-                newTvSeriesSearchResponse(title, fixUrl(href), TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                }
-            } else {
-                newMovieSearchResponse(title, fixUrl(href), TvType.Movie) {
-                    this.posterUrl = posterUrl
-                }
-            }
+        return document.select("article.latestPost, article.post").mapNotNull { result ->
+            result.toSearchResult()
         }
     }
 
@@ -159,70 +141,78 @@ class CinevoodProvider : MainAPI() {
         val document = app.get(url, interceptor = cfKiller).document
 
         // Extract title
-        val rawTitle =
-            document.selectFirst("h1.page-title, .entry-title")?.text()?.trim() ?: return null
+        val rawTitle = document.selectFirst("h1.page-title, .entry-title, h1.post-title")?.text()?.trim() 
+            ?: return null
         val title = cleanTitle(rawTitle)
 
         // Extract poster - TMDB images
         val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
-            ?: document.selectFirst(".entry-content img[src*='tmdb'], .entry-content img")
-                ?.attr("src")
+            ?: document.selectFirst(".entry-content img[src*='tmdb'], .entry-content img")?.attr("src")
 
         // Extract description
         val description = document.selectFirst("meta[name=description]")?.attr("content")
+            ?: document.selectFirst("meta[property=og:description]")?.attr("content")
 
         // Extract year from title
         val yearRegex = Regex("\\((\\d{4})\\)")
         val year = yearRegex.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
 
         // Extract tags/genres
-        val tags = document.select(".entry-categories a, .post-categories a").map { it.text() }
+        val tags = document.select(".entry-categories a, .post-categories a, .cat-links a").map { it.text() }
 
-        // Extract ALL download links from entry-content area
-        val downloadLinks = mutableListOf<String>()
+        // Extract ALL download links and parse for Smart Logic
+        val smartLinks = mutableListOf<SmartLink>()
 
-        // Look for links in entry-content (main content area)
-        document.select(".entry-content a[href], .post-content a[href], article a[href]")
+        // Look for links in entry-content
+        // Added more broad selectors
+        document.select(".entry-content a[href], .post-content a[href], article a[href], .download-links a[href]")
             .forEach { element ->
                 val href = element.attr("href")
-                val text = element.text().lowercase(getDefault())
+                val text = element.text().trim() 
+                val lowerText = text.lowercase(getDefault())
 
                 // Filter for download-related links
-                if (href.isNotBlank() && (
-                    href.contains("oxxfile", ignoreCase = true) ||
-                    href.contains("hubcloud", ignoreCase = true) ||
-                    href.contains("hubcdn", ignoreCase = true) ||
-                    href.contains("gamester", ignoreCase = true) ||
-                    href.contains("gamerxyt", ignoreCase = true) ||
-                    href.contains("filepress", ignoreCase = true) ||
-                    href.contains("filebee", ignoreCase = true) ||
-                    href.contains("streamwish", ignoreCase = true) ||
-                    href.contains("embedwish", ignoreCase = true) ||
-                    href.contains("wishembed", ignoreCase = true) ||
-                    href.contains("swhoi", ignoreCase = true) ||
-                    href.contains("wishfast", ignoreCase = true) ||
-                    href.contains("sfastwish", ignoreCase = true) ||
-                    href.contains("awish", ignoreCase = true) ||
-                    href.contains("dwish", ignoreCase = true) ||
-                    href.contains("streamvid", ignoreCase = true) ||
-                    href.contains("dood", ignoreCase = true) ||
-                    href.contains("doodstream", ignoreCase = true) ||
-                    href.contains("d0o0d", ignoreCase = true) ||
-                    href.contains("d000d", ignoreCase = true) ||
-                    href.contains("ds2play", ignoreCase = true) ||
-                    href.contains("do0od", ignoreCase = true) ||
-                    text.contains("download", ignoreCase = true) ||
-                    text.contains("watch", ignoreCase = true) ||
-                    text.contains("stream", ignoreCase = true)
-                )) {
-                    if (!downloadLinks.contains(href)) {
-                        downloadLinks.add(href)
+                // Added checks to properly identify valid video links
+                if (href.isNotBlank() && isValidLink(href, lowerText)) {
+                    // Avoid duplicates
+                    if (smartLinks.none { it.url == href }) {
+                        val quality = extractQuality(text)
+                        val size = parseFileSize(text)
+                        val priority = getHostPriority(href)
+                        
+                        smartLinks.add(
+                            SmartLink(
+                                url = href,
+                                quality = quality,
+                                sizeMB = size,
+                                hostPriority = priority,
+                                originalText = text
+                            )
+                        )
                     }
                 }
             }
 
-        Log.d(TAG, "Total download links found: ${downloadLinks.size}")
-        downloadLinks.forEach { Log.d(TAG, "Link: $it") }
+        Log.d(TAG, "Total links found: ${smartLinks.size}")
+        
+        // --- SMART SORT LOGIC REINFORCED ---
+        // Requirement: 1080p > Smallest Size > Fastest Host
+        // 1. Quality Descending (1080p first)
+        // 2. Size Ascending (Smallest first, but > 0. If 0 treat as max to de-prioritize unknown sizes?) 
+        //    Actually, user said "System should select smallest size". Unknown size is risky, maybe put last?
+        //    Let's put known sizes first (ascending), then unknown.
+        // 3. Host Priority Ascending (1 is fastest/best)
+        
+        val sortedLinks = smartLinks.sortedWith(
+            compareByDescending<SmartLink> { it.quality }
+                .thenBy { if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE } 
+                .thenBy { it.hostPriority }
+        )
+
+        // Create data string (comma separated URLs)
+        val data = sortedLinks.joinToString(",") { it.url }
+        
+        Log.d(TAG, "Sorted Links Top 5: ${sortedLinks.take(5).map { "${it.originalText} (${it.quality}p, ${it.sizeMB}MB)" }}")
 
         val isSeries = rawTitle.contains("Season", ignoreCase = true) ||
                 rawTitle.contains("S0", ignoreCase = true) ||
@@ -236,14 +226,94 @@ class CinevoodProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            // Return as comma-separated string
-            val data = downloadLinks.joinToString(",")
             newMovieLoadResponse(title, url, TvType.Movie, data) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
                 this.tags = tags
             }
+        }
+    }
+
+    private data class SmartLink(
+        val url: String,
+        val quality: Int,
+        val sizeMB: Double,
+        val hostPriority: Int,
+        val originalText: String
+    )
+    
+    // Helper to validate if a link is worth keeping
+    private fun isValidLink(url: String, text: String): Boolean {
+        return url.contains("oxxfile", ignoreCase = true) ||
+                url.contains("hubcloud", ignoreCase = true) ||
+                url.contains("hubcdn", ignoreCase = true) ||
+                url.contains("gamester", ignoreCase = true) ||
+                url.contains("gamerxyt", ignoreCase = true) ||
+                url.contains("filepress", ignoreCase = true) ||
+                url.contains("filebee", ignoreCase = true) ||
+                url.contains("streamwish", ignoreCase = true) ||
+                url.contains("embedwish", ignoreCase = true) ||
+                url.contains("wishembed", ignoreCase = true) ||
+                url.contains("swhoi", ignoreCase = true) ||
+                url.contains("wishfast", ignoreCase = true) ||
+                url.contains("sfastwish", ignoreCase = true) ||
+                url.contains("awish", ignoreCase = true) ||
+                url.contains("dwish", ignoreCase = true) ||
+                url.contains("streamvid", ignoreCase = true) ||
+                url.contains("dood", ignoreCase = true) ||
+                url.contains("doodstream", ignoreCase = true) ||
+                url.contains("d0o0d", ignoreCase = true) ||
+                url.contains("d000d", ignoreCase = true) ||
+                url.contains("ds2play", ignoreCase = true) ||
+                url.contains("do0od", ignoreCase = true) ||
+                text.contains("download", ignoreCase = true) ||
+                text.contains("watch", ignoreCase = true) ||
+                text.contains("stream", ignoreCase = true)
+    }
+
+    private fun extractQuality(text: String): Int {
+        return when {
+            text.contains("2160p", ignoreCase = true) || text.contains("4k", ignoreCase = true) -> 2160
+            text.contains("1080p", ignoreCase = true) -> 1080
+            text.contains("720p", ignoreCase = true) -> 720
+            text.contains("480p", ignoreCase = true) -> 480
+            else -> 0
+        }
+    }
+
+    private fun parseFileSize(text: String): Double {
+        val regex = Regex("(\\d+(?:\\.\\d+)?)\\s*(GB|MB)", RegexOption.IGNORE_CASE)
+        val match = regex.find(text) ?: return 0.0
+        
+        val value = match.groupValues[1].toDoubleOrNull() ?: return 0.0
+        val unit = match.groupValues[2].uppercase()
+        
+        return if (unit == "GB") {
+            value * 1024
+        } else {
+            value
+        }
+    }
+
+    private fun getHostPriority(url: String): Int {
+        return when {
+            // Priority 1: Direct/Fast G-Drive types (HubCloud/Gamerx are usually fastest)
+            url.contains("hubcloud", ignoreCase = true) || 
+            url.contains("hubcdn", ignoreCase = true) || 
+            url.contains("gamester", ignoreCase = true) ||
+            url.contains("gamerxyt", ignoreCase = true) -> 1
+            
+            // Priority 2: Good streaming hosts
+            url.contains("streamwish", ignoreCase = true) ||
+            url.contains("wish", ignoreCase = true) ||
+            url.contains("filepress", ignoreCase = true) -> 2
+            
+            // Priority 3: Dood (often slow but reliable)
+            url.contains("dood", ignoreCase = true) -> 3
+            
+            // Others
+            else -> 10
         }
     }
 
@@ -256,31 +326,27 @@ class CinevoodProvider : MainAPI() {
         Log.d(TAG, "Loading links from: $data")
 
         try {
-            // Parse comma-separated links
+            // Split comma-separated links. 
+            // The list is ALREADY sorted by preference from load(), so we iterate sequentially.
             val links = if (data.isBlank()) {
                 emptyList()
             } else if (data.startsWith("http")) {
-                // Single URL or comma separated
                 if (data.contains(",")) {
                     data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 } else {
                     listOf(data)
                 }
             } else {
-                // Comma separated
                 data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
             }
 
-            Log.d(TAG, "Processing ${links.size} links")
+            Log.d(TAG, "Processing ${links.size} sorted links")
 
             links.forEach { link ->
                 try {
-                    Log.d(TAG, "Processing link: $link")
-
                     when {
-                        // OxxFile patterns (primary for Cinevood)
+                        // OxxFile patterns
                         link.contains("oxxfile", ignoreCase = true) -> {
-                            Log.d(TAG, "Using OxxFile extractor")
                             OxxFile().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
@@ -289,18 +355,16 @@ class CinevoodProvider : MainAPI() {
                         link.contains("hubcdn", ignoreCase = true) ||
                         link.contains("gamester", ignoreCase = true) ||
                         link.contains("gamerxyt", ignoreCase = true) -> {
-                            Log.d(TAG, "Using HubCloud extractor")
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         // FilePress patterns
                         link.contains("filepress", ignoreCase = true) ||
                         link.contains("filebee", ignoreCase = true) -> {
-                            Log.d(TAG, "Using FilePress extractor")
                             FilePressExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
-                        // StreamWish patterns (incluiding embedwish)
+                        // StreamWish patterns
                         link.contains("streamwish", ignoreCase = true) ||
                         link.contains("embedwish", ignoreCase = true) ||
                         link.contains("wishembed", ignoreCase = true) ||
@@ -310,7 +374,6 @@ class CinevoodProvider : MainAPI() {
                         link.contains("awish", ignoreCase = true) ||
                         link.contains("dwish", ignoreCase = true) ||
                         link.contains("streamvid", ignoreCase = true) -> {
-                            Log.d(TAG, "Using StreamWish extractor")
                             StreamWishExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
@@ -321,12 +384,10 @@ class CinevoodProvider : MainAPI() {
                         link.contains("d000d", ignoreCase = true) ||
                         link.contains("ds2play", ignoreCase = true) ||
                         link.contains("do0od", ignoreCase = true) -> {
-                            Log.d(TAG, "Using DoodStream extractor")
                             DoodLaExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
 
                         else -> {
-                            Log.d(TAG, "Using generic extractor for: $link")
                             loadExtractor(link, mainUrl, subtitleCallback, callback)
                         }
                     }
