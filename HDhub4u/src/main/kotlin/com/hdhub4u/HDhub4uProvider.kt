@@ -92,18 +92,23 @@ class HDhub4uProvider : MainAPI() {
             headers = headers,
             allowRedirects = true
         ).documentLarge
-        val home = doc.select(".recent-movies > li.thumb").mapNotNull { toResult(it) }
+        val home = doc.select(".movie-card").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
     private fun toResult(post: Element): SearchResponse {
-        val titleText = post
-            .select("figcaption:nth-child(2) > a:nth-child(1) > p:nth-child(1)")
-            .text()
+        val titleText = post.select(".movie-title, h3.movie-title").text().ifEmpty {
+            post.select("a").attr("title").ifEmpty {
+                post.select("img").attr("alt")
+            }
+        }
         val title = cleanTitle(titleText)
-        val url = post.select("figure:nth-child(1) > a:nth-child(2)").attr("href")
+        val url = post.select("a").attr("href").let {
+            if (it.startsWith("http")) it else "$mainUrl$it"
+        }
+        val posterUrl = post.select("img").attr("src")
         return newMovieSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = post.select("figure:nth-child(1) > img:nth-child(1)").attr("src")
+            this.posterUrl = posterUrl
             this.quality = getSearchQuality(titleText)
         }
     }
@@ -114,7 +119,7 @@ class HDhub4uProvider : MainAPI() {
             cacheTime = 60,
             headers = headers
         ).documentLarge
-        return doc.select(".recent-movies > li.thumb").mapNotNull { toResult(it) }.toNewSearchResponseList()
+        return doc.select(".movie-card").mapNotNull { toResult(it) }.toNewSearchResponseList()
     }
 
     private fun extractLinksATags(aTags: Elements): List<String> {

@@ -27,41 +27,19 @@ import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.addDate
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
-import java.util.Locale.getDefault
 
 class CinevoodProvider : MainAPI() {
     override var mainUrl: String = "https://1cinevood.codes"
 
-    init {
-        runBlocking {
-            baseMainUrl?.let {
-                mainUrl = it
-            }
-        }
-    }
-
     companion object {
         private const val TAG = "CineVood"
-
-        val baseMainUrl: String? by lazy {
-            runBlocking {
-                try {
-                    val response =
-                        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
-                    val json = response.text
-                    val jsonObject = JSONObject(json)
-                    jsonObject.optString("cinevood").ifBlank { null }
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
-
-        // Enhanced CloudflareKiller with custom headers
-        private val cfKiller by lazy { CloudflareKiller() }
+        
+        // TMDB Configuration
+        const val TMDBAPIKEY = "1865f43a0549ca50d341dd9ab8b29f49"
+        const val TMDBBASE = "https://image.tmdb.org/t/p/original"
+        const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
         
         // Rotating user agents to avoid detection
         private val userAgents = listOf(
@@ -85,116 +63,134 @@ class CinevoodProvider : MainAPI() {
             "Cache-Control" to "max-age=0"
         )
         
-        private fun getRandomUserAgent() = userAgents.random()
+        fun getRandomUserAgent() = userAgents.random()
         
         // Request delay management
+        @Volatile
         private var lastRequestTime: Long = 0
         private const val MIN_REQUEST_INTERVAL = 1000L // 1 second between requests
-        
-        /**
-         * Retry logic with exponential backoff for Cloudflare bypass
-         */
-        private suspend fun <T> retryWithBackoff(
-            maxRetries: Int = 3,
-            initialDelay: Long = 1000,
-            maxDelay: Long = 10000,
-            factor: Double = 2.0,
-            block: suspend () -> T
-        ): T {
-            var currentDelay = initialDelay
-            repeat(maxRetries - 1) { attempt ->
-                try {
-                    return block()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Cloudflare bypass attempt ${attempt + 1} failed: ${e.message}")
-                    kotlinx.coroutines.delay(currentDelay)
-                    currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
-                }
+    }
+    
+    // CloudflareKiller instance
+    private val cfKiller by lazy { CloudflareKiller() }
+    
+    // Cookie cache for cf_clearance
+    private data class CookieData(
+        val value: String,
+        val expiresAt: Long = System.currentTimeMillis() + 3600000
+    )
+    
+    private val cookieCache = mutableMapOf<String, CookieData>()
+    
+    // Initialize mainUrl from remote config
+    private var isInitialized = false
+    
+    private suspend fun initializeUrl() {
+        if (isInitialized) return
+        try {
+            val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+            val json = response.text
+            val jsonObject = JSONObject(json)
+            val remoteUrl = jsonObject.optString("cinevood")
+            if (remoteUrl.isNotBlank()) {
+                mainUrl = remoteUrl
             }
-            return block() // Last attempt without catch
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch remote URL: ${e.message}")
+        }
+        isInitialized = true
+    }
+    
+    /**
+     * Retry logic with exponential backoff for Cloudflare bypass
+     */
+    private suspend fun <T> retryWithBackoff(
+        maxRetries: Int = 3,
+        initialDelay: Long = 1000,
+        maxDelay: Long = 10000,
+        factor: Double = 2.0,
+        block: suspend () -> T
+    ): T {
+        var currentDelay = initialDelay
+        repeat(maxRetries - 1) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloudflare bypass attempt ${attempt + 1} failed: ${e.message}")
+                kotlinx.coroutines.delay(currentDelay)
+                currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
+            }
+        }
+        return block() // Last attempt without catch
+    }
+    
+    /**
+     * Add delay between requests to avoid rate limiting
+     */
+    private suspend fun delayIfNeeded() {
+        val now = System.currentTimeMillis()
+        val timeSinceLastRequest = now - lastRequestTime
+        if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+            kotlinx.coroutines.delay(MIN_REQUEST_INTERVAL - timeSinceLastRequest)
+        }
+        lastRequestTime = System.currentTimeMillis()
+    }
+    
+    /**
+     * Save Cloudflare clearance cookie
+     */
+    private fun saveCloudflareCookie(cookieName: String, cookieValue: String, maxAge: Long = 3600) {
+        val expiresAt = System.currentTimeMillis() + (maxAge * 1000)
+        cookieCache[cookieName] = CookieData(cookieValue, expiresAt)
+        Log.d(TAG, "Saved Cloudflare cookie: $cookieName (expires in ${maxAge}s)")
+    }
+    
+    /**
+     * Get valid Cloudflare cookie if exists and not expired
+     */
+    private fun getCloudflareCookie(cookieName: String): String? {
+        val cookie = cookieCache[cookieName] ?: return null
+        
+        // Check if expired
+        if (System.currentTimeMillis() > cookie.expiresAt) {
+            cookieCache.remove(cookieName)
+            Log.d(TAG, "Cloudflare cookie expired: $cookieName")
+            return null
         }
         
-        /**
-         * Add delay between requests to avoid rate limiting
-         */
-        private suspend fun delayIfNeeded() {
-            val now = System.currentTimeMillis()
-            val timeSinceLastRequest = now - lastRequestTime
-            if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-                kotlinx.coroutines.delay(MIN_REQUEST_INTERVAL - timeSinceLastRequest)
-            }
-            lastRequestTime = System.currentTimeMillis()
-        }
+        return cookie.value
+    }
+    
+    /**
+     * Enhanced HTTP GET with cookie management
+     */
+    private suspend fun getWithCookies(url: String): com.lagradost.nicehttp.NiceResponse {
+        // Prepare cookies
+        val cookies = mutableMapOf<String, String>()
         
-        // ========== Cookie Management for cf_clearance ==========
-        private data class CookieData(
-            val value: String,
-            val expiresAt: Long = System.currentTimeMillis() + 3600000 // 1 hour default
+        // Add cf_clearance if available
+        getCloudflareCookie("cf_clearance")?.let { cookies["cf_clearance"] = it }
+        getCloudflareCookie("cf_bm")?.let { cookies["cf_bm"] = it }
+        
+        // Make request
+        val response = app.get(
+            url,
+            interceptor = cfKiller,
+            headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent()),
+            cookies = cookies
         )
         
-        private val cookieCache = mutableMapOf<String, CookieData>()
-        
-        /**
-         * Save Cloudflare clearance cookie
-         */
-        private fun saveCloudflareCookie(cookieName: String, cookieValue: String, maxAge: Long = 3600) {
-            val expiresAt = System.currentTimeMillis() + (maxAge * 1000)
-            cookieCache[cookieName] = CookieData(cookieValue, expiresAt)
-            Log.d(TAG, "Saved Cloudflare cookie: $cookieName (expires in ${maxAge}s)")
-        }
-        
-        /**
-         * Get valid Cloudflare cookie if exists and not expired
-         */
-        private fun getCloudflareCookie(cookieName: String): String? {
-            val cookie = cookieCache[cookieName] ?: return null
-            
-            // Check if expired
-            if (System.currentTimeMillis() > cookie.expiresAt) {
-                cookieCache.remove(cookieName)
-                Log.d(TAG, "Cloudflare cookie expired: $cookieName")
-                return null
-            }
-            
-            return cookie.value
-        }
-        
-        /**
-         * Enhanced HTTP GET with cookie management
-         */
-        private suspend fun getWithCookies(url: String): com.lagradost.nicehttp.NiceResponse {
-            // Prepare cookies
-            val cookies = mutableMapOf<String, String>()
-            
-            // Add cf_clearance if available
-            getCloudflareCookie("cf_clearance")?.let { cookies["cf_clearance"] = it }
-            getCloudflareCookie("cf_bm")?.let { cookies["cf_bm"] = it }
-            
-            // Make request
-            val response = app.get(
-                url,
-                interceptor = cfKiller,
-                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent()),
-                cookies = cookies
-            )
-            
-            // Extract and save new cookies from response
-            response.cookies.forEach { (name, value) ->
-                when (name) {
-                    "cf_clearance", "cf_bm" -> {
-                        // Cloudflare cookies typically have 1 hour expiry
-                        saveCloudflareCookie(name, value, maxAge = 3600)
-                    }
+        // Extract and save new cookies from response
+        response.cookies.forEach { (name, value) ->
+            when (name) {
+                "cf_clearance", "cf_bm" -> {
+                    // Cloudflare cookies typically have 1 hour expiry
+                    saveCloudflareCookie(name, value, maxAge = 3600)
                 }
             }
-            
-            return response
         }
-
-        // TMDB Configuration
-        const val TMDBAPIKEY = "1865f43a0549ca50d341dd9ab8b29f49"
-        const val TMDBBASE = "https://image.tmdb.org/t/p/original"
-        const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
+        
+        return response
     }
 
     override var name = "CineVood"
@@ -221,6 +217,9 @@ class CinevoodProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
+        // Initialize URL from remote config
+        initializeUrl()
+        
         val url = if (page == 1) {
             "$mainUrl/${request.data}"
         } else {
@@ -275,6 +274,9 @@ class CinevoodProvider : MainAPI() {
 
 
     override suspend fun search(query: String): List<SearchResponse> {
+        // Initialize URL from remote config
+        initializeUrl()
+        
         Log.d(TAG, "Searching for: $query")
         
         // Add request delay
@@ -293,6 +295,9 @@ class CinevoodProvider : MainAPI() {
 
 
     override suspend fun load(url: String): LoadResponse? {
+        // Initialize URL from remote config
+        initializeUrl()
+        
         Log.d(TAG, "Loading: $url")
         
         // Add request delay
@@ -436,7 +441,7 @@ class CinevoodProvider : MainAPI() {
                     }
                     Log.d(TAG, "Resolved TMDB ID: $tmdbId")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error resolving TMDB ID from IM DB: ${e.message}")
+                    Log.e(TAG, "Error resolving TMDB ID from IMDB: ${e.message}")
                 }
             }
             
@@ -471,12 +476,12 @@ class CinevoodProvider : MainAPI() {
                 detailsJson.optJSONObject("credits")?.optJSONArray("cast")?.let { castArr ->
                     for (i in 0 until minOf(castArr.length(), 20)) {  // Limit to 20 cast members
                         val c = castArr.optJSONObject(i) ?: continue
-                        val name = c.optString("name").takeIf { it.isNotBlank() } 
+                        val actorName = c.optString("name").takeIf { it.isNotBlank() } 
                             ?: c.optString("original_name").orEmpty()
                         val profile = c.optString("profile_path").takeIf { it.isNotBlank() }
                             ?.let { TMDBBASE + it }
                         val character = c.optString("character").takeIf { it.isNotBlank() }
-                        val actor = Actor(name, profile)
+                        val actor = Actor(actorName, profile)
                         actorDataList += ActorData(actor = actor, roleString = character)
                     }
                 }
