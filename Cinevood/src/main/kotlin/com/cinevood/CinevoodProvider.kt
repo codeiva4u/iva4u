@@ -125,6 +125,71 @@ class CinevoodProvider : MainAPI() {
             }
             lastRequestTime = System.currentTimeMillis()
         }
+        
+        // ========== Cookie Management for cf_clearance ==========
+        private data class CookieData(
+            val value: String,
+            val expiresAt: Long = System.currentTimeMillis() + 3600000 // 1 hour default
+        )
+        
+        private val cookieCache = mutableMapOf<String, CookieData>()
+        
+        /**
+         * Save Cloudflare clearance cookie
+         */
+        private fun saveCloudflareCookie(cookieName: String, cookieValue: String, maxAge: Long = 3600) {
+            val expiresAt = System.currentTimeMillis() + (maxAge * 1000)
+            cookieCache[cookieName] = CookieData(cookieValue, expiresAt)
+            Log.d(TAG, "Saved Cloudflare cookie: $cookieName (expires in ${maxAge}s)")
+        }
+        
+        /**
+         * Get valid Cloudflare cookie if exists and not expired
+         */
+        private fun getCloudflareCookie(cookieName: String): String? {
+            val cookie = cookieCache[cookieName] ?: return null
+            
+            // Check if expired
+            if (System.currentTimeMillis() > cookie.expiresAt) {
+                cookieCache.remove(cookieName)
+                Log.d(TAG, "Cloudflare cookie expired: $cookieName")
+                return null
+            }
+            
+            return cookie.value
+        }
+        
+        /**
+         * Enhanced HTTP GET with cookie management
+         */
+        private suspend fun getWithCookies(url: String): com.lagradost.nicehttp.NiceResponse {
+            // Prepare cookies
+            val cookies = mutableMapOf<String, String>()
+            
+            // Add cf_clearance if available
+            getCloudflareCookie("cf_clearance")?.let { cookies["cf_clearance"] = it }
+            getCloudflareCookie("cf_bm")?.let { cookies["cf_bm"] = it }
+            
+            // Make request
+            val response = app.get(
+                url,
+                interceptor = cfKiller,
+                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent()),
+                cookies = cookies
+            )
+            
+            // Extract and save new cookies from response
+            response.cookies.forEach { (name, value) ->
+                when (name) {
+                    "cf_clearance", "cf_bm" -> {
+                        // Cloudflare cookies typically have 1 hour expiry
+                        saveCloudflareCookie(name, value, maxAge = 3600)
+                    }
+                }
+            }
+            
+            return response
+        }
 
         // TMDB Configuration
         const val TMDBAPIKEY = "1865f43a0549ca50d341dd9ab8b29f49"
@@ -167,13 +232,9 @@ class CinevoodProvider : MainAPI() {
         // Add request delay to avoid rate limiting
         delayIfNeeded()
         
-        // Use retry logic with custom headers and rotating user agent
+        // Use retry logic with cookie management
         val document = retryWithBackoff {
-            app.get(
-                url,
-                interceptor = cfKiller,
-                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
-            ).document
+            getWithCookies(url).document
         }
 
         val home = document.select("article.latestPost").mapNotNull {
@@ -219,13 +280,9 @@ class CinevoodProvider : MainAPI() {
         // Add request delay
         delayIfNeeded()
         
-        // Use retry logic with custom headers
+        // Use retry logic with cookie management
         val document = retryWithBackoff {
-            app.get(
-                "$mainUrl/?s=$query",
-                interceptor = cfKiller,
-                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
-            ).document
+            getWithCookies("$mainUrl/?s=$query").document
         }
 
         return document.select("article.latestPost").mapNotNull {
@@ -241,13 +298,9 @@ class CinevoodProvider : MainAPI() {
         // Add request delay
         delayIfNeeded()
         
-        // Use retry logic with custom headers
+        // Use retry logic with cookie management
         val document = retryWithBackoff {
-            app.get(
-                url,
-                interceptor = cfKiller,
-                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
-            ).document
+            getWithCookies(url).document
         }
 
         // Extract title

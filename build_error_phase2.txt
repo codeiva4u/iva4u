@@ -1,0 +1,12 @@
+﻿> Task :CineVood:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :CineVood:preBuild UP-TO-DATE
+> Task :CineVood:preDebugBuild UP-TO-DATE
+> Task :CineVood:generateDebugResValues UP-TO-DATE
+> Task :CineVood:generateDebugResources UP-TO-DATE
+> Task :CineVood:packageDebugResources UP-TO-DATE
+> Task :CineVood:parseDebugLocalResources UP-TO-DATE
+> Task :CineVood:generateDebugRFile UP-TO-DATE
+> Task :CineVood:compileDebugKotlin UP-TO-DATE
+
+BUILD SUCCESSFUL in 1s
+6 actionable tasks: 6 up-to-date
