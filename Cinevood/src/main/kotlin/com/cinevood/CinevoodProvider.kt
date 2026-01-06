@@ -60,7 +60,71 @@ class CinevoodProvider : MainAPI() {
             }
         }
 
+        // Enhanced CloudflareKiller with custom headers
         private val cfKiller by lazy { CloudflareKiller() }
+        
+        // Rotating user agents to avoid detection
+        private val userAgents = listOf(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        
+        // Custom headers for Cloudflare bypass
+        private val customHeaders = mapOf(
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.9",
+            "Accept-Encoding" to "gzip, deflate, br",
+            "DNT" to "1",
+            "Connection" to "keep-alive",
+            "Upgrade-Insecure-Requests" to "1",
+            "Sec-Fetch-Dest" to "document",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "none",
+            "Cache-Control" to "max-age=0"
+        )
+        
+        private fun getRandomUserAgent() = userAgents.random()
+        
+        // Request delay management
+        private var lastRequestTime: Long = 0
+        private const val MIN_REQUEST_INTERVAL = 1000L // 1 second between requests
+        
+        /**
+         * Retry logic with exponential backoff for Cloudflare bypass
+         */
+        private suspend fun <T> retryWithBackoff(
+            maxRetries: Int = 3,
+            initialDelay: Long = 1000,
+            maxDelay: Long = 10000,
+            factor: Double = 2.0,
+            block: suspend () -> T
+        ): T {
+            var currentDelay = initialDelay
+            repeat(maxRetries - 1) { attempt ->
+                try {
+                    return block()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cloudflare bypass attempt ${attempt + 1} failed: ${e.message}")
+                    kotlinx.coroutines.delay(currentDelay)
+                    currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
+                }
+            }
+            return block() // Last attempt without catch
+        }
+        
+        /**
+         * Add delay between requests to avoid rate limiting
+         */
+        private suspend fun delayIfNeeded() {
+            val now = System.currentTimeMillis()
+            val timeSinceLastRequest = now - lastRequestTime
+            if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+                kotlinx.coroutines.delay(MIN_REQUEST_INTERVAL - timeSinceLastRequest)
+            }
+            lastRequestTime = System.currentTimeMillis()
+        }
 
         // TMDB Configuration
         const val TMDBAPIKEY = "1865f43a0549ca50d341dd9ab8b29f49"
@@ -99,7 +163,18 @@ class CinevoodProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, interceptor = cfKiller).document
+        
+        // Add request delay to avoid rate limiting
+        delayIfNeeded()
+        
+        // Use retry logic with custom headers and rotating user agent
+        val document = retryWithBackoff {
+            app.get(
+                url,
+                interceptor = cfKiller,
+                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
+            ).document
+        }
 
         val home = document.select("article.latestPost").mapNotNull {
             it.toSearchResult()
@@ -137,38 +212,43 @@ class CinevoodProvider : MainAPI() {
         }
     }
 
+
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
+        
+        // Add request delay
+        delayIfNeeded()
+        
+        // Use retry logic with custom headers
+        val document = retryWithBackoff {
+            app.get(
+                "$mainUrl/?s=$query",
+                interceptor = cfKiller,
+                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
+            ).document
+        }
 
-        return document.select("article.latestPost").mapNotNull { result ->
-            val title = result.selectFirst("h2.title a, .front-view-title a")?.text()?.trim()
-                ?: return@mapNotNull null
-            val href = result.selectFirst("h2.title a, .front-view-title a")?.attr("href")
-                ?: return@mapNotNull null
-            val posterUrl = result.selectFirst(".featured-thumbnail img")?.let { img ->
-                fixUrlNull(img.attr("src").ifBlank { img.attr("data-src") })
-            }
-
-            val isSeries = title.contains("Season", ignoreCase = true) ||
-                    title.contains("S0", ignoreCase = true)
-
-            if (isSeries) {
-                newTvSeriesSearchResponse(title, fixUrl(href), TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                }
-            } else {
-                newMovieSearchResponse(title, fixUrl(href), TvType.Movie) {
-                    this.posterUrl = posterUrl
-                }
-            }
+        return document.select("article.latestPost").mapNotNull {
+            it.toSearchResult()
         }
     }
 
 
+
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        val document = app.get(url, interceptor = cfKiller).document
+        
+        // Add request delay
+        delayIfNeeded()
+        
+        // Use retry logic with custom headers
+        val document = retryWithBackoff {
+            app.get(
+                url,
+                interceptor = cfKiller,
+                headers = customHeaders + mapOf("User-Agent" to getRandomUserAgent())
+            ).document
+        }
 
         // Extract title
         val rawTitle =
