@@ -7,13 +7,14 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
         maven("https://www.jitpack.io")
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:8.7.3")
+        classpath("com.android.tools.build:gradle:8.2.2")
         classpath("com.github.recloudstream:gradle:master-SNAPSHOT")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23")
     }
 }
 
@@ -79,7 +80,7 @@ subprojects {
         cloudstream("com.lagradost:cloudstream3:pre-release")
 
         // Other dependencies
-        implementation(kotlin("stdlib"))
+        implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.23")
         implementation("com.github.Blatzar:NiceHttp:0.4.13")
         implementation("org.jsoup:jsoup:1.19.1")
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0")
