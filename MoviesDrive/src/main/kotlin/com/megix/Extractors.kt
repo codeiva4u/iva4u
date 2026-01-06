@@ -34,6 +34,37 @@ fun getBaseUrl(url: String): String {
     }
 }
 
+// Parse file size string to MB (e.g., "1.5GB" -> 1536, "700MB" -> 700)
+fun parseSizeToMB(sizeStr: String): Double {
+    val cleanSize = sizeStr.replace("[", "").replace("]", "").trim()
+    val regex = Regex("""([\d.]+)\s*(GB|MB|gb|mb)""", RegexOption.IGNORE_CASE)
+    val match = regex.find(cleanSize) ?: return Double.MAX_VALUE
+    val value = match.groupValues[1].toDoubleOrNull() ?: return Double.MAX_VALUE
+    val unit = match.groupValues[2].uppercase()
+    return when (unit) {
+        "GB" -> value * 1024
+        "MB" -> value
+        else -> Double.MAX_VALUE
+    }
+}
+
+// Adjust quality to prioritize 1080p with smallest size
+// Returns quality + bonus points for 1080p, with smaller files getting higher bonus
+fun getAdjustedQuality(quality: Int, sizeStr: String): Int {
+    if (quality != 1080) return quality
+    
+    val sizeMB = parseSizeToMB(sizeStr)
+    // Give bonus to 1080p: smaller size = higher bonus (max +50 for very small files)
+    val bonus = when {
+        sizeMB <= 800 -> 50   // HEVC compressed
+        sizeMB <= 1200 -> 40
+        sizeMB <= 1500 -> 30
+        sizeMB <= 2000 -> 20
+        else -> 10
+    }
+    return quality + bonus
+}
+
 suspend fun getLatestUrl(url: String, source: String): String {
     val link = JSONObject(
         app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
@@ -73,7 +104,8 @@ open class HubCloud : ExtractorApi() {
         val div = document.selectFirst("div.card-body")
         val header = document.select("div.card-header").text()
         val size = document.select("i#size").text()
-        val quality = getIndexQuality(header)
+        val baseQuality = getIndexQuality(header)
+        val quality = getAdjustedQuality(baseQuality, size)
 
         div?.select("h2 a.btn")?.amap {
             val btnLink = it.attr("href")
@@ -220,7 +252,8 @@ open class GDFlix : ExtractorApi() {
             .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
             .substringAfter("Size : ")
-        val quality = getIndexQuality(fileName)
+        val baseQuality = getIndexQuality(fileName)
+        val quality = getAdjustedQuality(baseQuality, fileSize)
 
         document.select("div.text-center a").amap { anchor ->
             val text = anchor.select("a").text()

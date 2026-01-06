@@ -83,21 +83,22 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         request: MainPageRequest
     ): HomePageResponse {
         val document = app.get("${mainUrl}${request.data}${page}").document
-        val home = document.select("ul.recent-movies > li").mapNotNull {
+        val home = document.select("a:has(div.poster-card)").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(request.name, home)
     }
 
     private fun Element.toSearchResult(): SearchResponse {
-        val title = this.select("figure > img").attr("title").replace("Download ", "")
-        val href = this.select("figure > a").attr("href")
-        val posterUrl = this.select("figure > img").attr("src")
-        val quality = if(title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true)) {
-            SearchQuality.CamRip
-        }
-        else {
-            null
+        val title = this.selectFirst("p.poster-title")?.text()?.replace("Download ", "") ?: ""
+        val href = this.attr("href")
+        val posterUrl = this.selectFirst("div.poster-image img")?.attr("src") ?: ""
+        val qualityText = this.selectFirst("span.poster-quality")?.text() ?: ""
+        val quality = when {
+            title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
+            qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
+            qualityText.contains("Full HD", ignoreCase = true) -> SearchQuality.HD
+            else -> null
         }
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
@@ -107,7 +108,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
         val document = app.get("$mainUrl/page/$page/?s=$query").document
-        val results = document.select("ul.recent-movies > li").mapNotNull { it.toSearchResult() }
+        val results = document.select("a:has(div.poster-card)").mapNotNull { it.toSearchResult() }
         val hasNext = results.isNotEmpty()
         return newSearchResponseList(results, hasNext)
     }
@@ -274,7 +275,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 val buttonLink = button.attr("href")
                 val buttonDoc = app.get(buttonLink).document
                 val innerButtons = buttonDoc.select("a").filter { element ->
-                    element.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                    element.attr("href").contains(Regex("hubcloud|gdflix|gdlink|mdrive", RegexOption.IGNORE_CASE))
                 }
                 innerButtons.mapNotNull { innerButton ->
                     val source = innerButton.attr("href")
@@ -301,11 +302,29 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
-        sources.amap {
-            it.source
+        sources.amap { episodeLink ->
+            val url = episodeLink.source
+            try {
+                when {
+                    url.contains("hubcloud", true) -> HubCloud().getUrl(url, null, subtitleCallback, callback)
+                    url.contains("gdflix", true) || url.contains("gdlink", true) -> GDFlix().getUrl(url, null, subtitleCallback, callback)
+                    url.contains("mdrive", true) -> {
+                        val doc = app.get(url).document
+                        doc.select("a").filter { 
+                            it.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                        }.amap { link ->
+                            val linkUrl = link.attr("href")
+                            when {
+                                linkUrl.contains("hubcloud", true) -> HubCloud().getUrl(linkUrl, null, subtitleCallback, callback)
+                                linkUrl.contains("gdflix", true) || linkUrl.contains("gdlink", true) -> GDFlix().getUrl(linkUrl, null, subtitleCallback, callback)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("MoviesDrive", "Error extracting: ${e.message}")
+            }
         }
-            Log.d("Phisher", "No local extractor found for:")
-
         return true
     }
 
