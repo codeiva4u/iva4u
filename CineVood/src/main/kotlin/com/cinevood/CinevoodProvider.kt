@@ -12,7 +12,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
@@ -52,9 +52,11 @@ class CinevoodProvider : MainAPI() {
                 }
             }
         }
-
-        private val cfKiller by lazy { CloudflareKiller() }
     }
+
+    private val cfInterceptor = WebViewResolver(
+        Regex("""Just a moment|Verifying you are human|Checking your browser|cloudflare|challenge""")
+    )
 
     override var name = "CineVood"
     override val hasMainPage = true
@@ -87,7 +89,7 @@ class CinevoodProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, interceptor = cfKiller).document
+        val document = app.get(url, interceptor = cfInterceptor).document
 
         val home = document.select("article.latestPost, article.post").mapNotNull {
             it.toSearchResult()
@@ -128,7 +130,7 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
+        val document = app.get("$mainUrl/?s=$query", interceptor = cfInterceptor).document
 
         return document.select("article.latestPost, article.post").mapNotNull { result ->
             result.toSearchResult()
@@ -138,7 +140,7 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        val document = app.get(url, interceptor = cfKiller).document
+        val document = app.get(url, interceptor = cfInterceptor).document
 
         // Extract title
         val rawTitle = document.selectFirst("h1.page-title, .entry-title, h1.post-title")?.text()?.trim() 
