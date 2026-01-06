@@ -48,21 +48,41 @@ fun parseSizeToMB(sizeStr: String): Double {
     }
 }
 
-// Adjust quality to prioritize 1080p with smallest size
-// Returns quality + bonus points for 1080p, with smaller files getting higher bonus
-fun getAdjustedQuality(quality: Int, sizeStr: String): Int {
-    if (quality != 1080) return quality
+// Adjust quality to prioritize 1080p with smallest size and fastest server
+// Returns quality + bonus points based on: Quality -> Size -> Server Speed
+fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): Int {
+    var adjustedQuality = quality
     
-    val sizeMB = parseSizeToMB(sizeStr)
-    // Give bonus to 1080p: smaller size = higher bonus (max +50 for very small files)
-    val bonus = when {
-        sizeMB <= 800 -> 50   // HEVC compressed
-        sizeMB <= 1200 -> 40
-        sizeMB <= 1500 -> 30
-        sizeMB <= 2000 -> 20
-        else -> 10
+    // 1080p gets size bonus (smaller = higher bonus)
+    if (quality == 1080) {
+        val sizeMB = parseSizeToMB(sizeStr)
+        val sizeBonus = when {
+            sizeMB <= 800 -> 50   // HEVC compressed
+            sizeMB <= 1200 -> 40
+            sizeMB <= 1500 -> 30
+            sizeMB <= 2000 -> 20
+            else -> 10
+        }
+        adjustedQuality += sizeBonus
     }
-    return quality + bonus
+    
+    // Add server speed bonus (faster servers = higher priority)
+    adjustedQuality += getServerPriority(serverName)
+    
+    return adjustedQuality
+}
+
+// Server speed priority (higher = faster/preferred)
+fun getServerPriority(serverName: String): Int {
+    return when {
+        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
+        serverName.contains("Direct", true) -> 90
+        serverName.contains("FSL", true) -> 80
+        serverName.contains("10Gbps", true) -> 85
+        serverName.contains("Download File", true) -> 70
+        serverName.contains("Pixeldrain", true) -> 60
+        else -> 50
+    }
 }
 
 suspend fun getLatestUrl(url: String, source: String): String {
@@ -105,11 +125,11 @@ open class HubCloud : ExtractorApi() {
         val header = document.select("div.card-header").text()
         val size = document.select("i#size").text()
         val baseQuality = getIndexQuality(header)
-        val quality = getAdjustedQuality(baseQuality, size)
 
         div?.select("h2 a.btn")?.amap {
             val btnLink = it.attr("href")
             val text = it.text()
+            val serverQuality = getAdjustedQuality(baseQuality, size, text)
 
             if (text.contains("[FSL Server]"))
             {
@@ -119,7 +139,7 @@ open class HubCloud : ExtractorApi() {
                         "$name[FSL Server] $header[$size]",
                         btnLink,
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -132,7 +152,7 @@ open class HubCloud : ExtractorApi() {
                         "$name[FSLv2 Server] $header[$size]",
                         btnLink,
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -145,7 +165,7 @@ open class HubCloud : ExtractorApi() {
                         "$name[Mega Server] $header[$size]",
                         btnLink,
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -157,7 +177,7 @@ open class HubCloud : ExtractorApi() {
                         "$name $header[$size]",
                         btnLink,
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -172,7 +192,7 @@ open class HubCloud : ExtractorApi() {
                             "$name[BuzzServer] $header[$size]",
                             buzzBaseUrl + dlink,
                         ) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -190,7 +210,7 @@ open class HubCloud : ExtractorApi() {
                         "Pixeldrain $header[$size]",
                         finalURL,
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -203,7 +223,7 @@ open class HubCloud : ExtractorApi() {
                         "$name[Download] $header[$size]",
                         dlink.substringAfter("link="),
                     ) {
-                        this.quality = quality
+                        this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
                     }
                 )
@@ -217,7 +237,7 @@ open class HubCloud : ExtractorApi() {
                             "$name $header[$size]",
                             btnLink,
                         ) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -253,17 +273,17 @@ open class GDFlix : ExtractorApi() {
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
             .substringAfter("Size : ")
         val baseQuality = getIndexQuality(fileName)
-        val quality = getAdjustedQuality(baseQuality, fileSize)
 
         document.select("div.text-center a").amap { anchor ->
             val text = anchor.select("a").text()
             val link = anchor.attr("href")
+            val serverQuality = getAdjustedQuality(baseQuality, fileSize, text)
 
             when {
                 text.contains("DIRECT DL") -> {
                     callback.invoke(
                         newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -272,7 +292,7 @@ open class GDFlix : ExtractorApi() {
                 text.contains("DIRECT SERVER") -> {
                     callback.invoke(
                         newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -282,7 +302,7 @@ open class GDFlix : ExtractorApi() {
                     val cloudLink = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
                     callback.invoke(
                         newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", cloudLink) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -298,7 +318,7 @@ open class GDFlix : ExtractorApi() {
                             "GDFlix[Pixeldrain] $fileName[$fileSize]",
                             finalURL
                         ) {
-                            this.quality = quality
+                            this.quality = serverQuality
                             this.headers = VIDEO_HEADERS
                         }
                     )
@@ -314,7 +334,7 @@ open class GDFlix : ExtractorApi() {
                                         val source = sourceAnchor.attr("href")
                                         callback.invoke(
                                             newExtractorLink("GDFlix[Index]", "GDFlix[Index] $fileName[$fileSize]", source) {
-                                                this.quality = quality
+                                                this.quality = serverQuality
                                                 this.headers = VIDEO_HEADERS
                                             }
                                         )
@@ -365,7 +385,7 @@ open class GDFlix : ExtractorApi() {
                                 callback.invoke(
                                     newExtractorLink("GDFlix[DriveBot]", "GDFlix[DriveBot] $fileName[$fileSize]", downloadLink) {
                                         this.referer = driveBotBaseUrl
-                                        this.quality = quality
+                                        this.quality = serverQuality
                                         this.headers = VIDEO_HEADERS
                                     }
                                 )
@@ -383,7 +403,7 @@ open class GDFlix : ExtractorApi() {
 
                         callback.invoke(
                             newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", instantDownloadLink) {
-                                this.quality = quality
+                                this.quality = serverQuality
                                 this.headers = VIDEO_HEADERS
                             }
                         )
