@@ -151,9 +151,16 @@ open class StreamWishExtractor : ExtractorApi() {
             else -> pageResponse.document.selectFirst("script:containsData(sources:)")?.data()
         }
 
-        val directStreamUrl = playerScriptData?.let {
-            Regex("""file:\s*"(.*?m3u8.*?)"""").find(it)?.groupValues?.getOrNull(1)
+        val directStreamUrl = playerScriptData?.let { script ->
+            // Try multiple regex patterns for m3u8 extraction
+            Regex("""file:\s*"(.*?m3u8.*?)"""").find(script)?.groupValues?.getOrNull(1)
+                ?: Regex("""sources:\s*\[\s*\{\s*file:\s*"([^"]+)"""").find(script)?.groupValues?.getOrNull(1)
+                ?: Regex(""""file":\s*"([^"]+m3u8[^"]*)"""").find(script)?.groupValues?.getOrNull(1)
+                ?: Regex("""source:\s*"([^"]+m3u8[^"]*)"""").find(script)?.groupValues?.getOrNull(1)
+                ?: Regex(""":\s*"(https?://[^"]+\.m3u8[^"]*)"""").find(script)?.groupValues?.getOrNull(1)
         }
+        
+        Log.d("StreamWish", "Extracted URL: $directStreamUrl")
 
         if (!directStreamUrl.isNullOrEmpty()) {
             M3u8Helper.generateM3u8(
@@ -340,6 +347,7 @@ open class VidHidePro : ExtractorApi() {
             url.contains("/d/") -> url.replace("/d/", "/v/")
             url.contains("/download/") -> url.replace("/download/", "/v/")
             url.contains("/file/") -> url.replace("/file/", "/v/")
+            url.contains("/e/") -> url // /e/ is already embed format for multimoviesshg.com
             else -> url.replace("/f/", "/v/")
         }
     }

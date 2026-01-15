@@ -331,7 +331,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val req = app.get(data).documentLarge
+        Log.d("MultiMovies", "loadLinks called with: $data")
+        val req = app.get(data, interceptor = cfKiller).document
         req.select("ul#playeroptionsul li").map {
             Triple(
                 it.attr("data-post"),
@@ -340,40 +341,88 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             )
         }.amap { (id, nume, type) ->
             if (!nume.contains("trailer")) {
-                val source = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to id,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = mainUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                ).parsed<ResponseHash>().embed_url
-                val link = source.substringAfter("\"").substringBefore("\"").trim()
-                when {
-                    !link.contains("youtube") -> {
-                        if (link.contains("deaddrive.xyz")) {
-                            app.get(link).documentLarge.select("ul.list-server-items > li").map {
+                try {
+                    val source = app.post(
+                        url = "$mainUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "doo_player_ajax",
+                            "post" to id,
+                            "nume" to nume,
+                            "type" to type
+                        ),
+                        referer = mainUrl,
+                        headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
+                        interceptor = cfKiller
+                    ).parsed<ResponseHash>().embed_url
+                    val link = source.substringAfter("\"").substringBefore("\"").trim()
+                    Log.d("MultiMovies", "Extracted embed URL: $link")
+                    
+                    when {
+                        link.contains("youtube") -> return@amap
+                        
+                        // Direct routing for known hosters
+                        link.contains("multimoviesshg.com", ignoreCase = true) -> {
+                            Log.d("MultiMovies", "Using Multiprocessing for: $link")
+                            Multiprocessing().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+                        link.contains("streamhg", ignoreCase = true) || 
+                        link.contains("vidhide", ignoreCase = true) || 
+                        link.contains("earnvid", ignoreCase = true) -> {
+                            Log.d("MultiMovies", "Using VidHidePro for: $link")
+                            VidHidePro().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+                        link.contains("vidstack", ignoreCase = true) ||
+                        link.contains("server1.uns", ignoreCase = true) -> {
+                            Log.d("MultiMovies", "Using VidStack for: $link")
+                            VidStack().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+                        link.contains("streamcasthub", ignoreCase = true) -> {
+                            Log.d("MultiMovies", "Using Streamcasthub for: $link")
+                            Streamcasthub().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+                        link.contains("gdmirrorbot", ignoreCase = true) ||
+                        link.contains("techinmind", ignoreCase = true) ||
+                        link.contains("iqsmartgames", ignoreCase = true) -> {
+                            Log.d("MultiMovies", "Using GDMirror for: $link")
+                            GDMirror().getUrl(link, mainUrl, subtitleCallback, callback)
+                        }
+                        link.contains("deaddrive.xyz") -> {
+                            app.get(link).document.select("ul.list-server-items > li").map {
                                 val server = it.attr("data-video")
-                                // Only support known local extractors here if possible, or GDMirror logic
-                                // Since logic is complex here, we can route via GDMirror().getUrl which we already fixed?
-                                // OR directly call specific extractors if we know the domain.
-                                // For now, let's use GDMirror's logic which we made strict.
-                                GDMirror().getUrl(server, referer = mainUrl, subtitleCallback, callback)
+                                loadExtractorByDomain(server, mainUrl, subtitleCallback, callback)
                             }
-                        } else {
-                           // Route single links through GDMirror logic which handles the dispatching strictly
-                           GDMirror().getUrl(link, referer = mainUrl, subtitleCallback, callback)
+                        }
+                        else -> {
+                            // Fallback: try GDMirror which handles multiple hosters
+                            Log.d("MultiMovies", "Using GDMirror fallback for: $link")
+                            GDMirror().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
                     }
-
-                    else -> return@amap
+                } catch (e: Exception) {
+                    Log.e("MultiMovies", "Error processing link: ${e.message}")
                 }
             }
         }
         return true
+    }
+    
+    private suspend fun loadExtractorByDomain(
+        url: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        when {
+            url.contains("multimoviesshg.com", ignoreCase = true) -> 
+                Multiprocessing().getUrl(url, referer, subtitleCallback, callback)
+            url.contains("vidhide", ignoreCase = true) || 
+            url.contains("streamhg", ignoreCase = true) -> 
+                VidHidePro().getUrl(url, referer, subtitleCallback, callback)
+            url.contains("vidstack", ignoreCase = true) -> 
+                VidStack().getUrl(url, referer, subtitleCallback, callback)
+            else -> 
+                GDMirror().getUrl(url, referer, subtitleCallback, callback)
+        }
     }
 
     data class ResponseHash(
