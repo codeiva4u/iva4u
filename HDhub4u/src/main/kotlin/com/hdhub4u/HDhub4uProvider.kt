@@ -100,11 +100,12 @@ class HDhub4uProvider : MainAPI() {
             cacheTime = 60,
             headers = headers,
         ).documentLarge
-        val home = doc.select("li.thumb").mapNotNull { toResult(it) }
+        val home = doc.select("li.thumb").mapNotNull { toHomeResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
-    private fun toResult(post: Element): SearchResponse {
+    // Homepage uses li.thumb with figcaption/figure structure
+    private fun toHomeResult(post: Element): SearchResponse {
         val titleText = post.select("figcaption p").text().trim()
         val title = cleanTitle(titleText)
         val url = post.select("figure a").attr("href").let {
@@ -117,13 +118,27 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
+    // Search page uses li.movie-card with h3.movie-title structure
+    private fun toSearchResult(post: Element): SearchResponse {
+        val titleText = post.select("h3.movie-title").text().trim()
+        val title = cleanTitle(titleText)
+        val url = post.select("a").attr("href").let {
+            if (it.startsWith("http")) it else "$mainUrl$it"
+        }
+        val posterUrl = post.select(".poster-wrapper img").attr("src")
+        return newMovieSearchResponse(title, url, TvType.Movie) {
+            this.posterUrl = posterUrl
+            this.quality = getSearchQuality(titleText)
+        }
+    }
+
     override suspend fun search(query: String,page: Int): SearchResponseList {
         val doc = app.get(
             "$mainUrl/page/$page/?s=$query",
             cacheTime = 60,
             headers = headers
         ).documentLarge
-        return doc.select("li.thumb").mapNotNull { toResult(it) }.toNewSearchResponseList()
+        return doc.select("li.movie-card").mapNotNull { toSearchResult(it) }.toNewSearchResponseList()
     }
 
     private fun extractLinksATags(aTags: Elements): List<String> {

@@ -53,8 +53,17 @@ open class GDMirror : ExtractorApi() {
                 pageText = app.get(apiUrl).text
             }
 
-            val jsonElement = JsonParser.parseString(pageText)
-            if (!jsonElement.isJsonObject) return
+            // Safe JSON parsing with validation
+            val jsonElement = try {
+                JsonParser.parseString(pageText)
+            } catch (e: Exception) {
+                Log.e("Phisher", "GDMirror: Failed to parse pageText as JSON: ${e.message}")
+                return
+            }
+            if (!jsonElement.isJsonObject) {
+                Log.e("Phisher", "GDMirror: pageText is not a JSON object")
+                return
+            }
             val jsonObject = jsonElement.asJsonObject
 
             val embedId = url.substringAfterLast("/")
@@ -100,6 +109,22 @@ open class GDMirror : ExtractorApi() {
                 when (friendlyName) {
                     "StreamHG","EarnVids", "Techinmind" -> VidHidePro().getUrl(fullUrl, referer, subtitleCallback, callback)
                     "RpmShare", "UpnShare", "StreamP2p" -> VidStack().getUrl(fullUrl, referer, subtitleCallback, callback)
+                    "5GDL" -> {
+                        // 5GDL is direct download link (ddn.iqsmartgames.com/file/xxx)
+                        // Extract redirect to get final video URL
+                        val finalUrl = app.get(fullUrl, allowRedirects = false).headers["location"] ?: fullUrl
+                        callback.invoke(
+                            newExtractorLink(
+                                source = "5GDL",
+                                name = "5GDL Direct",
+                                url = finalUrl,
+                                type = ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = referer ?: ""
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
                     else -> {
                         Log.d("Phisher", "No local extractor found for: $friendlyName") }
                 }
