@@ -50,7 +50,10 @@ open class GDMirror : ExtractorApi() {
             val hostUrl = baseUrl?.let { getBaseUrl(it) }
 
             if (finalId != null && myKey != null) {
-                val apiUrl = "$mainUrl/mymovieapi?$idType=$finalId&key=$myKey"
+                // Use the actual embed host for mymovieapi, not mainUrl
+                val embedHost = getBaseUrl(url)
+                val apiUrl = "$embedHost/mymovieapi?$idType=$finalId&key=$myKey"
+                Log.d("Phisher", "GDMirror: Calling API: $apiUrl")
                 pageText = app.get(apiUrl).text
             }
 
