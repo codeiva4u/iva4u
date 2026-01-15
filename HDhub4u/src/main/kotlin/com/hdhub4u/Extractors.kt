@@ -452,6 +452,26 @@ class HUBCDN : ExtractorApi() {
                     this.quality=Qualities.Unknown.value
                 }
             )
+        } else {
+            // Fallback: Try to find hubcloud link on page for /file/ URLs
+            Log.d("HUBCDN", "var reurl not found, trying fallback for /file/ URL")
+            try {
+                // Try to find any redirect link or hubcloud link
+                val fallbackDoc = app.get(url).document
+                val hubcloudLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
+                    .ifBlank {
+                        fallbackDoc.select("a.btn[href*=drive]").attr("href")
+                    }
+                
+                if (hubcloudLink.isNotBlank() && hubcloudLink.contains("hubcloud", true)) {
+                    Log.d("HUBCDN", "Found hubcloud link: $hubcloudLink")
+                    HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
+                } else {
+                    Log.e("HUBCDN", "No fallback link found for: $url")
+                }
+            } catch (e: Exception) {
+                Log.e("HUBCDN", "Fallback failed: ${e.message}")
+            }
         }
     }
 }
