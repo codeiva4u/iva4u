@@ -200,14 +200,20 @@ class HubCloud : ExtractorApi() {
         val newUrl = realUrl.replace(baseUrl, latestUrl)
 
         val href = try {
-            if ("hubcloud.php" in newUrl) {
-                newUrl
-            } else {
-                val rawHref = app.get(newUrl).document.select("#download").attr("href")
-                if (rawHref.startsWith("http", ignoreCase = true)) {
-                    rawHref
-                } else {
-                    latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+            when {
+                "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
+                "/drive/" in newUrl -> {
+                    // hubcloud.fyi/drive/ URLs have "Generate Direct Download Link" button
+                    val driveDoc = app.get(newUrl).document
+                    val downloadBtn = driveDoc.selectFirst("div.card-body h2 a.btn[href*=hubcloud.php]")?.attr("href")
+                        ?: driveDoc.selectFirst("a.btn[href*=gamerxyt]")?.attr("href")
+                        ?: driveDoc.selectFirst("#download")?.attr("href")
+                    downloadBtn?.takeIf { it.startsWith("http") } ?: ""
+                }
+                else -> {
+                    val rawHref = app.get(newUrl).document.select("#download").attr("href")
+                    if (rawHref.startsWith("http", ignoreCase = true)) rawHref
+                    else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
         } catch (e: Exception) {
@@ -216,9 +222,11 @@ class HubCloud : ExtractorApi() {
         }
 
         if (href.isBlank()) {
-            Log.w(tag, "No valid href found")
+            Log.w(tag, "No valid href found for: $url")
             return
         }
+
+        Log.d(tag, "Fetching download page: $href")
 
         val document = app.get(href).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
@@ -429,6 +437,12 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        // Skip /file/ URLs - they are ad redirect pages with no video content
+        if ("/file/" in url) {
+            Log.d("HUBCDN", "Skipping /file/ URL (ad page): $url")
+            return
+        }
+        
         val doc = app.get(url).documentLarge
         val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
