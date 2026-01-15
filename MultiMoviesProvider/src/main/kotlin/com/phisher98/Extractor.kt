@@ -387,6 +387,39 @@ open class VidHidePro : ExtractorApi() {
                 headers = headers
             ).forEach(callback)
         }
+        
+        // Fallback: Try /d/ endpoint for direct download links if no M3U8 found
+        if (script.isEmpty() || !script.contains("m3u8")) {
+            try {
+                val baseUrl = URI(url).let { "${it.scheme}://${it.host}" }
+                val videoId = url.substringAfterLast("/").substringBefore("?")
+                val downloadPageUrl = "$baseUrl/d/$videoId"
+                val downloadDoc = app.get(downloadPageUrl).document
+                downloadDoc.select("a.downloadv-item").forEach { element ->
+                    val href = element.attr("href")
+                    val fullUrl = if (href.startsWith("/")) "$baseUrl$href" else href
+                    val quality = when {
+                        href.endsWith("_h") -> Qualities.P1080.value
+                        href.endsWith("_n") -> Qualities.P720.value
+                        href.endsWith("_l") -> Qualities.P480.value
+                        else -> Qualities.Unknown.value
+                    }
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = "$name [Direct]",
+                            url = fullUrl,
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = downloadPageUrl
+                            this.quality = quality
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("VidHidePro", "/d/ fallback failed: ${e.message}")
+            }
+        }
     }
 
     private fun getEmbedUrl(url: String): String {
