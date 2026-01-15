@@ -52,7 +52,19 @@ open class GDMirror : ExtractorApi() {
             if (finalId != null && myKey != null) {
                 // Use the actual embed host for mymovieapi, not mainUrl
                 val embedHost = getBaseUrl(url)
-                val apiUrl = "$embedHost/mymovieapi?$idType=$finalId&key=$myKey"
+                
+                // Extract TV show season and episode if present
+                val season = Regex("""let\s+season\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
+                val epname = Regex("""let\s+epname\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
+                
+                // Build API URL - different format for movies vs TV shows
+                val apiUrl = if (season != null && epname != null) {
+                    // TV Show: mymovieapi?tmdbid=260846&season=1&episode=1&key=...
+                    "$embedHost/mymovieapi?$idType=$finalId&season=$season&episode=$epname&key=$myKey"
+                } else {
+                    // Movie: mymovieapi?imdbid=tt12345&key=...
+                    "$embedHost/mymovieapi?$idType=$finalId&key=$myKey"
+                }
                 Log.d("Phisher", "GDMirror: Calling API: $apiUrl")
                 pageText = app.get(apiUrl).text
             }
