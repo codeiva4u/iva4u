@@ -125,6 +125,29 @@ open class GDMirror : ExtractorApi() {
                         }
                     }
                     
+                    // STEP 2.5: TV SHOWS - evid/svid URLs are in data-link attribute, NOT iframes!
+                    val dataLinkEvid = embedDoc.select("[data-link*=evid], [data-link*=svid]")
+                    for (linkEl in dataLinkEvid) {
+                        val evidUrl = linkEl.attr("data-link")
+                        if (evidUrl.isNotBlank() && (evidUrl.contains("evid") || evidUrl.contains("svid"))) {
+                            Log.d("Phisher", "GDMirror: Found evid/svid in data-link: $evidUrl")
+                            
+                            // Fetch the evid/svid page to get multimoviesshg iframe
+                            try {
+                                val evidDoc = app.get(evidUrl).document
+                                val streamIframe = evidDoc.selectFirst("iframe[src*=multimoviesshg], iframe[src*=streamhg], iframe#vidFrame")
+                                val streamSrc = streamIframe?.attr("src")
+                                if (!streamSrc.isNullOrBlank()) {
+                                    Log.d("Phisher", "GDMirror: Found stream from evid: $streamSrc")
+                                    Multiprocessing().getUrl(streamSrc, url, subtitleCallback, callback)
+                                    return
+                                }
+                            } catch (e: Exception) {
+                                Log.e("Phisher", "GDMirror: Failed to fetch evid page: ${e.message}")
+                            }
+                        }
+                    }
+                    
                     // STEP 3: data-link-a attribute
                     val dataLinkA = embedDoc.selectFirst("[data-link-a]")?.attr("data-link-a")
                     if (!dataLinkA.isNullOrBlank() && dataLinkA.contains("multimoviesshg", true)) {
