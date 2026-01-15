@@ -79,8 +79,17 @@ open class GDMirror : ExtractorApi() {
         val postData = mapOf("sid" to sid)
         val responseText = app.post("$host/embedhelper.php", data = postData).text
 
-        val rootElement = JsonParser.parseString(responseText)
-        if (!rootElement.isJsonObject) return
+        // Safe JSON parsing for embedhelper response
+        val rootElement = try {
+            JsonParser.parseString(responseText)
+        } catch (e: Exception) {
+            Log.e("Phisher", "GDMirror: Failed to parse embedhelper response: ${e.message}")
+            return
+        }
+        if (!rootElement.isJsonObject) {
+            Log.e("Phisher", "GDMirror: embedhelper response is not JSON object")
+            return
+        }
         val root = rootElement.asJsonObject
 
         val siteUrls = root["siteUrls"]?.asJsonObject ?: return
