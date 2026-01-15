@@ -87,23 +87,45 @@ open class GDMirror : ExtractorApi() {
             if (!apiSuccess) {
                 Log.d("Phisher", "GDMirror: mymovieapi returned failure, trying fallback extractors")
                 
-                // Fallback: Extract iframes from techinmind embed page for multimoviesshg.com
+                // Fallback: Extract iframes from techinmind embed page
                 try {
                     val embedDoc = app.get(url).document
                     
-                    // Look for multimoviesshg.com/streamhg iframes in the page
-                    val fallbackIframes = embedDoc.select("iframe[src*=multimoviesshg], iframe[src*=streamhg]")
-                    for (iframe in fallbackIframes) {
+                    // STEP 1: Direct multimoviesshg/streamhg iframe check
+                    val directIframes = embedDoc.select("iframe[src*=multimoviesshg], iframe[src*=streamhg]")
+                    for (iframe in directIframes) {
                         val iframeSrc = iframe.attr("src")
                         if (iframeSrc.isNotBlank()) {
-                            Log.d("Phisher", "GDMirror: Found fallback iframe: $iframeSrc")
-                            // Call StreamWish extractor (Multiprocessing handles multimoviesshg.com)
+                            Log.d("Phisher", "GDMirror: Found direct fallback: $iframeSrc")
                             Multiprocessing().getUrl(iframeSrc, url, subtitleCallback, callback)
-                            return  // Success, exit after fallback
+                            return
                         }
                     }
                     
-                    // Also check for data-link-a attribute (alternative source)
+                    // STEP 2: Nested iframe - find ssn.techinmind.space/evid or /svid iframe
+                    val nestedIframes = embedDoc.select("iframe[src*=ssn.techinmind.space/evid], iframe[src*=ssn.techinmind.space/svid]")
+                    for (nestedIframe in nestedIframes) {
+                        val nestedSrc = nestedIframe.attr("src")
+                        if (nestedSrc.isNotBlank()) {
+                            Log.d("Phisher", "GDMirror: Found nested iframe, fetching: $nestedSrc")
+                            
+                            // Fetch the nested evid/svid page
+                            val nestedDoc = app.get(nestedSrc).document
+                            
+                            // Now extract multimoviesshg from THAT page
+                            val streamIframes = nestedDoc.select("iframe[src*=multimoviesshg], iframe[src*=streamhg]")
+                            for (streamIframe in streamIframes) {
+                                val streamSrc = streamIframe.attr("src")
+                                if (streamSrc.isNotBlank()) {
+                                    Log.d("Phisher", "GDMirror: Found nested multimoviesshg: $streamSrc")
+                                    Multiprocessing().getUrl(streamSrc, url, subtitleCallback, callback)
+                                    return
+                                }
+                            }
+                        }
+                    }
+                    
+                    // STEP 3: data-link-a attribute
                     val dataLinkA = embedDoc.selectFirst("[data-link-a]")?.attr("data-link-a")
                     if (!dataLinkA.isNullOrBlank() && dataLinkA.contains("multimoviesshg", true)) {
                         Log.d("Phisher", "GDMirror: Found data-link-a fallback: $dataLinkA")
