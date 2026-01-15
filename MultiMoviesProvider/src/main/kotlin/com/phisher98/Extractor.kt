@@ -81,6 +81,40 @@ open class GDMirror : ExtractorApi() {
                 return
             }
             val jsonObject = jsonElement.asJsonObject
+            
+            // Check if API returned 'Invalid ID' (TV shows often fail with mymovieapi)
+            val apiSuccess = jsonObject.get("success")?.asBoolean ?: false
+            if (!apiSuccess) {
+                Log.d("Phisher", "GDMirror: mymovieapi returned failure, trying fallback extractors")
+                
+                // Fallback: Extract iframes from techinmind embed page for multimoviesshg.com
+                try {
+                    val embedDoc = app.get(url).document
+                    
+                    // Look for multimoviesshg.com/streamhg iframes in the page
+                    val fallbackIframes = embedDoc.select("iframe[src*=multimoviesshg], iframe[src*=streamhg]")
+                    for (iframe in fallbackIframes) {
+                        val iframeSrc = iframe.attr("src")
+                        if (iframeSrc.isNotBlank()) {
+                            Log.d("Phisher", "GDMirror: Found fallback iframe: $iframeSrc")
+                            // Call StreamWish extractor (Multiprocessing handles multimoviesshg.com)
+                            Multiprocessing().getUrl(iframeSrc, url, subtitleCallback, callback)
+                            return  // Success, exit after fallback
+                        }
+                    }
+                    
+                    // Also check for data-link-a attribute (alternative source)
+                    val dataLinkA = embedDoc.selectFirst("[data-link-a]")?.attr("data-link-a")
+                    if (!dataLinkA.isNullOrBlank() && dataLinkA.contains("multimoviesshg", true)) {
+                        Log.d("Phisher", "GDMirror: Found data-link-a fallback: $dataLinkA")
+                        Multiprocessing().getUrl(dataLinkA, url, subtitleCallback, callback)
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.e("Phisher", "GDMirror: Fallback extraction failed: ${e.message}")
+                }
+                return  // No fallback found, exit
+            }
 
             val embedId = url.substringAfterLast("/")
             val sidValue = jsonObject["data"]?.asJsonArray
