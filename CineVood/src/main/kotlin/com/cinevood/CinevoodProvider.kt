@@ -26,11 +26,11 @@ import org.jsoup.nodes.Element
 import java.util.Locale.getDefault
 
 class CinevoodProvider : MainAPI() {
-    override var mainUrl: String = "https://1cinevood.fyi"
+    override var mainUrl: String = "https://cinevood.ai.in"
 
     init {
         runBlocking {
-            baseMainUrl?.let {
+            baseMainUrl?.takeIf { it.isNotBlank() }?.let {
                 mainUrl = it
             }
         }
@@ -53,8 +53,13 @@ class CinevoodProvider : MainAPI() {
             }
         }
 
-        // Automatic Cloudflare Bypass without WebView UI
-        private val cfKiller by lazy { CloudflareKiller() }
+        // Improved CloudflareKiller with auto-bypass
+        val cfKiller by lazy { 
+            CloudflareKiller()
+        }
+        
+        // Retry count for Cloudflare bypass
+        const val CF_RETRY_COUNT = 3
     }
 
     // Modern User-Agent to pass Cloudflare checks
@@ -96,10 +101,22 @@ class CinevoodProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        // Use CloudflareKiller + Headers for automatic bypass
-        val document = app.get(url, headers = headers, interceptor = cfKiller).document
+        // Use CloudflareKiller with retry logic for bypass
+        val document = try {
+            app.get(url, headers = headers, interceptor = cfKiller, timeout = 60).document
+        } catch (e: Exception) {
+            Log.e(TAG, "CF bypass attempt 1 failed: ${e.message}")
+            // Retry with fresh headers
+            try {
+                app.get(url, headers = headers, interceptor = cfKiller, timeout = 90).document
+            } catch (e2: Exception) {
+                Log.e(TAG, "CF bypass attempt 2 failed: ${e2.message}")
+                // Final attempt without interceptor
+                app.get(url, headers = headers, timeout = 120).document
+            }
+        }
 
-        val home = document.select("article.latestPost, article.post").mapNotNull {
+        val home = document.select("div.thumb").mapNotNull {
             it.toSearchResult()
         }
 
@@ -107,17 +124,18 @@ class CinevoodProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Title extraction - updated selectors
-        val titleElement = selectFirst("h2.title a, .front-view-title a, .entry-title a")
-        val title = titleElement?.text()?.trim() ?: return null
+        // For div.thumb structure: contains <a> with title and <img> for poster
+        val linkElement = selectFirst("a")
+        val title = linkElement?.text()?.trim() ?: return null
+        if (title.isBlank() || title.equals("Download", ignoreCase = true)) return null
 
         // URL extraction
-        val href = titleElement.attr("href")
+        val href = linkElement.attr("href")
         val fixedUrl = fixUrl(href)
 
-        // Poster extraction - prioritize TMDB images
-        val posterUrl = selectFirst(".featured-thumbnail img, .post-thumbnail img")?.let { img ->
-            fixUrlNull(img.attr("src").ifBlank { img.attr("data-src") })
+        // Poster extraction from img inside div.thumb
+        val posterUrl = selectFirst("img")?.let { img ->
+            fixUrlNull(img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } })
         }
 
         // Determine type based on title
@@ -138,9 +156,14 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
-        val document = app.get("$mainUrl/?s=$query", headers = headers, interceptor = cfKiller).document
+        val document = try {
+            app.get("$mainUrl/?s=$query", headers = headers, interceptor = cfKiller, timeout = 60).document
+        } catch (e: Exception) {
+            Log.e(TAG, "Search CF bypass failed: ${e.message}")
+            app.get("$mainUrl/?s=$query", headers = headers, timeout = 90).document
+        }
 
-        return document.select("article.latestPost, article.post").mapNotNull { result ->
+        return document.select("div.thumb").mapNotNull { result ->
             result.toSearchResult()
         }
     }
@@ -148,7 +171,12 @@ class CinevoodProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        val document = app.get(url, headers = headers, interceptor = cfKiller).document
+        val document = try {
+            app.get(url, headers = headers, interceptor = cfKiller, timeout = 60).document
+        } catch (e: Exception) {
+            Log.e(TAG, "Load CF bypass failed: ${e.message}")
+            app.get(url, headers = headers, timeout = 90).document
+        }
 
         // Extract title
         val rawTitle = document.selectFirst("h1.page-title, .entry-title, h1.post-title")?.text()?.trim() 
@@ -277,9 +305,17 @@ class CinevoodProvider : MainAPI() {
                 url.contains("d000d", ignoreCase = true) ||
                 url.contains("ds2play", ignoreCase = true) ||
                 url.contains("do0od", ignoreCase = true) ||
+                // Redirect hosts that may contain download links
+                url.contains("uptobhai", ignoreCase = true) ||
+                url.contains("shortlinkto", ignoreCase = true) ||
+                url.contains("linksly", ignoreCase = true) ||
+                // Text-based detection
                 text.contains("download", ignoreCase = true) ||
                 text.contains("watch", ignoreCase = true) ||
-                text.contains("stream", ignoreCase = true)
+                text.contains("stream", ignoreCase = true) ||
+                text.contains("1080p", ignoreCase = true) ||
+                text.contains("720p", ignoreCase = true) ||
+                text.contains("480p", ignoreCase = true)
     }
 
     private fun extractQuality(text: String): Int {
