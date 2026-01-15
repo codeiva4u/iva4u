@@ -36,11 +36,18 @@ import java.text.Normalizer
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl: String = "https://hdhub4u.rehab"
+    override var mainUrl: String = "https://new2.hdhub4u.fo"
+
+    // Fallback domains in case primary fails
+    private val fallbackDomains = listOf(
+        "https://new2.hdhub4u.fo",
+        "https://hdhub4u.foo",
+        "https://hdhub4u.life"
+    )
 
     init {
         runBlocking {
-            basemainUrl?.let {
+            basemainUrl?.takeIf { it.isNotBlank() }?.let {
                 mainUrl = it
             }
         }
@@ -67,7 +74,7 @@ class HDhub4uProvider : MainAPI() {
                     val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
                     val json = response.text
                     val jsonObject = JSONObject(json)
-                    jsonObject.optString("hdhub4u")
+                    jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
                 } catch (_: Exception) {
                     null
                 }
@@ -301,15 +308,49 @@ class HDhub4uProvider : MainAPI() {
 
         if (tvtype == TvType.Movie) {
             val movieList = mutableListOf<String>()
-            // Capture Link + Text for Sorting
-            doc.select("h3 a, h4 a, p a").forEach { link ->
+            // Capture Link + Text for Sorting (including parent h3/h4/h5 text for quality/size info)
+            doc.select("h3, h4, h5").forEach { headerElement ->
+                val headerText = headerElement.text()
+                headerElement.select("a[href]").forEach { link ->
+                    val href = link.attr("href")
+                    val linkText = link.text()
+                    // Use header text if link text is empty, or combine both for better parsing
+                    val fullText = if (linkText.isNotBlank() && headerText.contains(linkText)) headerText else "$headerText $linkText"
+                    
+                    // Include Download, quality markers (480p, 720p, 1080p, 4K, 2160p) or hub links
+                    if(href.urlOrNull() != null && 
+                       (fullText.contains("Download", true) || 
+                        fullText.contains("480p", true) || 
+                        fullText.contains("720p", true) || 
+                        fullText.contains("1080p", true) ||
+                        fullText.contains("4K", true) ||
+                        fullText.contains("2160p", true) ||
+                        href.contains("hubdrive", true) ||
+                        href.contains("hubcloud", true) ||
+                        href.contains("gadgetsweb", true))) {
+                         val json = JSONObject()
+                         json.put("url", href)
+                         json.put("text", fullText.trim())
+                         movieList.add(json.toString())
+                    }
+                }
+            }
+            
+            // Also check direct p a links (some sites use this)
+            doc.select("p a[href]").forEach { link ->
                 val href = link.attr("href")
                 val text = link.text()
-                // Simple check to avoid junk links
-                if(href.urlOrNull() != null && (text.contains("Download", true) || text.contains("480p") || text.contains("720p") || text.contains("1080p"))) {
+                if(href.urlOrNull() != null && 
+                   !movieList.any { it.contains(href) } &&
+                   (text.contains("Download", true) || 
+                    text.contains("480p", true) || 
+                    text.contains("720p", true) || 
+                    text.contains("1080p", true) ||
+                    href.contains("hubdrive", true) ||
+                    href.contains("hubcloud", true))) {
                      val json = JSONObject()
                      json.put("url", href)
-                     json.put("text", text)
+                     json.put("text", text.trim())
                      movieList.add(json.toString())
                 }
             }
@@ -435,94 +476,148 @@ class HDhub4uProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // Parse JSON data from load() function
         val linksList = try {
-             // Try parsing as our JSON format
-             val jsonArray = data.removePrefix("[").removeSuffix("]").split("}, {", "},{")
-             jsonArray.map { 
-                 val clean = it.replace("{", "").replace("}", "")
-                 var url = ""
-                 var text = ""
-                 // naive json parse for the simple structure we made
-                 val parts = clean.split("\", \"")
-                 parts.forEach { part ->
-                     val p = part.replace("\"", "")
-                     if(p.startsWith("url:")) url = p.substringAfter("url:")
-                     if(p.startsWith("text:")) text = p.substringAfter("text:")
-                 }
-                 // If naive parse fails, fall back to standard string if it doesn't look like json
-                 if(url.isEmpty()) Pair(clean.trim(), "") else Pair(url, text)
-             }
+            // Better JSON parsing
+            val cleanData = data.trim()
+            if (cleanData.startsWith("[")) {
+                // Parse as JSON array
+                val jsonArray = org.json.JSONArray(cleanData)
+                (0 until jsonArray.length()).map { i ->
+                    val item = jsonArray.optJSONObject(i)
+                    if (item != null) {
+                        Pair(item.optString("url", ""), item.optString("text", ""))
+                    } else {
+                        // Fallback for plain strings in array
+                        val str = jsonArray.optString(i, "")
+                        Pair(str, "")
+                    }
+                }
+            } else {
+                // Single URL or comma-separated
+                data.split(",").map { Pair(it.trim().replace("\"", ""), "") }
+            }
         } catch (e: Exception) {
-             // Fallback for clean strings
-             data.removePrefix("[").removeSuffix("]").split(",").map { Pair(it.trim().replace("\"", ""), "") }
+            Log.e("HDhub4u", "JSON parse error: ${e.message}")
+            // Fallback parsing
+            data.removePrefix("[").removeSuffix("]").split(",").map { 
+                Pair(it.trim().replace("\"", ""), "") 
+            }
         }
 
-        // Smart Sorting Logic
-        // 1. Quality (1080p > 720p > 480p)
-        // 2. Size (Smallest first)
-        // 3. Host (Fastest/Direct first)
+        // Smart Sorting Logic:
+        // 1. Quality (4K/2160p > 1080p > 720p > 480p)
+        // 2. Codec (HEVC/x265 preferred - smaller files)
+        // 3. Size (Smallest first within same quality)
+        // 4. Server (Fastest first)
 
         data class LinkInfo(
             val url: String,
             val text: String,
-            val quality: Int, // 3=1080p, 2=720p, 1=480p, 0=Other
-            val size: Long,
-            val isDirect: Boolean
+            val qualityScore: Int,  // Higher = better quality
+            val size: Long,         // In bytes, smaller = better
+            val serverPriority: Int // Higher = faster server
         )
 
-        val parsedLinks = linksList.map { (url, text) ->
-            val q = when {
-                text.contains("1080p", true) -> 3
-                text.contains("720p", true) -> 2
-                text.contains("480p", true) -> 1
-                else -> 0
-            }
-            val s = getSize(text)
-            // Known fast hosts
-            val isDirect = url.contains("hubdrive", true) || url.contains("gdrive", true) || url.contains("katdrive", true)
+        fun getQualityScore(text: String): Int {
+            val isHEVC = text.contains("HEVC", true) || text.contains("x265", true) || text.contains("10bit", true)
+            val hevcBonus = if (isHEVC) 10 else 0  // HEVC gets bonus (smaller files)
             
-            LinkInfo(url, text, q, s, isDirect)
+            return when {
+                text.contains("4K", true) || text.contains("2160p", true) -> 400 + hevcBonus
+                text.contains("1080p", true) -> 300 + hevcBonus  // Target: 1080p HEVC = 310
+                text.contains("720p", true) -> 200 + hevcBonus
+                text.contains("480p", true) -> 100 + hevcBonus
+                else -> 50 + hevcBonus
+            }
         }
 
+        fun getServerPriority(url: String): Int {
+            return when {
+                url.contains("hubdrive", true) -> 100   // HubDrive = reliable
+                url.contains("hubcloud", true) -> 90    
+                url.contains("pixeldrain", true) -> 80
+                url.contains("gadgetsweb", true) -> 70  // Redirect link
+                url.contains("hubcdn", true) -> 60
+                else -> 50
+            }
+        }
+
+        val parsedLinks = linksList.mapNotNull { (url, text) ->
+            if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
+            
+            LinkInfo(
+                url = url,
+                text = text,
+                qualityScore = getQualityScore(text),
+                size = getSize(text),
+                serverPriority = getServerPriority(url)
+            )
+        }
+
+        // Sort: Quality (desc) -> Size (asc) -> Server Priority (desc)
         val sortedLinks = parsedLinks.sortedWith(
-            compareByDescending<LinkInfo> { it.quality }
+            compareByDescending<LinkInfo> { it.qualityScore }
                 .thenBy { it.size }
-                .thenByDescending { it.isDirect }
+                .thenByDescending { it.serverPriority }
         )
 
+        Log.d("HDhub4u", "Processing ${sortedLinks.size} links, top quality: ${sortedLinks.firstOrNull()?.text}")
+
         for (info in sortedLinks) {
-             val link = info.url
-             if (link.isBlank()) continue
+            val link = info.url
+            if (link.isBlank()) continue
              
-             try {
-                val finalLink = if ("?id=" in link) {
-                    getRedirectLinks(link)
-                } else {
-                    link
+            try {
+                // Resolve redirect links first
+                val finalLink = when {
+                    link.contains("gadgetsweb", true) || link.contains("?id=", true) -> {
+                        try { getRedirectLinks(link) } catch (e: Exception) { link }
+                    }
+                    else -> link
                 }
                 
-                // Pass text for quality reference if possible, or just the link
-                if (finalLink.contains("Hubdrive",ignoreCase = true)) {
-                     Hubdrive().getUrl(finalLink, "", subtitleCallback, callback)
-                } else {
-                     // Generic support? Or just log. User mainly wants HDHub support which uses specific extractors.
-                     // Assuming other extractors might pick it up if registered, or we just emit it.
-                     // HDHub usually relies on HubDrive/etc.
-                     // If no extractor found, we can try to callback generic if it's a direct file
-                     callback.invoke(
-                         newExtractorLink(
-                             name,
-                             name,
-                             finalLink,
-                             INFER_TYPE
-                         ) {
-                             this.quality = if (info.quality == 3) 1080 else 720
-                             this.referer = "page"
-                         }
-                     )
+                if (finalLink.isBlank()) continue
+                
+                // Route to appropriate extractor based on URL
+                when {
+                    finalLink.contains("hubdrive", true) -> {
+                        Hubdrive().getUrl(finalLink, name, subtitleCallback, callback)
+                    }
+                    finalLink.contains("hubcloud", true) -> {
+                        HubCloud().getUrl(finalLink, name, subtitleCallback, callback)
+                    }
+                    finalLink.contains("hubcdn", true) -> {
+                        HUBCDN().getUrl(finalLink, name, subtitleCallback, callback)
+                    }
+                    finalLink.contains("hblinks", true) || finalLink.contains("4khdhub", true) -> {
+                        Hblinks().getUrl(finalLink, name, subtitleCallback, callback)
+                    }
+                    else -> {
+                        // Generic callback for unknown links
+                        val quality = when {
+                            info.text.contains("4K", true) || info.text.contains("2160p", true) -> 2160
+                            info.text.contains("1080p", true) -> 1080
+                            info.text.contains("720p", true) -> 720
+                            info.text.contains("480p", true) -> 480
+                            else -> 720
+                        }
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "$name [${info.text.take(30)}]",
+                                "$name [${info.text.take(40)}]",
+                                finalLink,
+                                INFER_TYPE
+                            ) {
+                                this.quality = quality
+                                this.referer = mainUrl
+                            }
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                Log.e("Phisher", "Failed to process $link: ${e.message}")
+                Log.e("HDhub4u", "Failed to process $link: ${e.message}")
             }
         }
         return true
