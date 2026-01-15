@@ -42,9 +42,10 @@ open class GDMirror : ExtractorApi() {
             Pair(url.substringAfterLast("embed/"), getBaseUrl(app.get(url).url))
         } else {
             var pageText = app.get(url).text
-            val finalId = Regex("""FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            val myKey = Regex("""myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
-            val idType = Regex("""idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
+            // Fixed regex patterns to include 'let' keyword as per actual HTML format
+            val finalId = Regex("""let\s+FinalID\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
+            val myKey = Regex("""let\s+myKey\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
+            val idType = Regex("""let\s+idType\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1) ?: "imdbid"
             val baseUrl = Regex("""let\s+baseUrl\s*=\s*"([^"]+)"""").find(pageText)?.groupValues?.get(1)
             val hostUrl = baseUrl?.let { getBaseUrl(it) }
 
@@ -76,8 +77,20 @@ open class GDMirror : ExtractorApi() {
             Pair(sidValue, hostUrl)
         }
 
+
+        // Check if host is valid before making POST request
+        if (host.isNullOrBlank()) {
+            Log.e("Phisher", "GDMirror: host URL is null or empty, cannot proceed")
+            return
+        }
+        
         val postData = mapOf("sid" to sid)
-        val responseText = app.post("$host/embedhelper.php", data = postData).text
+        val responseText = try {
+            app.post("$host/embedhelper.php", data = postData).text
+        } catch (e: Exception) {
+            Log.e("Phisher", "GDMirror: Failed to POST embedhelper.php: ${e.message}")
+            return
+        }
 
         // Safe JSON parsing for embedhelper response
         val rootElement = try {
