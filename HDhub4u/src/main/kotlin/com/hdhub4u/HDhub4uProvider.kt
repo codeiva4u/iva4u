@@ -568,11 +568,12 @@ class HDhub4uProvider : MainAPI() {
 
         fun getServerPriority(url: String): Int {
             return when {
-                url.contains("hubdrive", true) -> 100   // HubDrive = reliable
-                url.contains("hubcloud", true) -> 90    
-                url.contains("pixeldrain", true) -> 80
-                url.contains("gadgetsweb", true) -> 70  // Redirect link
-                url.contains("hubcdn", true) -> 60
+                url.contains("hubdrive", true) -> 100   // HubDrive = direct, reliable
+                url.contains("hubcloud", true) -> 90    // HubCloud = direct
+                url.contains("pixeldrain", true) -> 80  // Direct download
+                url.contains("hubcdn", true) -> 60      // CDN direct
+                url.contains("gadgetsweb", true) -> 10  // SLOW: Redirect link - lowest priority!
+                url.contains("?id=", true) -> 10        // SLOW: Redirect link
                 else -> 50
             }
         }
