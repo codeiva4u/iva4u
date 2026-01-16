@@ -144,42 +144,41 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Try multiple selectors for title - handle different page structures
-        // Website structure: article.item > .data > h3 > a (for homepage/category)
+        // Updated selectors for new website structure (Jan 2026)
+        // HTML: article.item > .image > a > .data > h3.title
+        
         val title = when {
+            selectFirst("h3.title") != null -> selectFirst("h3.title")!!.text().trim()
+            selectFirst(".data h3") != null -> selectFirst(".data h3")!!.text().trim()
             selectFirst(".data h3 a") != null -> selectFirst(".data h3 a")!!.text().trim()
             selectFirst("h3 a") != null -> selectFirst("h3 a")!!.text().trim()
-            selectFirst(".data h3") != null -> selectFirst(".data h3")!!.text().trim()
             selectFirst("h3") != null -> selectFirst("h3")!!.text().trim()
             else -> selectFirst("a")?.text()?.trim() ?: ""
         }
         
         if (title.isBlank()) return null
         
-        // Try multiple selectors for href
-        // Website structure: .poster a or .data h3 a
+        // Updated href extraction - .image a contains the link
         val href = when {
+            selectFirst(".image a") != null -> fixUrl(selectFirst(".image a")!!.attr("href"))
+            selectFirst(".poster a") != null -> fixUrl(selectFirst(".poster a")!!.attr("href"))
             selectFirst(".data h3 a") != null -> fixUrl(selectFirst(".data h3 a")!!.attr("href"))
             selectFirst("h3 a") != null -> fixUrl(selectFirst("h3 a")!!.attr("href"))
-            selectFirst(".poster a") != null -> fixUrl(selectFirst(".poster a")!!.attr("href"))
-            selectFirst(".image a") != null -> fixUrl(selectFirst(".image a")!!.attr("href"))
             else -> fixUrl(selectFirst("a")?.attr("href") ?: "")
         }
         
         if (href.isBlank() || href == mainUrl) return null
         
-        // Try multiple selectors for poster using getImageAttr() for lazy loading support
-        // Website structure: article.item > .poster > img
+        // Poster from .image img
         val posterUrl = when {
-            selectFirst(".poster img") != null -> fixUrlNull(selectFirst(".poster img")?.getImageAttr())
             selectFirst(".image img") != null -> fixUrlNull(selectFirst(".image img")?.getImageAttr())
+            selectFirst(".poster img") != null -> fixUrlNull(selectFirst(".poster img")?.getImageAttr())
             selectFirst("img") != null -> fixUrlNull(selectFirst("img")?.getImageAttr())
             else -> null
         }
         
         val isMovie = href.contains("/movies/")
         
-        // Don't skip items without poster - just show them without image
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
