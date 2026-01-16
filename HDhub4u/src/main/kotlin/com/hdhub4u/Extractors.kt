@@ -288,15 +288,14 @@ class HubCloud : ExtractorApi() {
         }
         val baseQuality = getIndexQuality(header)
 
+
         document.select("div.card-body a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
             val serverQuality = getAdjustedQuality(baseQuality, size, text)
-            Log.d("Phisher",headerDetails)
+            Log.d("Phisher", "Link: $link, Text: $text")
 
-            Log.d("Phisher",text)
-
-
+            // URL-based server detection (since button text is often empty)
             when {
                 // Instant DL - Fastest server, highest priority
                 text.contains("Instant", ignoreCase = true) || text.contains("🚀", ignoreCase = true) -> {
@@ -305,12 +304,25 @@ class HubCloud : ExtractorApi() {
                             "$referer [Instant DL]",
                             "$referer [Instant DL] $labelExtras",
                             link,
-                        ) { this.quality = serverQuality + 50 } // Boost quality for sorting
+                        ) { this.quality = serverQuality + 50 }
                     )
                 }
 
-                // r2.dev is FSLv2 server
-                link.contains("r2.dev", ignoreCase = true) -> {
+                // FSL Server - fsl.gigabytes.icu
+                link.contains("fsl.gigabytes", ignoreCase = true) || 
+                (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer [FSL Server]",
+                            "$referer [FSL Server] $labelExtras",
+                            link,
+                        ) { this.quality = serverQuality + 15 }
+                    )
+                }
+
+                // FSLv2 - r2.dev or gdboka.buzz
+                link.contains("r2.dev", ignoreCase = true) || 
+                link.contains("gdboka.buzz", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
                             "$referer [FSLv2]",
@@ -320,6 +332,7 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
+                // Old text-based FSL Server detection (fallback)
                 text.contains("FSL Server", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
@@ -340,23 +353,40 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
+                // BuzzServer - bloggingvector.shop (URL-based detection)
+                link.contains("bloggingvector", ignoreCase = true) || 
                 text.contains("BuzzServer", ignoreCase = true) -> {
-                    val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                    val dlink = buzzResp.headers["hx-redirect"].orEmpty()
-                    if (dlink.isNotBlank()) {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$referer [BuzzServer]",
-                                "$referer [BuzzServer] $labelExtras",
-                                dlink,
-                            ) { this.quality = serverQuality }
-                        )
-                    } else {
-                        Log.w(tag, "BuzzServer: No redirect")
+                    try {
+                        val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
+                        val dlink = buzzResp.headers["hx-redirect"].orEmpty()
+                        if (dlink.isNotBlank()) {
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$referer [BuzzServer]",
+                                    "$referer [BuzzServer] $labelExtras",
+                                    dlink,
+                                ) { this.quality = serverQuality }
+                            )
+                        } else {
+                            // Try direct link if no redirect
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$referer [BuzzServer]",
+                                    "$referer [BuzzServer] $labelExtras",
+                                    link,
+                                ) { this.quality = serverQuality }
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.w(tag, "BuzzServer failed: ${e.message}")
                     }
                 }
 
-                text.contains("pixeldra", ignoreCase = true) || text.contains("pixel", ignoreCase = true) -> {
+                // PixelDrain - URL-based detection (pixeldrain.dev, hubcdn.fans)
+                link.contains("pixeldrain", ignoreCase = true) || 
+                link.contains("hubcdn.fans", ignoreCase = true) ||
+                text.contains("pixeldra", ignoreCase = true) || 
+                text.contains("pixel", ignoreCase = true) -> {
                     // Handle different pixeldrain URL formats
                     val finalURL = when {
                         link.contains("pixeldrain.dev/u/") || link.contains("pixeldrain.com/u/") -> {
