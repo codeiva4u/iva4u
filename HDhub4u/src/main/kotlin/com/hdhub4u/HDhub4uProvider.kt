@@ -19,6 +19,7 @@ import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.addDate
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -67,6 +68,9 @@ class HDhub4uProvider : MainAPI() {
         const val TMDBBASE = "https://image.tmdb.org/t/p/original"
         const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
         const val TAG = "EpisodeParser"
+
+        // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
+        val cfKiller by lazy { CloudflareKiller() }
 
         val basemainUrl: String? by lazy {
             runBlocking {

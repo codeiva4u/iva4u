@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.extractors.VidHidePro
 import com.lagradost.cloudstream3.extractors.VidStack
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -165,13 +166,17 @@ class Hubdrive : ExtractorApi() {
     override val mainUrl = "https://hubdrive.*"
     override val requiresReferer = false
 
+    // Cloudflare bypass
+    private val cfKiller by lazy { CloudflareKiller() }
+
     override suspend fun getUrl(
         url: String,
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = app.get(url, timeout = 30000).documentLarge
+        // Use CloudflareKiller interceptor to bypass Cloudflare 403
+        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -199,6 +204,9 @@ class HubCloud : ExtractorApi() {
     override val mainUrl = "https://hubcloud.*"
     override val requiresReferer = false
 
+    // Cloudflare bypass
+    private val cfKiller by lazy { CloudflareKiller() }
+
     override suspend fun getUrl(
         url: String,
         referer: String?,
@@ -221,7 +229,8 @@ class HubCloud : ExtractorApi() {
                 "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
                 "/drive/" in newUrl -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
-                    val driveDoc = app.get(newUrl).document
+                    // Use CloudflareKiller to bypass protection
+                    val driveDoc = app.get(newUrl, interceptor = cfKiller).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
@@ -276,7 +285,8 @@ class HubCloud : ExtractorApi() {
 
         Log.d(tag, "Fetching download page: $href")
 
-        val document = app.get(href).document
+        // Use CloudflareKiller for gamerxyt.com final download page
+        val document = app.get(href, interceptor = cfKiller).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
