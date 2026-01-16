@@ -555,13 +555,13 @@ class HDhub4uProvider : MainAPI() {
 
         fun getQualityScore(text: String): Int {
             val isHEVC = text.contains("HEVC", true) || text.contains("x265", true) || text.contains("10bit", true)
-            val hevcBonus = if (isHEVC) 20 else 0
+            val hevcBonus = if (isHEVC) 20 else 0  // HEVC bonus increased (smaller + better quality)
             
-            // USER PREFERENCE: 1080p = TOP priority (HEVC/x264 same, size decides)
+            // USER PREFERENCE: 1080p with smallest size = HIGHEST priority
             return when {
-                text.contains("1080p", true) -> 500  // 1080p = TOP (no HEVC bonus, size decides!)
-                text.contains("720p", true) -> 300 + hevcBonus
-                text.contains("4K", true) || text.contains("2160p", true) -> 200 + hevcBonus
+                text.contains("1080p", true) -> 500 + hevcBonus  // 1080p = TOP PRIORITY!
+                text.contains("720p", true) -> 300 + hevcBonus   // 720p = fallback
+                text.contains("4K", true) || text.contains("2160p", true) -> 200 + hevcBonus  // 4K = low (too big)
                 text.contains("480p", true) -> 100 + hevcBonus
                 else -> 50 + hevcBonus
             }
@@ -582,19 +582,14 @@ class HDhub4uProvider : MainAPI() {
         val parsedLinks = linksList.mapNotNull { (url, text) ->
             if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
             
-            val fileSize = getSize(text)
-            
-            // Skip files larger than 5GB for faster playback!
-            if (fileSize > 5000) {
-                Log.d("HDhub4u", "Skipping large file (${fileSize}MB): ${text.take(40)}...")
-                return@mapNotNull null
-            }
+            // Note: Direct links (hubdrive, hubcloud) have higher priority
+            // Redirect links (gadgetsweb) have lower priority but still included as fallback
             
             LinkInfo(
                 url = url,
                 text = text,
                 qualityScore = getQualityScore(text),
-                size = fileSize,
+                size = getSize(text),
                 serverPriority = getServerPriority(url)
             )
         }
@@ -606,10 +601,10 @@ class HDhub4uProvider : MainAPI() {
                 .thenByDescending { it.serverPriority }
         )
 
-        // SPEED FIX: Only process TOP 1 best link for 5-6 second playback!
-        val topLinks = sortedLinks.take(1)
+        // SPEED FIX: Only process top 3 best links for fastest loading!
+        val topLinks = sortedLinks.take(3)
         
-        Log.d("HDhub4u", "Processing BEST link (out of ${sortedLinks.size})")
+        Log.d("HDhub4u", "Processing TOP ${topLinks.size} links (out of ${sortedLinks.size})")
         topLinks.forEachIndexed { i, it -> Log.d("HDhub4u", "Link $i: ${it.text.take(50)} -> ${it.url.take(60)}") }
 
         // Process top links in parallel using amap for speed
