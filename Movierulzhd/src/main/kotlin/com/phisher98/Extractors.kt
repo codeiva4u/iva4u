@@ -22,10 +22,22 @@ fun getBaseUrl(url: String): String {
     }
 }
 
+// Cached URLs for session-level caching (fetch once, use throughout session)
+private var cachedUrlsJson: JSONObject? = null
+
 suspend fun getLatestUrl(url: String, source: String): String {
-    val link = JSONObject(
-        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-    ).optString(source)
+    // Use cached JSON if available (fetch only once per session)
+    if (cachedUrlsJson == null) {
+        try {
+            cachedUrlsJson = JSONObject(
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+            )
+        } catch (e: Exception) {
+            return getBaseUrl(url)
+        }
+    }
+    
+    val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
         return getBaseUrl(url)
     }
