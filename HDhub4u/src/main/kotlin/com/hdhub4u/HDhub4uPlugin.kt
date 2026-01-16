@@ -25,7 +25,7 @@ class HDhub4uPlugin: BasePlugin() {
 
     companion object {
         private const val DOMAINS_URL =
-            "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
+            "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
         var cachedDomains: Domains? = null
 
         suspend fun getDomains(forceRefresh: Boolean = false): Domains? {
@@ -45,4 +45,5 @@ class HDhub4uPlugin: BasePlugin() {
             val HDHUB4u: String,
         )
     }
+
 }
