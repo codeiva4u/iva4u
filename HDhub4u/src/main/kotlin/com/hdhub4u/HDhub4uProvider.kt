@@ -581,12 +581,8 @@ class HDhub4uProvider : MainAPI() {
         val parsedLinks = linksList.mapNotNull { (url, text) ->
             if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
             
-            // SPEED FIX: Skip slow redirect links completely!
-            // Only use direct download links (hubdrive, hubcloud, pixeldrain, etc.)
-            if (url.contains("gadgetsweb", true) || url.contains("?id=", true)) {
-                Log.d("HDhub4u", "Skipping redirect link: ${url.take(50)}...")
-                return@mapNotNull null  // Skip this link!
-            }
+            // Note: Direct links (hubdrive, hubcloud) have higher priority
+            // Redirect links (gadgetsweb) have lower priority but still included as fallback
             
             LinkInfo(
                 url = url,
