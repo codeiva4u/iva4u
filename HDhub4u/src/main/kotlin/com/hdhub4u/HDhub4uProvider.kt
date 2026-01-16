@@ -30,6 +30,9 @@ import com.lagradost.cloudstream3.toNewSearchResponseList
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -85,6 +88,10 @@ class HDhub4uProvider : MainAPI() {
                 }
             }
         }
+        
+        // Cache for pre-resolved redirect URLs (background resolution)
+        val resolvedRedirects = mutableMapOf<String, String>()
+        var preloadingInProgress = mutableSetOf<String>()
     }
 
     override val mainPage = mainPageOf(
@@ -388,6 +395,21 @@ class HDhub4uProvider : MainAPI() {
             
             // Convert to proper JSON string for serialization
             val movieData = movieJsonArray.toString()
+            
+            // Start background pre-loading (resolve redirects in advance)
+            if (movieJsonArray.length() > 0 && !preloadingInProgress.contains(url)) {
+                preloadingInProgress.add(url)
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        Log.d("HDhub4u", "Background: Pre-resolving redirects for: $title")
+                        preloadRedirectUrls(movieJsonArray)
+                    } catch (e: Exception) {
+                        Log.e("HDhub4u", "Preload failed: ${e.message}")
+                    } finally {
+                        preloadingInProgress.remove(url)
+                    }
+                }
+            }
 
             return newMovieLoadResponse(title, url, TvType.Movie, movieData) {
                 this.backgroundPosterUrl = background
@@ -692,5 +714,45 @@ class HDhub4uProvider : MainAPI() {
 
         for ((regex, quality) in patterns) if (regex.containsMatchIn(u)) return quality
         return null
+    }
+    
+    // Background pre-loading function - resolves redirect URLs in advance
+    private suspend fun preloadRedirectUrls(jsonArray: org.json.JSONArray) {
+        try {
+            // Extract URLs that need redirect resolution
+            val urlsToResolve = mutableListOf<String>()
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.optJSONObject(i)
+                val url = item?.optString("url", "") ?: ""
+                if (url.isNotBlank() && (url.contains("gadgetsweb", true) || url.contains("?id=", true))) {
+                    urlsToResolve.add(url)
+                }
+            }
+            
+            if (urlsToResolve.isEmpty()) {
+                Log.d("HDhub4u", "No redirect URLs to pre-resolve")
+                return
+            }
+            
+            // Resolve top 5 redirects in parallel (same as in loadLinks)
+            val topUrls = urlsToResolve.take(5)
+            Log.d("HDhub4u", "Pre-resolving ${topUrls.size} redirect URLs in background...")
+            
+            topUrls.amap { url ->
+                try {
+                    // This will cache the result in resolvedRedirects map
+                    val resolved = getRedirectLinks(url)
+                    if (resolved.isNotBlank()) {
+                        Log.d("HDhub4u", "Pre-resolved: ${url.take(40)}... -> ${resolved.take(40)}...")
+                    }
+                } catch (e: Exception) {
+                    Log.e("HDhub4u", "Pre-resolve failed for ${url.take(40)}: ${e.message}")
+                }
+            }
+            
+            Log.d("HDhub4u", "Background pre-loading complete! ${resolvedRedirects.size} URLs cached.")
+        } catch (e: Exception) {
+            Log.e("HDhub4u", "preloadRedirectUrls failed: ${e.message}")
+        }
     }
 }
