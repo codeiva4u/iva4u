@@ -20,8 +20,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 class HDhub4uProvider : MainAPI() {
@@ -37,10 +35,6 @@ class HDhub4uProvider : MainAPI() {
 
     companion object {
         private const val TAG = "HDhub4u"
-        
-        // Typesense API configuration
-        private const val TYPESENSE_HOST = "https://typesense.developer-ede.workers.dev"
-        private const val TYPESENSE_API_KEY = "HI1klg1dg5DNofdZ8P7bWbUANBWOmT4F"
     }
 
     private val headers = mapOf(
@@ -139,79 +133,39 @@ class HDhub4uProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
         
-        // Try Typesense API search first
+        val results = mutableListOf<SearchResponse>()
+        val searchTerms = query.lowercase().split(" ").filter { it.length > 2 }
+        
+        // Since Typesense API is unreliable and website uses JS search,
+        // we fetch home page and filter results by title matching
         try {
-            val searchResults = typesenseSearch(query)
-            if (searchResults.isNotEmpty()) {
-                return searchResults
+            // Fetch first 3 pages of content to search through
+            for (page in 1..3) {
+                val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
+                val document = app.get(url, headers = headers, timeout = 30).document
+                
+                document.select("li.thumb").forEach { element ->
+                    val searchResult = element.toSearchResult()
+                    if (searchResult != null) {
+                        // Check if title matches search query
+                        val title = searchResult.name.lowercase()
+                        val matches = searchTerms.any { term -> title.contains(term) }
+                        
+                        if (matches && results.none { it.url == searchResult.url }) {
+                            results.add(searchResult)
+                        }
+                    }
+                }
+                
+                // If we found enough results, stop
+                if (results.size >= 20) break
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Typesense search failed: ${e.message}")
+            Log.e(TAG, "Search error: ${e.message}")
         }
         
-        // Fallback to website search
-        return websiteSearch(query)
-    }
-    
-    private suspend fun typesenseSearch(query: String): List<SearchResponse> {
-        val searchUrl = "$TYPESENSE_HOST/collections/developers-ede/documents/search"
-        val params = mapOf(
-            "q" to query,
-            "query_by" to "title",
-            "per_page" to "30"
-        )
-        
-        val response = app.get(
-            searchUrl,
-            params = params,
-            headers = mapOf(
-                "X-TYPESENSE-API-KEY" to TYPESENSE_API_KEY,
-                "Accept" to "application/json"
-            ),
-            timeout = 30
-        )
-        
-        val json = JSONObject(response.text)
-        val hits = json.optJSONArray("hits") ?: return emptyList()
-        
-        val results = mutableListOf<SearchResponse>()
-        
-        for (i in 0 until hits.length()) {
-            val hit = hits.getJSONObject(i)
-            val document = hit.optJSONObject("document") ?: continue
-            
-            val title = document.optString("title", "")
-            val url = document.optString("url", "")
-            val posterUrl = document.optString("image", "")
-            
-            if (title.isBlank() || url.isBlank()) continue
-            
-            val cleanedTitle = cleanTitle(title)
-            val fixedUrl = fixUrl(url)
-            
-            // Determine type using Regex
-            val isSeries = Regex("(?i)(Season|S0\\d|Episode|E0\\d|Complete|All\\s+Episodes)").containsMatchIn(title)
-            
-            if (isSeries) {
-                results.add(newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
-                    this.posterUrl = posterUrl.ifBlank { null }
-                })
-            } else {
-                results.add(newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
-                    this.posterUrl = posterUrl.ifBlank { null }
-                })
-            }
-        }
-        
+        Log.d(TAG, "Found ${results.size} search results")
         return results
-    }
-    
-    private suspend fun websiteSearch(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query", headers = headers, timeout = 60).document
-
-        return document.select("li.thumb").mapNotNull { result ->
-            result.toSearchResult()
-        }
     }
 
     override suspend fun load(url: String): LoadResponse? {
