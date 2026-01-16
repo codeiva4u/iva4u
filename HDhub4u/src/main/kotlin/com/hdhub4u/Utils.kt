@@ -6,13 +6,11 @@ import com.google.gson.annotations.SerializedName
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.Score
-import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
-import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,23 +68,23 @@ suspend fun loadSourceNameExtractor(
     subtitleCallback: (SubtitleFile) -> Unit,
     callback: (ExtractorLink) -> Unit,
 ) {
-    // loadExtractor(url, referer, subtitleCallback) { link ->
-    //     CoroutineScope(Dispatchers.IO).launch {
-    //         callback.invoke(
-    //             newExtractorLink(
-    //                 "${link.source} $source",
-    //                 "${link.source} $source",
-    //                 link.url,
-    //             ) {
-    //                 this.quality = quality ?: link.quality
-    //                 this.type = link.type
-    //                 this.referer = link.referer
-    //                 this.headers = link.headers
-    //                 this.extractorData = link.extractorData
-    //             }
-    //         )
-    //     }
-    // }
+    loadExtractor(url, referer, subtitleCallback) { link ->
+        CoroutineScope(Dispatchers.IO).launch {
+            callback.invoke(
+                newExtractorLink(
+                    "${link.source} $source",
+                    "${link.source} $source",
+                    link.url,
+                ) {
+                    this.quality = quality ?: link.quality
+                    this.type = link.type
+                    this.referer = link.referer
+                    this.headers = link.headers
+                    this.extractorData = link.extractorData
+                }
+            )
+        }
+    }
 }
 
 data class IMDB(
@@ -128,7 +126,7 @@ data class MetaLocal(
     val genres: List<String>? = null,
     val videos: List<VideoLocal>? = null,
     val rating: Score?,
-    val logo: String? = null
+    val logo: String?
 )
 data class VideoLocal(
     val title: String? = null,
@@ -140,71 +138,70 @@ data class VideoLocal(
     val rating: Score?
 )
 
-// Typesense Search API Response Models
 data class Search(
     @JsonProperty("facet_counts")
-    val facetCounts: List<Any?>? = null,
-    val found: Long? = null,
-    val hits: List<Hit>? = null,
+    val facetCounts: List<Any?>,
+    val found: Long,
+    val hits: List<Hit>,
     @JsonProperty("out_of")
-    val outOf: Long? = null,
-    val page: Long? = null,
+    val outOf: Long,
+    val page: Long,
     @JsonProperty("request_params")
-    val requestParams: RequestParams? = null,
+    val requestParams: RequestParams,
     @JsonProperty("search_cutoff")
-    val searchCutoff: Boolean? = null,
+    val searchCutoff: Boolean,
     @JsonProperty("search_time_ms")
-    val searchTimeMs: Long? = null,
+    val searchTimeMs: Long,
 )
 
 data class Hit(
-    val document: Document? = null,
-    val highlight: Map<String, Any>? = null,
-    val highlights: List<Any?>? = null,
+    val document: Document,
+    val highlight: Map<String, Any>,
+    val highlights: List<Any?>,
     @JsonProperty("text_match")
-    val textMatch: Long? = null,
+    val textMatch: Long,
     @JsonProperty("text_match_info")
-    val textMatchInfo: TextMatchInfo? = null,
+    val textMatchInfo: TextMatchInfo,
 )
 
 data class Document(
-    val category: List<String>? = null,
-    val id: String? = null,
-    val permalink: String? = null,
+    val category: List<String>,
+    val id: String,
+    val permalink: String,
     @JsonProperty("post_date")
-    val postDate: String? = null,
+    val postDate: String,
     @JsonProperty("post_thumbnail")
-    val postThumbnail: String? = null,
+    val postThumbnail: String,
     @JsonProperty("post_title")
-    val postTitle: String? = null,
+    val postTitle: String,
     @JsonProperty("post_type")
-    val postType: String? = null,
+    val postType: String,
     @JsonProperty("sort_by_date")
-    val sortByDate: Long? = null,
+    val sortByDate: Long,
 )
 
 data class TextMatchInfo(
     @JsonProperty("best_field_score")
-    val bestFieldScore: String? = null,
+    val bestFieldScore: String,
     @JsonProperty("best_field_weight")
-    val bestFieldWeight: Long? = null,
+    val bestFieldWeight: Long,
     @JsonProperty("fields_matched")
-    val fieldsMatched: Long? = null,
+    val fieldsMatched: Long,
     @JsonProperty("num_tokens_dropped")
-    val numTokensDropped: Long? = null,
-    val score: String? = null,
+    val numTokensDropped: Long,
+    val score: String,
     @JsonProperty("tokens_matched")
-    val tokensMatched: Long? = null,
+    val tokensMatched: Long,
     @JsonProperty("typo_prefix_score")
-    val typoPrefixScore: Long? = null,
+    val typoPrefixScore: Long,
 )
 
 data class RequestParams(
     @JsonProperty("collection_name")
-    val collectionName: String? = null,
+    val collectionName: String,
     @JsonProperty("first_q")
-    val firstQ: String? = null,
+    val firstQ: String,
     @JsonProperty("per_page")
-    val perPage: Long? = null,
-    val q: String? = null,
+    val perPage: Long,
+    val q: String,
 )

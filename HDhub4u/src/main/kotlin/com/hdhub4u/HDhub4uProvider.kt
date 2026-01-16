@@ -17,10 +17,8 @@ import com.lagradost.cloudstream3.SearchResponseList
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.addDate
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -28,8 +26,7 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.toNewSearchResponseList
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.INFER_TYPE
+import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -38,23 +35,9 @@ import java.text.Normalizer
 
 
 class HDhub4uProvider : MainAPI() {
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
-
-    // Fallback domains in case primary fails
-    private val fallbackDomains = listOf(
-        "https://new2.hdhub4u.fo",
-        "https://hdhub4u.foo",
-        "https://hdhub4u.life"
-    )
-
-    init {
-        runBlocking {
-            basemainUrl?.takeIf { it.isNotBlank() }?.let {
-                mainUrl = it
-            }
-        }
+    override var mainUrl: String = runBlocking {
+        HDhub4uPlugin.getDomains()?.HDHUB4u ?: "https://hdhub4u.rehab"
     }
-
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -69,22 +52,6 @@ class HDhub4uProvider : MainAPI() {
         const val TMDBBASE = "https://image.tmdb.org/t/p/original"
         const val TMDBAPI = "https://wild-surf-4a0d.phisher1.workers.dev"
         const val TAG = "EpisodeParser"
-
-        // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
-        val cfKiller by lazy { CloudflareKiller() }
-
-        val basemainUrl: String? by lazy {
-            runBlocking {
-                try {
-                    val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
-                    val json = response.text
-                    val jsonObject = JSONObject(json)
-                    jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
     }
 
     override val mainPage = mainPageOf(
@@ -93,7 +60,8 @@ class HDhub4uProvider : MainAPI() {
         "category/hollywood-movies/" to "Hollywood",
         "category/hindi-dubbed/" to "Hindi Dubbed",
         "category/south-hindi-movies/" to "South Hindi Dubbed",
-        "category/web-series/" to "Web Series",
+        "category/category/web-series/" to "Web Series",
+        "category/adult/" to "Adult",
     )
     private val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0","Cookie" to "xla=s4t")
 
@@ -104,117 +72,85 @@ class HDhub4uProvider : MainAPI() {
             "$mainUrl/${request.data}page/$page/",
             cacheTime = 60,
             headers = headers,
-            timeout = 30  // 30 second timeout to prevent slow loading
+            allowRedirects = true
         ).documentLarge
-        val home = doc.select("li.thumb").mapNotNull { toHomeResult(it) }
+        val home = doc.select(".recent-movies > li.thumb").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
 
-    // Homepage uses li.thumb with figcaption/figure structure
-    private fun toHomeResult(post: Element): SearchResponse {
-        val titleText = post.select("figcaption p").text().trim()
+    private fun toResult(post: Element): SearchResponse {
+        val titleText = post
+            .select("figcaption:nth-child(2) > a:nth-child(1) > p:nth-child(1)")
+            .text()
         val title = cleanTitle(titleText)
-        val url = post.select("figure a").attr("href").let {
-            if (it.startsWith("http")) it else "$mainUrl$it"
-        }
-        val posterUrl = post.select("figure img").attr("src")
+        val url = post.select("figure:nth-child(1) > a:nth-child(2)").attr("href")
         return newMovieSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = posterUrl
+            this.posterUrl = post.select("figure:nth-child(1) > img:nth-child(1)").attr("src")
             this.quality = getSearchQuality(titleText)
         }
     }
 
-    // Search page uses li.movie-card with h3.movie-title structure
-    private fun toSearchResult(post: Element): SearchResponse {
-        val titleText = post.select("h3.movie-title").text().trim()
-        val title = cleanTitle(titleText)
-        val url = post.select("a").attr("href").let {
-            if (it.startsWith("http")) it else "$mainUrl$it"
-        }
-        // Browser verified: poster is directly under .movie-card as img (not .poster-wrapper)
-        val posterUrl = post.selectFirst("img")?.attr("src") ?: ""
-        return newMovieSearchResponse(title, url, TvType.Movie) {
-            this.posterUrl = posterUrl
-            this.quality = getSearchQuality(titleText)
-        }
-    }
-
-    // Extension function for Document to convert to SearchResponse (HindiProviders style)
-    private fun Document.toSearchResult(): SearchResponse {
-        return newMovieSearchResponse(
-            name = cleanTitle(postTitle ?: ""),
-            url = if (permalink?.startsWith("http") == true) permalink else "$mainUrl$permalink",
-            type = TvType.Movie
-        ) {
-            posterUrl = postThumbnail
-        }
-    }
-
-    // Typesense API for search - website uses JavaScript rendering
+    // Search using website directly (pingora.fyi API is blocked by Cloudflare)
     override suspend fun search(query: String, page: Int): SearchResponseList {
-        val response = app.get(
-            "https://search.pingora.fyi/collections/post/documents/search" +
-                    "?q=$query" +
-                    "&query_by=post_title,category" +
-                    "&query_by_weights=4,2" +
-                    "&sort_by=sort_by_date:desc" +
-                    "&limit=15" +
-                    "&highlight_fields=none" +
-                    "&use_cache=true" +
-                    "&page=$page",
+        val searchUrl = if (page <= 1) "$mainUrl/?s=$query" else "$mainUrl/page/$page/?s=$query"
+        Log.d("HDhub4u", "Searching: $searchUrl")
+        val doc = app.get(
+            searchUrl,
+            cacheTime = 60,
             headers = headers,
-            referer = mainUrl
-        ).parsedSafe<Search>()
-
-        return response?.hits?.mapNotNull { hit -> 
-            hit.document?.toSearchResult() 
-        }?.toNewSearchResponseList() ?: emptyList<SearchResponse>().toNewSearchResponseList()
-    }
-
-    private fun extractLinksATags(aTags: Elements): List<String> {
-        val links = mutableListOf<String>()
-        val baseUrl: List<String> = listOf("https://hdstream4u.com", "https://hubstream.art")
-        baseUrl.forEachIndexed { index, _ ->
-            var count = 0
-            for (aTag in aTags) {
-                val href = aTag.attr("href")
-                if (href.contains(baseUrl[index])) {
-                    try {
-                        links[count] = links[count] + " , " + href
-                    } catch (_: Exception) {
-                        links.add(href)
-                        count++
-                    }
-                }
+            timeout = 30
+        ).documentLarge
+        
+        // Search results use li.movie-card structure (browser verified)
+        val results = doc.select("li.movie-card").mapNotNull { post ->
+            val titleText = post.selectFirst("h3.movie-title")?.text()?.trim() ?: return@mapNotNull null
+            val title = cleanTitle(titleText)
+            val url = post.selectFirst("a")?.attr("href")?.let {
+                if (it.startsWith("http")) it else "$mainUrl$it"
+            } ?: return@mapNotNull null
+            val posterUrl = post.selectFirst("img")?.attr("src") ?: ""
+            
+            newMovieSearchResponse(title, url, TvType.Movie) {
+                this.posterUrl = posterUrl
+                this.quality = getSearchQuality(titleText)
             }
         }
-        return links
+        
+        Log.d("HDhub4u", "Search results: ${results.size}")
+        return results.toNewSearchResponseList()
     }
+
+
+    private fun extractLinksATags(aTags: Elements): List<String> {
+        val allowedDomains = Regex("""https://(.*\.)?(hdstream4u|hubstream)\..*""")
+
+        return aTags
+            .mapNotNull { it.attr("href") }
+            .filter { allowedDomains.containsMatchIn(it) }
+            .distinct()
+    }
+
 
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, cacheTime = 60, headers = headers, timeout = 30).documentLarge
-        var title = doc.select("header.entry-header h1.entry-title").text().trim()
-            .ifEmpty { doc.select("h1.page-title").text().trim() }
-
+        val doc = app.get(url, cacheTime = 60, headers = headers).documentLarge
+        var title = doc.select(
+            ".page-body h2[data-ved=\"2ahUKEwjL0NrBk4vnAhWlH7cAHRCeAlwQ3B0oATAfegQIFBAM\"], " +
+                    "h2[data-ved=\"2ahUKEwiP0pGdlermAhUFYVAKHV8tAmgQ3B0oATAZegQIDhAM\"]"
+        ).text()
         val seasontitle = title
         val seasonNumber = Regex("(?i)\\bSeason\\s*(\\d+)\\b").find(seasontitle)?.groupValues?.get(1)?.toIntOrNull()
 
         val image = doc.select("meta[property=og:image]").attr("content")
-        val plot = doc.selectFirst("div.entry-content p")?.text()?.trim()
-        val tags = doc.select(".cat-links a").eachText().toMutableList()
-        // Poster: Prefer TMDB poster (aligncenter class), fallback to first content image
-        val poster = doc.selectFirst("div.entry-content img.aligncenter[src*=tmdb]")?.attr("src")
-            ?: doc.selectFirst("div.entry-content img.aligncenter")?.attr("src")
-            ?: doc.selectFirst("div.entry-content img[src*=tmdb]")?.attr("src")
-            ?: doc.selectFirst("div.entry-content img")?.attr("src")
-            ?: ""
+        val plot = doc.selectFirst(".kno-rdesc .kno-rdesc")?.text()
+        val tags = doc.select(".page-meta em").eachText().toMutableList()
+        val poster = doc.select("main.page-body img.aligncenter").attr("src")
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
             ?.replace("/embed/", "/watch?v=")
-        
-        // Removed extractLinksATags call as it's not effectively used and we implement smart logic below
 
-        val tvtype = if (title.contains("movie", ignoreCase = true) || title.contains("download", ignoreCase = true)) TvType.Movie else TvType.TvSeries
+        val typeraw = doc.select("h1.page-title span").text()
+        val tvtype = if (typeraw.contains("movie", ignoreCase = true)) TvType.Movie else TvType.TvSeries
+        val isMovie = tvtype == TvType.Movie
 
         var actorData: List<ActorData> = emptyList()
         var genre: List<String>? = null
@@ -222,36 +158,69 @@ class HDhub4uProvider : MainAPI() {
         var background: String = image
         var description: String? = null
 
-        val imdbUrl = doc.select("a[href*='imdb.com']").attr("href")
-        val tmdbHref = doc.select("a[href*='themoviedb.org']").attr("href")
-        
+        val imdbUrl = doc.select("div span a[href*='imdb.com']").attr("href")
+            .ifEmpty {
+                val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
+                val isTv = tmdbHref.contains("/tv/")
+                val tmdbId = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
+
+                if (tmdbId.isNotEmpty()) {
+                    val type = if (isTv) "tv" else "movie"
+                    val imdbId = app.get(
+                        "$TMDBAPI/$type/$tmdbId/external_ids?api_key=$TMDBAPIKEY"
+                    ).parsedSafe<IMDB>()?.imdbId
+                    imdbId ?: ""
+                } else {
+                    ""
+                }
+            }
+
         var tmdbIdResolved = ""
-        if (tmdbHref.isNotBlank()) {
-            tmdbIdResolved = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
+        run {
+            val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
+            if (tmdbHref.isNotBlank()) {
+                tmdbIdResolved = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
+            }
         }
 
         if (tmdbIdResolved.isBlank() && imdbUrl.isNotBlank()) {
             val imdbIdOnly = imdbUrl.substringAfter("title/").substringBefore("/")
-             try {
-                val findText = app.get("$TMDBAPI/find/$imdbIdOnly?api_key=$TMDBAPIKEY&external_source=imdb_id").text
-                if (findText.isNotBlank()) {
-                    val findJson = JSONObject(findText)
-                    val tvArr = findJson.optJSONArray("tv_results")
-                    val movieArr = findJson.optJSONArray("movie_results")
 
-                    when {
-                        tvArr != null && tvArr.length() > 0 -> tmdbIdResolved = tvArr.optJSONObject(0)?.optInt("id")?.toString().orEmpty()
-                        movieArr != null && movieArr.length() > 0 -> tmdbIdResolved = movieArr.optJSONObject(0)?.optInt("id")?.toString().orEmpty()
-                    }
+            try {
+                val findJson = JSONObject(
+                    app.get(
+                        "$TMDBAPI/find/$imdbIdOnly" +
+                                "?api_key=$TMDBAPIKEY&external_source=imdb_id"
+                    ).text
+                )
+
+                tmdbIdResolved = if (isMovie) {
+                    findJson
+                        .optJSONArray("movie_results")
+                        ?.optJSONObject(0)
+                        ?.optInt("id")
+                        ?.toString()
+                        .orEmpty()
+                } else {
+                    findJson
+                        .optJSONArray("tv_results")
+                        ?.optJSONObject(0)
+                        ?.optInt("id")
+                        ?.toString()
+                        .orEmpty()
                 }
             } catch (_: Exception) {
+                // ignore resolve errors
             }
         }
 
-        val responseData: ResponseDataLocal? = if (tmdbIdResolved.isBlank()) null else kotlin.runCatching {
+
+
+        val responseData: ResponseDataLocal? = if (tmdbIdResolved.isBlank()) null else runCatching {
+
             val type = if (tvtype == TvType.TvSeries) "tv" else "movie"
             val detailsText = app.get(
-                "$TMDBAPI/$type/$tmdbIdResolved?api_key=$TMDBAPIKEY&append_to_response=credits"
+                "$TMDBAPI/$type/$tmdbIdResolved?api_key=$TMDBAPIKEY&append_to_response=credits,external_ids"
             ).text
             val detailsJson = if (detailsText.isNotBlank()) JSONObject(detailsText) else JSONObject()
 
@@ -273,6 +242,14 @@ class HDhub4uProvider : MainAPI() {
             val metaBackground = detailsJson.optString("backdrop_path")
                 .takeIf { it.isNotBlank() }?.let { TMDBBASE + it } ?: image
 
+            val imdbid = detailsJson
+                .optJSONObject("external_ids")
+                ?.optString("imdb_id")
+                ?.takeIf { it.isNotBlank() }
+
+            val logoPath = imdbid?.let {
+                "https://live.metahub.space/logo/medium/$it/img"
+            }
             val actorDataList = mutableListOf<ActorData>()
 
             //cast
@@ -327,6 +304,7 @@ class HDhub4uProvider : MainAPI() {
                         }
                     }
                 } catch (_: Exception) {
+                    // ignore season fetch errors
                 }
             }
 
@@ -339,7 +317,8 @@ class HDhub4uProvider : MainAPI() {
                     background = metaBackground,
                     genres = metaGenres.ifEmpty { null },
                     videos = videos.ifEmpty { null },
-                    rating = Score.from10(metaRating)
+                    rating = Score.from10(metaRating),
+                    logo = logoPath
                 )
             )
         }.getOrNull()
@@ -354,72 +333,19 @@ class HDhub4uProvider : MainAPI() {
                 genre = g
                 for (gn in g) if (!tags.contains(gn)) tags.add(gn)
             }
+            responseData.meta?.rating
         }
 
         if (tvtype == TvType.Movie) {
-            val movieJsonArray = org.json.JSONArray()
-            // Capture Link + Text for Sorting (including parent h3/h4/h5 text for quality/size info)
-            doc.select("h3, h4, h5").forEach { headerElement ->
-                val headerText = headerElement.text()
-                headerElement.select("a[href]").forEach { link ->
-                    val href = link.attr("href")
-                    val linkText = link.text()
-                    // Use header text if link text is empty, or combine both for better parsing
-                    val fullText = if (linkText.isNotBlank() && headerText.contains(linkText)) headerText else "$headerText $linkText"
-                    
-                    // Include Download, quality markers (480p, 720p, 1080p, 4K, 2160p) or hub links
-                    if(href.urlOrNull() != null && 
-                       (fullText.contains("Download", true) || 
-                        fullText.contains("480p", true) || 
-                        fullText.contains("720p", true) || 
-                        fullText.contains("1080p", true) ||
-                        fullText.contains("4K", true) ||
-                        fullText.contains("2160p", true) ||
-                        href.contains("hubdrive", true) ||
-                        href.contains("hubcloud", true) ||
-                        href.contains("gadgetsweb", true))) {
-                         val json = JSONObject()
-                         json.put("url", href)
-                         json.put("text", fullText.trim())
-                         movieJsonArray.put(json)
-                    }
-                }
-            }
-            
-            // Also check direct p a links (some sites use this)
-            doc.select("p a[href]").forEach { link ->
-                val href = link.attr("href")
-                val text = link.text()
-                // Check if already added
-                var alreadyAdded = false
-                for (i in 0 until movieJsonArray.length()) {
-                    if (movieJsonArray.optJSONObject(i)?.optString("url") == href) {
-                        alreadyAdded = true
-                        break
-                    }
-                }
-                if(!alreadyAdded && href.urlOrNull() != null && 
-                   (text.contains("Download", true) || 
-                    text.contains("480p", true) || 
-                    text.contains("720p", true) || 
-                    text.contains("1080p", true) ||
-                    href.contains("hubdrive", true) ||
-                    href.contains("hubcloud", true))) {
-                     val json = JSONObject()
-                     json.put("url", href)
-                     json.put("text", text.trim())
-                     movieJsonArray.put(json)
-                }
-            }
+            val movieList = mutableListOf<String>()
+            movieList.addAll(
+                doc.select("h3 a:matches(480|720|1080|2160|4K), h4 a:matches(480|720|1080|2160|4K)")
+                    .map { it.attr("href") } + extractLinksATags(doc.select(".page-body > div a"))
+            )
 
-            Log.d("HDhub4u", "Movie links found: ${movieJsonArray.length()}")
-            Log.d("HDhub4u", "POSTER DEBUG: poster=$poster, background=$background, image=$image")
-            
-            // Convert to proper JSON string for serialization
-            val movieData = movieJsonArray.toString()
-
-            return newMovieLoadResponse(title, url, TvType.Movie, movieData) {
+            return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
                 this.backgroundPosterUrl = background
+                try { this.logoUrl = responseData?.meta?.logo } catch(_:Throwable){}
                 this.posterUrl = poster
                 this.year = year.toIntOrNull()
                 this.plot = description ?: plot
@@ -503,6 +429,7 @@ class HDhub4uProvider : MainAPI() {
 
             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesData) {
                 this.backgroundPosterUrl = background
+                try { this.logoUrl = responseData?.meta?.logo } catch(_:Throwable){}
                 this.posterUrl = poster
                 this.year = year.toIntOrNull()
                 this.plot = description ?: plot
@@ -515,182 +442,26 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
-    private fun String.urlOrNull() : String? {
-        return if(this.startsWith("http")) this else null
-    }
-
-    private fun getSize(text: String): Long {
-         val sizeRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(MB|GB)", RegexOption.IGNORE_CASE)
-         val match = sizeRegex.find(text) ?: return Long.MAX_VALUE
-         
-         val value = match.groupValues[1].toDoubleOrNull() ?: return Long.MAX_VALUE
-         val unit = match.groupValues[2].uppercase()
-         
-         return when(unit) {
-             "GB" -> (value * 1024 * 1024 * 1024).toLong()
-             "MB" -> (value * 1024 * 1024).toLong()
-             else -> Long.MAX_VALUE
-         }
-    }
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Parse JSON data from load() function
-        val linksList = try {
-            // Better JSON parsing
-            val cleanData = data.trim()
-            if (cleanData.startsWith("[")) {
-                // Parse as JSON array
-                val jsonArray = org.json.JSONArray(cleanData)
-                (0 until jsonArray.length()).map { i ->
-                    val item = jsonArray.optJSONObject(i)
-                    if (item != null) {
-                        Pair(item.optString("url", ""), item.optString("text", ""))
-                    } else {
-                        // Fallback for plain strings in array
-                        val str = jsonArray.optString(i, "")
-                        Pair(str, "")
-                    }
-                }
-            } else {
-                // Single URL or comma-separated
-                data.split(",").map { Pair(it.trim().replace("\"", ""), "") }
-            }
-        } catch (e: Exception) {
-            Log.e("HDhub4u", "JSON parse error: ${e.message}")
-            // Fallback parsing
-            data.removePrefix("[").removeSuffix("]").split(",").map { 
-                Pair(it.trim().replace("\"", ""), "") 
-            }
-        }
-
-        // Smart Sorting Logic:
-        // 1. Quality (4K/2160p > 1080p > 720p > 480p)
-        // 2. Codec (HEVC/x265 preferred - smaller files)
-        // 3. Size (Smallest first within same quality)
-        // 4. Server (Fastest first)
-
-        data class LinkInfo(
-            val url: String,
-            val text: String,
-            val qualityScore: Int,  // Higher = better quality
-            val size: Long,         // In bytes, smaller = better
-            val serverPriority: Int // Higher = faster server
-        )
-
-        fun getQualityScore(text: String): Int {
-            val isHEVC = text.contains("HEVC", true) || text.contains("x265", true) || text.contains("10bit", true)
-            val hevcBonus = if (isHEVC) 20 else 0  // HEVC bonus increased (smaller + better quality)
-            
-            // USER PREFERENCE: 1080p with smallest size = HIGHEST priority
-            return when {
-                text.contains("1080p", true) -> 500 + hevcBonus  // 1080p = TOP PRIORITY!
-                text.contains("720p", true) -> 300 + hevcBonus   // 720p = fallback
-                text.contains("4K", true) || text.contains("2160p", true) -> 200 + hevcBonus  // 4K = low (too big)
-                text.contains("480p", true) -> 100 + hevcBonus
-                else -> 50 + hevcBonus
-            }
-        }
-
-        fun getServerPriority(url: String): Int {
-            return when {
-                url.contains("hubdrive", true) -> 100   // HubDrive = direct, reliable
-                url.contains("hubcloud", true) -> 90    // HubCloud = direct
-                url.contains("pixeldrain", true) -> 80  // Direct download
-                url.contains("hubcdn", true) -> 60      // CDN direct
-                url.contains("gadgetsweb", true) -> 5   // SLOW: Redirect - very low priority
-                url.contains("?id=", true) -> 5         // SLOW: Redirect
-                else -> 50
-            }
-        }
-
-        val parsedLinks = linksList.mapNotNull { (url, text) ->
-            if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
-            
-            // Note: Direct links (hubdrive, hubcloud) have higher priority
-            // Redirect links (gadgetsweb) have lower priority but still included as fallback
-            
-            LinkInfo(
-                url = url,
-                text = text,
-                qualityScore = getQualityScore(text),
-                size = getSize(text),
-                serverPriority = getServerPriority(url)
-            )
-        }
-
-        // Sort: Quality (1080p first) -> Size (smallest) -> Server (direct first)
-        val sortedLinks = parsedLinks.sortedWith(
-            compareByDescending<LinkInfo> { it.qualityScore }
-                .thenBy { it.size }  // Smallest file first!
-                .thenByDescending { it.serverPriority }
-        )
-
-        // SPEED FIX: Only process top 3 best links for fastest loading!
-        val topLinks = sortedLinks.take(3)
-        
-        Log.d("HDhub4u", "Processing TOP ${topLinks.size} links (out of ${sortedLinks.size})")
-        topLinks.forEachIndexed { i, it -> Log.d("HDhub4u", "Link $i: ${it.text.take(50)} -> ${it.url.take(60)}") }
-
-        // Process top links in parallel using amap for speed
-        topLinks.amap { info ->
-            val link = info.url
-            if (link.isBlank()) return@amap
-             
+        val linksList: List<String> = data.removePrefix("[").removeSuffix("]").replace("\"", "").split(',', ' ').map { it.trim() }.filter { it.isNotBlank() }
+        for (link in linksList) {
             try {
-                // Resolve redirect links first
-                val finalLink = when {
-                    link.contains("gadgetsweb", true) || link.contains("?id=", true) -> {
-                        try { getRedirectLinks(link) } catch (e: Exception) { link }
-                    }
-                    else -> link
+                val finalLink = if ("?id=" in link) {
+                    getRedirectLinks(link)
+                } else {
+                    link
                 }
-                
-                if (finalLink.isBlank()) return@amap
-                
-                // Route to appropriate extractor based on URL
-                when {
-                    finalLink.contains("hubdrive", true) -> {
-                        Hubdrive().getUrl(finalLink, name, subtitleCallback, callback)
-                    }
-                    finalLink.contains("hubcloud", true) -> {
-                        HubCloud().getUrl(finalLink, name, subtitleCallback, callback)
-                    }
-                    finalLink.contains("hubcdn", true) -> {
-                        HUBCDN().getUrl(finalLink, name, subtitleCallback, callback)
-                    }
-                    finalLink.contains("hblinks", true) || finalLink.contains("4khdhub", true) -> {
-                        Hblinks().getUrl(finalLink, name, subtitleCallback, callback)
-                    }
-                    else -> {
-                        // Generic callback for unknown links
-                        val quality = when {
-                            info.text.contains("4K", true) || info.text.contains("2160p", true) -> 2160
-                            info.text.contains("1080p", true) -> 1080
-                            info.text.contains("720p", true) -> 720
-                            info.text.contains("480p", true) -> 480
-                            else -> 720
-                        }
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name [${info.text.take(30)}]",
-                                "$name [${info.text.take(40)}]",
-                                finalLink,
-                                INFER_TYPE
-                            ) {
-                                this.quality = quality
-                                this.referer = mainUrl
-                            }
-                        )
-                    }
-                }
+                if (finalLink.contains("Hubdrive",ignoreCase = true))
+                {
+                    Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
+                } else loadExtractor(finalLink, subtitleCallback, callback)
             } catch (e: Exception) {
-                Log.e("HDhub4u", "Failed to process $link: ${e.message}")
+                Log.e("Phisher", "Failed to process $link: ${e.message}")
             }
         }
         return true
@@ -704,24 +475,36 @@ class HDhub4uProvider : MainAPI() {
      * @param check The string to check for keywords.
      * @return The corresponding `SearchQuality` enum value, or `null` if no match is found.
      */
-    private fun getSearchQuality(check: String?): SearchQuality? {
+    fun getSearchQuality(check: String?): SearchQuality? {
         val s = check ?: return null
         val u = Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase()
         val patterns = listOf(
-            Regex("\\b(4k|ds4k|uhd|2160p)\\b") to SearchQuality.UHD,
-            Regex("\\b(1440p|qhd)\\b") to SearchQuality.BlueRay,
-            Regex("\\b(bluray|bdrip|blu[- ]?ray)\\b") to SearchQuality.BlueRay,
-            Regex("\\b(1080p|fullhd)\\b") to SearchQuality.HD,
-            Regex("\\b(720p)\\b") to SearchQuality.SD,
-            Regex("\\b(web[- ]?dl|webrip|webdl)\\b") to SearchQuality.WebRip,
-            Regex("\\b(hdrip|hdtv)\\b") to SearchQuality.HD,
-            Regex("\\b(camrip|cam[- ]?rip)\\b") to SearchQuality.CamRip,
-            Regex("\\b(hdts|hdcam|hdtc)\\b") to SearchQuality.HdCam,
-            Regex("\\b(cam)\\b") to SearchQuality.Cam,
-            Regex("\\b(dvd)\\b") to SearchQuality.DVD,
-            Regex("\\b(hq)\\b") to SearchQuality.HQ,
-            Regex("\\b(rip)\\b") to SearchQuality.CamRip
+            Regex("\\b(4k|ds4k|uhd|2160p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.UHD,
+
+            // CAM / THEATRE SOURCES FIRST
+            Regex("\\b(hdts|hdcam|hdtc)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HdCam,
+            Regex("\\b(camrip|cam[- ]?rip)\\b", RegexOption.IGNORE_CASE) to SearchQuality.CamRip,
+            Regex("\\b(cam)\\b", RegexOption.IGNORE_CASE) to SearchQuality.Cam,
+
+            // WEB / RIP
+            Regex("\\b(web[- ]?dl|webrip|webdl)\\b", RegexOption.IGNORE_CASE) to SearchQuality.WebRip,
+
+            // BLURAY
+            Regex("\\b(bluray|bdrip|blu[- ]?ray)\\b", RegexOption.IGNORE_CASE) to SearchQuality.BlueRay,
+
+            // RESOLUTIONS
+            Regex("\\b(1440p|qhd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.BlueRay,
+            Regex("\\b(1080p|fullhd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HD,
+            Regex("\\b(720p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.SD,
+
+            // GENERIC HD LAST
+            Regex("\\b(hdrip|hdtv)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HD,
+
+            Regex("\\b(dvd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.DVD,
+            Regex("\\b(hq)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HQ,
+            Regex("\\b(rip)\\b", RegexOption.IGNORE_CASE) to SearchQuality.CamRip
         )
+
 
         for ((regex, quality) in patterns) if (regex.containsMatchIn(u)) return quality
         return null
