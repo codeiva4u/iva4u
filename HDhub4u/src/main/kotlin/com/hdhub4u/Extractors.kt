@@ -187,8 +187,8 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Use CloudflareKiller interceptor to bypass Cloudflare 403
-        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
+        // Use CloudflareKiller interceptor to bypass Cloudflare 403 (8s timeout for speed)
+        val doc = app.get(url, timeout = 8000, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -280,7 +280,7 @@ class HubCloud : ExtractorApi() {
                     }
                 }
                 else -> {
-                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
+                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 8).document.select("#download").attr("href")
                     if (rawHref.startsWith("http", ignoreCase = true)) rawHref
                     else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
@@ -297,8 +297,8 @@ class HubCloud : ExtractorApi() {
 
         Log.d(tag, "Fetching download page: $href")
 
-        // Use CloudflareKiller for gamerxyt.com final download page
-        val document = app.get(href, interceptor = cfKiller).document
+        // Use CloudflareKiller for gamerxyt.com final download page (8s timeout for speed)
+        val document = app.get(href, interceptor = cfKiller, timeout = 8).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
