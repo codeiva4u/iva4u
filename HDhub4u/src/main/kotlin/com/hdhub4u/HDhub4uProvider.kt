@@ -131,7 +131,8 @@ class HDhub4uProvider : MainAPI() {
         val url = post.select("a").attr("href").let {
             if (it.startsWith("http")) it else "$mainUrl$it"
         }
-        val posterUrl = post.select(".poster-wrapper img").attr("src")
+        // Browser verified: poster is directly under .movie-card as img (not .poster-wrapper)
+        val posterUrl = post.selectFirst("img")?.attr("src") ?: ""
         return newMovieSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = getSearchQuality(titleText)
@@ -139,13 +140,18 @@ class HDhub4uProvider : MainAPI() {
     }
 
     override suspend fun search(query: String,page: Int): SearchResponseList {
+        // URL format: /?s=query for page 1, /page/N/?s=query for page N
+        val searchUrl = if (page <= 1) "$mainUrl/?s=$query" else "$mainUrl/page/$page/?s=$query"
+        Log.d("HDhub4u", "Searching: $searchUrl")
         val doc = app.get(
-            "$mainUrl/page/$page/?s=$query",
+            searchUrl,
             cacheTime = 60,
             headers = headers,
             timeout = 30
         ).documentLarge
-        return doc.select("li.movie-card").mapNotNull { toSearchResult(it) }.toNewSearchResponseList()
+        val results = doc.select("li.movie-card").mapNotNull { toSearchResult(it) }
+        Log.d("HDhub4u", "Search results: ${results.size}")
+        return results.toNewSearchResponseList()
     }
 
     private fun extractLinksATags(aTags: Elements): List<String> {
