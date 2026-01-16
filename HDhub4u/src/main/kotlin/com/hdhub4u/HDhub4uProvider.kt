@@ -139,19 +139,36 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
-    override suspend fun search(query: String,page: Int): SearchResponseList {
-        // URL format: /?s=query for page 1, /page/N/?s=query for page N
-        val searchUrl = if (page <= 1) "$mainUrl/?s=$query" else "$mainUrl/page/$page/?s=$query"
-        Log.d("HDhub4u", "Searching: $searchUrl")
-        val doc = app.get(
-            searchUrl,
-            cacheTime = 60,
+    // Extension function for Document to convert to SearchResponse (HindiProviders style)
+    private fun Document.toSearchResult(): SearchResponse {
+        return newMovieSearchResponse(
+            name = cleanTitle(postTitle ?: ""),
+            url = if (permalink?.startsWith("http") == true) permalink else "$mainUrl$permalink",
+            type = TvType.Movie
+        ) {
+            posterUrl = postThumbnail
+        }
+    }
+
+    // Typesense API for search - website uses JavaScript rendering
+    override suspend fun search(query: String, page: Int): SearchResponseList {
+        val response = app.get(
+            "https://search.pingora.fyi/collections/post/documents/search" +
+                    "?q=$query" +
+                    "&query_by=post_title,category" +
+                    "&query_by_weights=4,2" +
+                    "&sort_by=sort_by_date:desc" +
+                    "&limit=15" +
+                    "&highlight_fields=none" +
+                    "&use_cache=true" +
+                    "&page=$page",
             headers = headers,
-            timeout = 30
-        ).documentLarge
-        val results = doc.select("li.movie-card").mapNotNull { toSearchResult(it) }
-        Log.d("HDhub4u", "Search results: ${results.size}")
-        return results.toNewSearchResponseList()
+            referer = mainUrl
+        ).parsedSafe<Search>()
+
+        return response?.hits?.mapNotNull { hit -> 
+            hit.document?.toSearchResult() 
+        }?.toNewSearchResponseList() ?: emptyList<SearchResponse>().toNewSearchResponseList()
     }
 
     private fun extractLinksATags(aTags: Elements): List<String> {

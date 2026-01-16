@@ -1,15 +1,18 @@
 package com.hdhub4u
 
 import android.annotation.SuppressLint
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.gson.annotations.SerializedName
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-// import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -124,7 +127,8 @@ data class MetaLocal(
     val background: String? = null,
     val genres: List<String>? = null,
     val videos: List<VideoLocal>? = null,
-    val rating: Score?
+    val rating: Score?,
+    val logo: String? = null
 )
 data class VideoLocal(
     val title: String? = null,
@@ -134,4 +138,73 @@ data class VideoLocal(
     val thumbnail: String? = null,
     val released: String? = null,
     val rating: Score?
+)
+
+// Typesense Search API Response Models
+data class Search(
+    @JsonProperty("facet_counts")
+    val facetCounts: List<Any?>? = null,
+    val found: Long? = null,
+    val hits: List<Hit>? = null,
+    @JsonProperty("out_of")
+    val outOf: Long? = null,
+    val page: Long? = null,
+    @JsonProperty("request_params")
+    val requestParams: RequestParams? = null,
+    @JsonProperty("search_cutoff")
+    val searchCutoff: Boolean? = null,
+    @JsonProperty("search_time_ms")
+    val searchTimeMs: Long? = null,
+)
+
+data class Hit(
+    val document: Document? = null,
+    val highlight: Map<String, Any>? = null,
+    val highlights: List<Any?>? = null,
+    @JsonProperty("text_match")
+    val textMatch: Long? = null,
+    @JsonProperty("text_match_info")
+    val textMatchInfo: TextMatchInfo? = null,
+)
+
+data class Document(
+    val category: List<String>? = null,
+    val id: String? = null,
+    val permalink: String? = null,
+    @JsonProperty("post_date")
+    val postDate: String? = null,
+    @JsonProperty("post_thumbnail")
+    val postThumbnail: String? = null,
+    @JsonProperty("post_title")
+    val postTitle: String? = null,
+    @JsonProperty("post_type")
+    val postType: String? = null,
+    @JsonProperty("sort_by_date")
+    val sortByDate: Long? = null,
+)
+
+data class TextMatchInfo(
+    @JsonProperty("best_field_score")
+    val bestFieldScore: String? = null,
+    @JsonProperty("best_field_weight")
+    val bestFieldWeight: Long? = null,
+    @JsonProperty("fields_matched")
+    val fieldsMatched: Long? = null,
+    @JsonProperty("num_tokens_dropped")
+    val numTokensDropped: Long? = null,
+    val score: String? = null,
+    @JsonProperty("tokens_matched")
+    val tokensMatched: Long? = null,
+    @JsonProperty("typo_prefix_score")
+    val typoPrefixScore: Long? = null,
+)
+
+data class RequestParams(
+    @JsonProperty("collection_name")
+    val collectionName: String? = null,
+    @JsonProperty("first_q")
+    val firstQ: String? = null,
+    @JsonProperty("per_page")
+    val perPage: Long? = null,
+    val q: String? = null,
 )
