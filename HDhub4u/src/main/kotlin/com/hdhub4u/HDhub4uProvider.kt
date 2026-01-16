@@ -328,7 +328,7 @@ class HDhub4uProvider : MainAPI() {
         }
 
         if (tvtype == TvType.Movie) {
-            val movieList = mutableListOf<String>()
+            val movieJsonArray = org.json.JSONArray()
             // Capture Link + Text for Sorting (including parent h3/h4/h5 text for quality/size info)
             doc.select("h3, h4, h5").forEach { headerElement ->
                 val headerText = headerElement.text()
@@ -352,7 +352,7 @@ class HDhub4uProvider : MainAPI() {
                          val json = JSONObject()
                          json.put("url", href)
                          json.put("text", fullText.trim())
-                         movieList.add(json.toString())
+                         movieJsonArray.put(json)
                     }
                 }
             }
@@ -361,8 +361,15 @@ class HDhub4uProvider : MainAPI() {
             doc.select("p a[href]").forEach { link ->
                 val href = link.attr("href")
                 val text = link.text()
-                if(href.urlOrNull() != null && 
-                   !movieList.any { it.contains(href) } &&
+                // Check if already added
+                var alreadyAdded = false
+                for (i in 0 until movieJsonArray.length()) {
+                    if (movieJsonArray.optJSONObject(i)?.optString("url") == href) {
+                        alreadyAdded = true
+                        break
+                    }
+                }
+                if(!alreadyAdded && href.urlOrNull() != null && 
                    (text.contains("Download", true) || 
                     text.contains("480p", true) || 
                     text.contains("720p", true) || 
@@ -372,11 +379,16 @@ class HDhub4uProvider : MainAPI() {
                      val json = JSONObject()
                      json.put("url", href)
                      json.put("text", text.trim())
-                     movieList.add(json.toString())
+                     movieJsonArray.put(json)
                 }
             }
 
-            return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
+            Log.d("HDhub4u", "Movie links found: ${movieJsonArray.length()}")
+            
+            // Convert to proper JSON string for serialization
+            val movieData = movieJsonArray.toString()
+
+            return newMovieLoadResponse(title, url, TvType.Movie, movieData) {
                 this.backgroundPosterUrl = background
                 this.posterUrl = poster
                 this.year = year.toIntOrNull()
