@@ -238,39 +238,11 @@ class HDhub4uProvider : MainAPI() {
         // Extract tags/genres
         val tags = document.select(".entry-categories a, .post-categories a, .cat-links a, a[rel=tag]").map { it.text() }
 
-        // Extract ALL download links using Regex patterns
+        // Extract ALL download links - use body html since content class varies
         val downloadLinks = mutableListOf<DownloadLink>()
-        val contentHtml = document.select(".entry-content, .post-content, article").html()
         
-        // Regex patterns for download links
-        val linkPatterns = listOf(
-            Regex("""<a[^>]+href="(https?://(?:hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|gamerxyt)[^"]+)"[^>]*>([^<]*)</a>""", RegexOption.IGNORE_CASE),
-            Regex("""href="(https?://[^"]*(?:hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|gamerxyt)[^"]*)"[^>]*>([^<]*)""", RegexOption.IGNORE_CASE)
-        )
-        
-        for (pattern in linkPatterns) {
-            pattern.findAll(contentHtml).forEach { match ->
-                val linkUrl = match.groupValues.getOrNull(1) ?: return@forEach
-                val linkText = match.groupValues.getOrNull(2) ?: ""
-                
-                if (downloadLinks.none { it.url == linkUrl }) {
-                    val quality = extractQuality(linkText.ifBlank { linkUrl })
-                    val size = parseFileSize(linkText)
-                    
-                    downloadLinks.add(
-                        DownloadLink(
-                            url = linkUrl,
-                            quality = quality,
-                            sizeMB = size,
-                            originalText = linkText
-                        )
-                    )
-                }
-            }
-        }
-        
-        // Also try CSS selectors for links
-        document.select(".entry-content a[href], .post-content a[href]").forEach { element ->
+        // Method 1: Use CSS selectors to find all links on page
+        document.select("a[href]").forEach { element ->
             val href = element.attr("href")
             val text = element.text().trim()
             
@@ -288,7 +260,26 @@ class HDhub4uProvider : MainAPI() {
                 )
             }
         }
-
+        
+        // Method 2: Use Regex on full body HTML for any missed links
+        val bodyHtml = document.body()?.html() ?: ""
+        val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art)[^"'<\s>]+""", RegexOption.IGNORE_CASE)
+        
+        urlPattern.findAll(bodyHtml).forEach { match ->
+            val linkUrl = match.value
+            if (downloadLinks.none { it.url == linkUrl }) {
+                val quality = extractQuality(linkUrl)
+                downloadLinks.add(
+                    DownloadLink(
+                        url = linkUrl,
+                        quality = quality,
+                        sizeMB = 0.0,
+                        originalText = ""
+                    )
+                )
+            }
+        }
+        
         Log.d(TAG, "Total links found: ${downloadLinks.size}")
         
         // Smart sort: Quality DESC, Size ASC, then priority
