@@ -18,14 +18,59 @@ import com.lagradost.cloudstream3.utils.fixUrl
 import com.lagradost.cloudstream3.utils.getAndUnpack
 import com.lagradost.cloudstream3.utils.getPacked
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
+
+// ============ Dynamic URL Management ============
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
+    }
+}
+
+// Cached URLs for session-level caching (fetch once, use throughout session)
+private var cachedUrlsJson: JSONObject? = null
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    // Use cached JSON if available (fetch only once per session)
+    if (cachedUrlsJson == null) {
+        try {
+            cachedUrlsJson = JSONObject(
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+            )
+        } catch (e: Exception) {
+            return getBaseUrl(url)
+        }
+    }
+    
+    val link = cachedUrlsJson?.optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
+}
+
+// ============ Extractors ============
 class Techinmind: GDMirror() {
     override var name = "Techinmind Cloud AIO"
     override var mainUrl = "https://stream.techinmind.space"
     override var requiresReferer = true
+    
+    // Use dynamic URL from urls.json
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val latestUrl = getLatestUrl(url, "techinmind")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        super.getUrl(newUrl, referer, subtitleCallback, callback)
+    }
 }
 open class GDMirror : ExtractorApi() {
     override var name = "GDMirrorbot"
@@ -257,6 +302,22 @@ open class GDMirror : ExtractorApi() {
 class Multiprocessing : StreamWishExtractor() {
     override val name = "Multi-movies StreamWish"
     override val mainUrl = "https://multimoviesshg.com"
+    
+    // Use dynamic URL from urls.json
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        // Get latest multimoviesshg URL and replace in the incoming URL
+        val latestUrl = getLatestUrl(url, "multimoviesshg")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        
+        // Call parent with updated URL
+        super.getUrl(newUrl, referer, subtitleCallback, callback)
+    }
 }
 
 open class StreamWishExtractor : ExtractorApi() {
