@@ -599,25 +599,8 @@ class HDhub4uProvider : MainAPI() {
             )
         }
 
-        // Separate direct links from redirect links
-        val directLinks = parsedLinks.filter { 
-            !it.url.contains("gadgetsweb", true) && !it.url.contains("?id=", true)
-        }
-        val redirectLinks = parsedLinks.filter { 
-            it.url.contains("gadgetsweb", true) || it.url.contains("?id=", true)
-        }
-        
-        // Use direct links first, redirect only if no direct available
-        val linksToUse = if (directLinks.isNotEmpty()) {
-            Log.d("HDhub4u", "Using ${directLinks.size} DIRECT links (fast!)")
-            directLinks
-        } else {
-            Log.d("HDhub4u", "No direct links, using ${redirectLinks.size} redirect links (fallback)")
-            redirectLinks
-        }
-
         // Sort: Quality (1080p first) -> Size (smallest) -> Server (direct first)
-        val sortedLinks = linksToUse.sortedWith(
+        val sortedLinks = parsedLinks.sortedWith(
             compareByDescending<LinkInfo> { it.qualityScore }
                 .thenBy { it.size }  // Smallest file first!
                 .thenByDescending { it.serverPriority }
@@ -626,7 +609,7 @@ class HDhub4uProvider : MainAPI() {
         // SPEED FIX: Only process TOP 1 best link for 5-6 second playback!
         val topLinks = sortedLinks.take(1)
         
-        Log.d("HDhub4u", "Processing BEST link: ${topLinks.firstOrNull()?.text?.take(50) ?: "none"}")
+        Log.d("HDhub4u", "Processing BEST link (out of ${sortedLinks.size})")
         topLinks.forEachIndexed { i, it -> Log.d("HDhub4u", "Link $i: ${it.text.take(50)} -> ${it.url.take(60)}") }
 
         // Process top links in parallel using amap for speed
