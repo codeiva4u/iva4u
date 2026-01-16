@@ -180,7 +180,12 @@ class HDhub4uProvider : MainAPI() {
         val image = doc.select("meta[property=og:image]").attr("content")
         val plot = doc.selectFirst("div.entry-content p")?.text()?.trim()
         val tags = doc.select(".cat-links a").eachText().toMutableList()
-        val poster = doc.select("div.entry-content img").attr("src")
+        // Poster: Prefer TMDB poster (aligncenter class), fallback to first content image
+        val poster = doc.selectFirst("div.entry-content img.aligncenter[src*=tmdb]")?.attr("src")
+            ?: doc.selectFirst("div.entry-content img.aligncenter")?.attr("src")
+            ?: doc.selectFirst("div.entry-content img[src*=tmdb]")?.attr("src")
+            ?: doc.selectFirst("div.entry-content img")?.attr("src")
+            ?: ""
         val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
             ?.replace("/embed/", "/watch?v=")
         
