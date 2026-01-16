@@ -242,7 +242,7 @@ class HubCloud : ExtractorApi() {
                 "/drive/" in urlToUse -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
                     // Use CloudflareKiller to bypass protection
-                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
+                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 10).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php

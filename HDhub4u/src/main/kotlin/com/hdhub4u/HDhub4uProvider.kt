@@ -596,9 +596,8 @@ class HDhub4uProvider : MainAPI() {
                 .thenByDescending { it.serverPriority }
         )
 
-        // SPEED FIX: Only process top 5 best links (not all!)
-        // This reduces 4 minute delay to seconds!
-        val topLinks = sortedLinks.take(5)
+        // SPEED FIX: Only process top 3 best links for fastest loading!
+        val topLinks = sortedLinks.take(3)
         
         Log.d("HDhub4u", "Processing TOP ${topLinks.size} links (out of ${sortedLinks.size})")
         topLinks.forEachIndexed { i, it -> Log.d("HDhub4u", "Link $i: ${it.text.take(50)} -> ${it.url.take(60)}") }
