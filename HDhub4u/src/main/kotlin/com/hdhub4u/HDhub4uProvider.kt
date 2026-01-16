@@ -76,17 +76,23 @@ class HDhub4uProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers, timeout = 60).document
 
-        val home = document.select("div.blog-items article, div.blog-item, article.post").mapNotNull {
+        // Correct selector: li.thumb contains movie items
+        val home = document.select("li.thumb").mapNotNull {
             it.toSearchResult()
         }
+        
+        Log.d(TAG, "Found ${home.size} items")
 
         return newHomePageResponse(request.name, home)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Extract link - try multiple patterns using Regex
-        val linkElement = selectFirst("a[href*=hdhub4u]") 
-            ?: selectFirst("a.img-class")
+        // Structure: li.thumb > figure > a[href] for link, img for poster
+        // figcaption > a > p for title
+        
+        // Extract link from figure > a or figcaption > a
+        val linkElement = selectFirst("figure a[href]") 
+            ?: selectFirst("figcaption a[href]")
             ?: selectFirst("a[href]")
         
         val href = linkElement?.attr("href") ?: return null
@@ -94,18 +100,20 @@ class HDhub4uProvider : MainAPI() {
         
         val fixedUrl = fixUrl(href)
         
-        // Extract title using Regex patterns
-        val titleText = selectFirst("h2.blog-title a, h3.blog-title a, .entry-title a, h2 a, h3 a")?.text()
-            ?: selectFirst("a")?.attr("title")
+        // Extract title from figcaption p, or img alt, or a title
+        val titleText = selectFirst("figcaption p")?.text()
+            ?: selectFirst("figcaption a")?.text()
             ?: selectFirst("img")?.attr("alt")
+            ?: selectFirst("img")?.attr("title")
+            ?: selectFirst("a")?.attr("title")
             ?: ""
             
         // Clean title using Regex
         val title = cleanTitle(titleText)
         if (title.isBlank()) return null
 
-        // Extract poster using Regex pattern
-        val posterUrl = selectFirst("img")?.let { img ->
+        // Extract poster from figure img
+        val posterUrl = selectFirst("figure img, img")?.let { img ->
             val src = img.attr("src").ifBlank { 
                 img.attr("data-src").ifBlank { 
                     img.attr("data-lazy-src") 
@@ -201,7 +209,7 @@ class HDhub4uProvider : MainAPI() {
     private suspend fun websiteSearch(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query", headers = headers, timeout = 60).document
 
-        return document.select("div.blog-items article, div.blog-item, article.post").mapNotNull { result ->
+        return document.select("li.thumb").mapNotNull { result ->
             result.toSearchResult()
         }
     }
