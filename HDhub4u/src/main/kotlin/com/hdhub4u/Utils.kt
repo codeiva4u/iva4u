@@ -18,13 +18,6 @@ import org.json.JSONObject
 
 
 suspend fun getRedirectLinks(url: String): String {
-    // Check if already cached (pre-resolved in background)
-    val cached = HDhub4uProvider.resolvedRedirects[url]
-    if (cached != null) {
-        Log.d("HDhub4u", "Using cached redirect for: ${url.take(50)}...")
-        return cached
-    }
-    
     val doc = app.get(url).toString()
     val regex = "s\\('o','([A-Za-z0-9+/=]+)'|ck\\('_wp_http_\\d+','([^']+)'".toRegex()
     val combinedString = buildString {
@@ -33,7 +26,7 @@ suspend fun getRedirectLinks(url: String): String {
             if (!extractedValue.isNullOrEmpty()) append(extractedValue)
         }
     }
-    val result = try {
+    return try {
         val decodedString = base64Decode(pen(base64Decode(base64Decode(combinedString))))
         val jsonObject = JSONObject(decodedString)
         val encodedurl = base64Decode(jsonObject.optString("o", "")).trim()
@@ -48,13 +41,6 @@ suspend fun getRedirectLinks(url: String): String {
         Log.e("Error:", "Error processing links $e")
         "" // Return an empty string on failure
     }
-    
-    // Cache the result for future use
-    if (result.isNotBlank()) {
-        HDhub4uProvider.resolvedRedirects[url] = result
-    }
-    
-    return result
 }
 
 
