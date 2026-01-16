@@ -1,28 +1,14 @@
-// use an integer for version numbers
-version = 6
+// HDhub4u CloudStream Plugin
 
-
+version = 1
 cloudstream {
-    //description = "Movie website in Bangladesh"
-    authors = listOf("Phisher98")
-
-    /**
-    * Status int as the following:
-    * 0: Down
-    * 1: Ok
-    * 2: Slow
-    * 3: Beta only
-    * */
-    status = 1 // will be 3 if unspecified
-
+    language = "hi"
+    description = "HDhub4u - Download HD Movies & Web Series"
+    authors = listOf("codeiva4u")
+    status = 1 // 0: Down, 1: Ok, 2: Slow, 3: Beta
     tvTypes = listOf(
         "Movie",
-        "TvSeries",
-        "Anime"
+        "TvSeries"
     )
-    language = "hi"
-//  https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://hdhub4u.gratis&size=64
-    iconUrl = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/HDHUB.png"
-
-    isCrossPlatform = false
+    iconUrl = "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png"
 }

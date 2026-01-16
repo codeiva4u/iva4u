@@ -1,48 +1,19 @@
 package com.hdhub4u
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.extractors.StreamTape
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
-import com.lagradost.cloudstream3.app
-
 
 @CloudstreamPlugin
-class HDhub4uPlugin: BasePlugin() {
+class HDhub4uPlugin : BasePlugin() {
     override fun load() {
+        // Register main provider
         registerMainAPI(HDhub4uProvider())
-        registerExtractorAPI(HdStream4u())
-        registerExtractorAPI(StreamTape())
-        registerExtractorAPI(Hblinks())
+        
+        // Register all video hosting extractors
+        registerExtractorAPI(HubDrive())
+        registerExtractorAPI(GadgetsWeb())
+        registerExtractorAPI(HDStream4u())
+        registerExtractorAPI(HubStream())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(Hubstream())
-        registerExtractorAPI(Hubcdnn())
-        registerExtractorAPI(Hubdrive())
-        registerExtractorAPI(Hubstreamdad())
-        registerExtractorAPI(HUBCDN())
-        registerExtractorAPI(PixelDrainDev())
-    }
-
-    companion object {
-        private const val DOMAINS_URL =
-            "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-        var cachedDomains: Domains? = null
-
-        suspend fun getDomains(forceRefresh: Boolean = false): Domains? {
-            if (cachedDomains == null || forceRefresh) {
-                try {
-                    cachedDomains = app.get(DOMAINS_URL).parsedSafe<Domains>()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    return null
-                }
-            }
-            return cachedDomains
-        }
-
-        data class Domains(
-            @JsonProperty("HDHUB4u")
-            val HDHUB4u: String,
-        )
     }
 }
