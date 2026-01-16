@@ -390,6 +390,7 @@ class HDhub4uProvider : MainAPI() {
             }
 
             Log.d("HDhub4u", "Movie links found: ${movieJsonArray.length()}")
+            Log.d("HDhub4u", "POSTER DEBUG: poster=$poster, background=$background, image=$image")
             
             // Convert to proper JSON string for serialization
             val movieData = movieJsonArray.toString()
