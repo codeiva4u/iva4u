@@ -555,12 +555,13 @@ class HDhub4uProvider : MainAPI() {
 
         fun getQualityScore(text: String): Int {
             val isHEVC = text.contains("HEVC", true) || text.contains("x265", true) || text.contains("10bit", true)
-            val hevcBonus = if (isHEVC) 10 else 0  // HEVC gets bonus (smaller files)
+            val hevcBonus = if (isHEVC) 20 else 0  // HEVC bonus increased (smaller + better quality)
             
+            // USER PREFERENCE: 1080p with smallest size = HIGHEST priority
             return when {
-                text.contains("4K", true) || text.contains("2160p", true) -> 400 + hevcBonus
-                text.contains("1080p", true) -> 300 + hevcBonus  // Target: 1080p HEVC = 310
-                text.contains("720p", true) -> 200 + hevcBonus
+                text.contains("1080p", true) -> 500 + hevcBonus  // 1080p = TOP PRIORITY!
+                text.contains("720p", true) -> 300 + hevcBonus   // 720p = fallback
+                text.contains("4K", true) || text.contains("2160p", true) -> 200 + hevcBonus  // 4K = low (too big)
                 text.contains("480p", true) -> 100 + hevcBonus
                 else -> 50 + hevcBonus
             }
@@ -572,8 +573,8 @@ class HDhub4uProvider : MainAPI() {
                 url.contains("hubcloud", true) -> 90    // HubCloud = direct
                 url.contains("pixeldrain", true) -> 80  // Direct download
                 url.contains("hubcdn", true) -> 60      // CDN direct
-                url.contains("gadgetsweb", true) -> 10  // SLOW: Redirect link - lowest priority!
-                url.contains("?id=", true) -> 10        // SLOW: Redirect link
+                url.contains("gadgetsweb", true) -> 5   // SLOW: Redirect - very low priority
+                url.contains("?id=", true) -> 5         // SLOW: Redirect
                 else -> 50
             }
         }
@@ -593,10 +594,10 @@ class HDhub4uProvider : MainAPI() {
             )
         }
 
-        // Sort: Quality (desc) -> Size (asc) -> Server Priority (desc)
+        // Sort: Quality (1080p first) -> Size (smallest) -> Server (direct first)
         val sortedLinks = parsedLinks.sortedWith(
             compareByDescending<LinkInfo> { it.qualityScore }
-                .thenBy { it.size }
+                .thenBy { it.size }  // Smallest file first!
                 .thenByDescending { it.serverPriority }
         )
 
