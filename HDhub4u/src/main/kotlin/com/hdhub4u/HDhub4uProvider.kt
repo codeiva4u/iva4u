@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 class HDhub4uProvider : MainAPI() {
@@ -46,15 +47,11 @@ class HDhub4uProvider : MainAPI() {
 
     override val mainPage = mainPageOf(
         "" to "Latest",
-        "category/bollywood-movies/" to "Bollywood",
         "category/hollywood-movies/" to "Hollywood",
         "category/hindi-dubbed/" to "Hindi Dubbed",
         "category/south-hindi-movies/" to "South Hindi",
-        "category/category/web-series/" to "Web Series",
-        "category/dual-audio/" to "Dual Audio",
-        "category/netflix/" to "Netflix",
-        "category/amazon-prime-video/" to "Prime Video",
-        "category/jiohotstar/" to "JioHotstar",
+        "category/bollywood-movies/" to "Bollywood",
+        "category/web-series/" to "Web Series",
     )
 
     override suspend fun getMainPage(
@@ -134,34 +131,82 @@ class HDhub4uProvider : MainAPI() {
         Log.d(TAG, "Searching for: $query")
         
         val results = mutableListOf<SearchResponse>()
-        val searchTerms = query.lowercase().split(" ").filter { it.length > 2 }
         
-        // Since Typesense API is unreliable and website uses JS search,
-        // we fetch home page and filter results by title matching
+        // Use Typesense proxy URL (from search.html CONFIG)
+        val searchUrl = "https://search.pingora.fyi/collections/post/documents/search"
+        val params = mapOf(
+            "q" to query,
+            "query_by" to "title",
+            "per_page" to "30"
+        )
+        
         try {
-            // Fetch first 3 pages of content to search through
-            for (page in 1..3) {
-                val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-                val document = app.get(url, headers = headers, timeout = 30).document
+            val response = app.get(
+                searchUrl,
+                params = params,
+                headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept" to "application/json",
+                    "Referer" to "$mainUrl/",
+                    "Origin" to mainUrl
+                ),
+                timeout = 30
+            )
+            
+            val json = JSONObject(response.text)
+            val hits = json.optJSONArray("hits") ?: return emptyList()
+            
+            for (i in 0 until hits.length()) {
+                val hit = hits.getJSONObject(i)
+                val document = hit.optJSONObject("document") ?: continue
                 
-                document.select("li.thumb").forEach { element ->
-                    val searchResult = element.toSearchResult()
-                    if (searchResult != null) {
-                        // Check if title matches search query
-                        val title = searchResult.name.lowercase()
-                        val matches = searchTerms.any { term -> title.contains(term) }
-                        
-                        if (matches && results.none { it.url == searchResult.url }) {
-                            results.add(searchResult)
-                        }
-                    }
+                val title = document.optString("title", "")
+                val url = document.optString("url", "")
+                val posterUrl = document.optString("image", "")
+                
+                if (title.isBlank() || url.isBlank()) continue
+                
+                val cleanedTitle = cleanTitle(title)
+                val fixedUrl = fixUrl(url)
+                
+                // Determine type using Regex
+                val isSeries = Regex("(?i)(Season|S0\\d|Episode|E0\\d|Complete|All\\s+Episodes)").containsMatchIn(title)
+                
+                if (isSeries) {
+                    results.add(newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
+                        this.posterUrl = posterUrl.ifBlank { null }
+                    })
+                } else {
+                    results.add(newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
+                        this.posterUrl = posterUrl.ifBlank { null }
+                    })
                 }
-                
-                // If we found enough results, stop
-                if (results.size >= 20) break
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Search error: ${e.message}")
+            Log.e(TAG, "Typesense search failed: ${e.message}")
+            
+            // Fallback: fetch home pages and filter
+            try {
+                val searchTerms = query.lowercase().split(" ").filter { it.length > 2 }
+                for (page in 1..2) {
+                    val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
+                    val document = app.get(url, headers = headers, timeout = 30).document
+                    
+                    document.select("li.thumb").forEach { element ->
+                        val searchResult = element.toSearchResult()
+                        if (searchResult != null) {
+                            val title = searchResult.name.lowercase()
+                            val matches = searchTerms.any { term -> title.contains(term) }
+                            if (matches && results.none { it.url == searchResult.url }) {
+                                results.add(searchResult)
+                            }
+                        }
+                    }
+                    if (results.size >= 20) break
+                }
+            } catch (e2: Exception) {
+                Log.e(TAG, "Fallback search failed: ${e2.message}")
+            }
         }
         
         Log.d(TAG, "Found ${results.size} search results")
