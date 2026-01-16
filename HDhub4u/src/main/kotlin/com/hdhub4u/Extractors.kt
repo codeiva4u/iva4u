@@ -171,9 +171,9 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url, timeout = 2000).documentLarge.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
+        val href=app.get(url, timeout = 30000).documentLarge.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
         if (href.contains("hubcloud",ignoreCase = true)) HubCloud().getUrl(href,"HubDrive",subtitleCallback,callback)
-        Log.d("Phisher", "No local extractor found for:")
+        else Log.d("Hubdrive", "No HubCloud link found for: $url")
     }
 }
 
@@ -203,12 +203,29 @@ class HubCloud : ExtractorApi() {
             when {
                 "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
                 "/drive/" in newUrl -> {
-                    // hubcloud.fyi/drive/ URLs have "Generate Direct Download Link" button
+                    // hubcloud.fyi/drive/ URLs - directly fetch and find download buttons
+                    // The page shows download links after it loads (FSL, PixelServer, etc.)
                     val driveDoc = app.get(newUrl).document
-                    val downloadBtn = driveDoc.selectFirst("div.card-body h2 a.btn[href*=hubcloud.php]")?.attr("href")
+                    
+                    // Primary: Look for "Generate Direct Download Link" button which links to hubcloud.php
+                    val generateBtn = driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=gamerxyt]")?.attr("href")
-                        ?: driveDoc.selectFirst("#download")?.attr("href")
-                    downloadBtn?.takeIf { it.startsWith("http") } ?: ""
+                        ?: driveDoc.selectFirst("a#download")?.attr("href")
+                        ?: driveDoc.selectFirst("a.download-button")?.attr("href")
+                    
+                    // If generate button found, use it
+                    if (generateBtn != null && generateBtn.startsWith("http")) {
+                        generateBtn
+                    } else {
+                        // Fallback: Try direct download links on the page
+                        val directLinks = driveDoc.select("a.btn[href*=cdn], a.btn[href*=fsl], a.btn[href*=pixel]")
+                        if (directLinks.isNotEmpty()) {
+                            // Found direct links, return newUrl to process them
+                            newUrl
+                        } else {
+                            ""
+                        }
+                    }
                 }
                 else -> {
                     val rawHref = app.get(newUrl).document.select("#download").attr("href")
@@ -240,7 +257,7 @@ class HubCloud : ExtractorApi() {
         }
         val baseQuality = getIndexQuality(header)
 
-        document.select("div.card-body h2 a.btn").amap { element ->
+        document.select("div.card-body a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
             val serverQuality = getAdjustedQuality(baseQuality, size, text)
@@ -287,9 +304,23 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("pixeldra", ignoreCase = true) || text.contains("pixel", ignoreCase = true) -> {
-                    val baseUrlLink = getBaseUrl(link)
-                    val finalURL = if (link.contains("download", true)) link
-                    else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                    // Handle different pixeldrain URL formats
+                    val finalURL = when {
+                        link.contains("pixeldrain.dev/u/") || link.contains("pixeldrain.com/u/") -> {
+                            // Format: pixeldrain.dev/u/ID -> pixeldrain.dev/api/file/ID?download
+                            val baseUrlLink = getBaseUrl(link)
+                            "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                        }
+                        link.contains("hubcdn.fans") -> {
+                            // hubcdn.fans links are already redirect links
+                            link
+                        }
+                        link.contains("download", true) -> link
+                        else -> {
+                            val baseUrlLink = getBaseUrl(link)
+                            "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                        }
+                    }
 
                     callback(
                         newExtractorLink(
@@ -366,7 +397,17 @@ class HubCloud : ExtractorApi() {
                 }
 
                 else -> {
-                    Log.d("Phisher", "No local extractor found for:")
+                    // Handle unknown server types - direct link callback
+                    Log.d(tag, "Unknown server type, using direct link: $text -> $link")
+                    if (link.isNotBlank() && link.startsWith("http")) {
+                        callback.invoke(
+                            newExtractorLink(
+                                "$referer [Direct]",
+                                "$referer [Direct] $labelExtras",
+                                link,
+                            ) { this.quality = serverQuality }
+                        )
+                    }
                 }
             }
         }
