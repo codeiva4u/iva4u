@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.SearchResponseList
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.addDate
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.network.CloudflareKiller
@@ -595,11 +596,17 @@ class HDhub4uProvider : MainAPI() {
                 .thenByDescending { it.serverPriority }
         )
 
-        Log.d("HDhub4u", "Processing ${sortedLinks.size} links, top quality: ${sortedLinks.firstOrNull()?.text}")
+        // SPEED FIX: Only process top 5 best links (not all!)
+        // This reduces 4 minute delay to seconds!
+        val topLinks = sortedLinks.take(5)
+        
+        Log.d("HDhub4u", "Processing TOP ${topLinks.size} links (out of ${sortedLinks.size})")
+        topLinks.forEachIndexed { i, it -> Log.d("HDhub4u", "Link $i: ${it.text.take(50)} -> ${it.url.take(60)}") }
 
-        for (info in sortedLinks) {
+        // Process top links in parallel using amap for speed
+        topLinks.amap { info ->
             val link = info.url
-            if (link.isBlank()) continue
+            if (link.isBlank()) return@amap
              
             try {
                 // Resolve redirect links first
@@ -610,7 +617,7 @@ class HDhub4uProvider : MainAPI() {
                     else -> link
                 }
                 
-                if (finalLink.isBlank()) continue
+                if (finalLink.isBlank()) return@amap
                 
                 // Route to appropriate extractor based on URL
                 when {

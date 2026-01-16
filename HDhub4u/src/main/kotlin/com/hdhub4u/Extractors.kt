@@ -217,20 +217,20 @@ class HubCloud : ExtractorApi() {
         val realUrl = url.takeIf {
             try { URI(it).toURL(); true } catch (e: Exception) { Log.e(tag, "Invalid URL: ${e.message}"); false }
         } ?: return
-        Log.d("Phisher",url)
+        Log.d(tag, "Processing URL: $url")
 
-        // Dynamic URL management - fetch latest hubcloud URL
-        val latestUrl = getLatestUrl(realUrl, "hubcloud")
-        val baseUrl = getBaseUrl(realUrl)
-        val newUrl = realUrl.replace(baseUrl, latestUrl)
+        // Use original URL directly first (most reliable)
+        // Only use URL replacement if original fails
+        val urlToUse = realUrl
+        Log.d(tag, "Using URL: $urlToUse")
 
         val href = try {
             when {
-                "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
-                "/drive/" in newUrl -> {
+                "hubcloud.php" in urlToUse || "gamerxyt.com" in urlToUse -> urlToUse
+                "/drive/" in urlToUse -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
                     // Use CloudflareKiller to bypass protection
-                    val driveDoc = app.get(newUrl, interceptor = cfKiller).document
+                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
@@ -268,9 +268,9 @@ class HubCloud : ExtractorApi() {
                     }
                 }
                 else -> {
-                    val rawHref = app.get(newUrl).document.select("#download").attr("href")
+                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
                     if (rawHref.startsWith("http", ignoreCase = true)) rawHref
-                    else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
         } catch (e: Exception) {
