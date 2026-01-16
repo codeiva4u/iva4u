@@ -99,6 +99,7 @@ class HDhub4uProvider : MainAPI() {
             "$mainUrl/${request.data}page/$page/",
             cacheTime = 60,
             headers = headers,
+            timeout = 30  // 30 second timeout to prevent slow loading
         ).documentLarge
         val home = doc.select("li.thumb").mapNotNull { toHomeResult(it) }
         return newHomePageResponse(request.name, home, true)
@@ -136,7 +137,8 @@ class HDhub4uProvider : MainAPI() {
         val doc = app.get(
             "$mainUrl/page/$page/?s=$query",
             cacheTime = 60,
-            headers = headers
+            headers = headers,
+            timeout = 30
         ).documentLarge
         return doc.select("li.movie-card").mapNotNull { toSearchResult(it) }.toNewSearchResponseList()
     }
@@ -163,7 +165,7 @@ class HDhub4uProvider : MainAPI() {
 
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, cacheTime = 60, headers = headers).documentLarge
+        val doc = app.get(url, cacheTime = 60, headers = headers, timeout = 30).documentLarge
         var title = doc.select("header.entry-header h1.entry-title").text().trim()
             .ifEmpty { doc.select("h1.page-title").text().trim() }
 
