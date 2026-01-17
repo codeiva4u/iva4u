@@ -1,31 +1,26 @@
 package com.hdhub4u
 
+import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.extractors.StreamTape
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.app
 
 
 @CloudstreamPlugin
 class HDhub4uPlugin: BasePlugin() {
     override fun load() {
         registerMainAPI(HDhub4uProvider())
-        // Core extractors
+        registerExtractorAPI(HdStream4u())
+        registerExtractorAPI(StreamTape())
         registerExtractorAPI(Hblinks())
         registerExtractorAPI(HubCloud())
+        registerExtractorAPI(Hubstream())
         registerExtractorAPI(Hubcdnn())
         registerExtractorAPI(Hubdrive())
         registerExtractorAPI(Hubstreamdad())
         registerExtractorAPI(HUBCDN())
-        // Video player extractors (for web series)
-        registerExtractorAPI(VidHidePro())
-        registerExtractorAPI(HdStream4u())
-        registerExtractorAPI(VidStack())
-        registerExtractorAPI(PixelDrain())
         registerExtractorAPI(PixelDrainDev())
-        // StreamWish extractors
-        registerExtractorAPI(StreamWishExtractor())
-        registerExtractorAPI(StreamwishCom())
-        registerExtractorAPI(Wishembed())
-        registerExtractorAPI(Sfastwish())
-        registerExtractorAPI(Flaswish())
+
     }
 }
