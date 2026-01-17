@@ -368,6 +368,16 @@ private data class DownloadLink(
 private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
     val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
 
+    Log.d("HDhub4uProvider", "=== parseEpisodes START ===")
+    Log.d("HDhub4uProvider", "Total links: ${links.size}")
+    
+    // Debug: Show all hdstream4u links and their originalText
+    val hdstreamLinks = links.filter { it.url.contains("hdstream4u", true) }
+    Log.d("HDhub4uProvider", "HdStream4u links: ${hdstreamLinks.size}")
+    hdstreamLinks.forEachIndexed { index, link ->
+        Log.d("HDhub4uProvider", "  [$index] URL: ${link.url.takeLast(30)}, originalText: '${link.originalText}'")
+    }
+
     // Pattern for episode numbers - multiple formats
     val episodePattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
 
@@ -390,7 +400,18 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
     if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
         groupedByEpisode.forEach { (episodeNum, episodeLinks) ->
             if (episodeNum > 0) {
-                val data = episodeLinks.joinToString(",") { it.url }
+                // Prioritize streaming links (hdstream4u, hubstream) over download links (gadgetsweb)
+                // This ensures working extractor is tried first
+                val sortedLinks = episodeLinks.sortedByDescending { link ->
+                    when {
+                        link.url.contains("hdstream4u", true) -> 100
+                        link.url.contains("hubstream", true) -> 90
+                        link.url.contains("gadgetsweb", true) -> 50
+                        else -> 30
+                    }
+                }
+                val data = sortedLinks.joinToString(",") { it.url }
+                Log.d("HDhub4uProvider", "Episode $episodeNum data order: ${sortedLinks.map { it.url.substringAfter("://").take(15) }}")
                 episodes.add(
                     newEpisode(data) {
                         this.name = "Episode $episodeNum"
@@ -461,6 +482,7 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
         }
     }
 
+    Log.d("HDhub4uProvider", "=== parseEpisodes END === Total episodes: ${episodes.size}")
     return episodes.sortedBy { it.episode }
 }
 
