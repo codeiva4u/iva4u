@@ -267,8 +267,9 @@ override suspend fun load(url: String): LoadResponse? {
     }
 
     // Method 2: Use Regex on full body HTML for any missed links
+    // Note: Pattern includes # for hubstream.art/#hash URLs
     val bodyHtml = document.body().html()
-    val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art)[^"'<\s>]+""", RegexOption.IGNORE_CASE)
+    val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art|hubcloud\.[a-z]+|hblinks\.[a-z]+)[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
 
     urlPattern.findAll(bodyHtml).forEach { match ->
         val linkUrl = match.value
@@ -452,7 +453,7 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
 private fun isValidDownloadLink(url: String): Boolean {
     val validHosts = listOf(
         "hubdrive", "gadgetsweb", "hdstream4u", "hubstream",
-        "hubcloud", "hubcdn", "gamerxyt", "gamester"
+        "hubcloud", "hubcdn", "gamerxyt", "gamester", "hblinks", "4khdhub"
     )
     return validHosts.any { url.contains(it, ignoreCase = true) }
 }
