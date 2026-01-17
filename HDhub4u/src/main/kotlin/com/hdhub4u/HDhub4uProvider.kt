@@ -437,8 +437,12 @@ override suspend fun loadLinks(
 
         Log.d(TAG, "Processing ${links.size} links in parallel")
 
+        // Limit to max 5 links for faster loading (links already sorted by quality)
+        val limitedLinks = links.take(5)
+        Log.d(TAG, "Limited to ${limitedLinks.size} best links for fast loading")
+
         // Process links in parallel for faster loading (skip 10s delay)
-        links.amap { link ->
+        limitedLinks.amap { link ->
             try {
                 when {
                     // Hubdrive patterns
