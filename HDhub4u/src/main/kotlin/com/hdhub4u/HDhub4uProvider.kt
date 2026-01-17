@@ -440,9 +440,36 @@ override suspend fun loadLinks(
         Log.d(TAG, "Processing ${links.size} links")
 
         // Take top 3 links (already sorted by quality in load())
-        // Use extractFromUrl from Extractors.kt - 100% extraction logic is there
         links.take(3).amap { link ->
-            extractFromUrl(link, mainUrl, subtitleCallback, callback)
+            try {
+                when {
+                    link.contains("hubdrive", true) -> 
+                        Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hubcloud", true) ||
+                    link.contains("gamerxyt", true) ||
+                    link.contains("gamester", true) -> 
+                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("gadgetsweb", true) ||
+                    link.contains("hdstream4u", true) -> 
+                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hubcdn", true) -> 
+                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hubstream", true) -> 
+                        Hubstream().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hblinks", true) ||
+                    link.contains("4khdhub", true) -> 
+                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    else -> Log.w(TAG, "No extractor for: $link")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error extracting $link: ${e.message}")
+            }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Error in loadLinks: ${e.message}")
