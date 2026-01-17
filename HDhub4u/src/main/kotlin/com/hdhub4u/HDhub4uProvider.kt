@@ -389,12 +389,15 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
     // If still no episodes but we have links, try position-based episode assignment
     // Web series often have links in order: EP1 links, EP2 links, etc.
     if (episodes.isEmpty() && links.isNotEmpty()) {
-        // Check if we have hubstream links (watch/stream) - these are usually per-episode
-        val hubstreamLinks = links.filter { it.url.contains("hubstream", true) }
+        // Check if we have streaming links (watch/stream) - these are usually per-episode
+        // Both hubstream.art and hdstream4u.com are streaming sources
+        val streamingLinks = links.filter { 
+            it.url.contains("hubstream", true) || it.url.contains("hdstream4u", true) 
+        }
         
-        if (hubstreamLinks.size > 1) {
-            // Multiple hubstream links = multiple episodes - assign by position
-            hubstreamLinks.forEachIndexed { index, link ->
+        if (streamingLinks.size > 1) {
+            // Multiple streaming links = multiple episodes - assign by position
+            streamingLinks.forEachIndexed { index, link ->
                 val episodeNum = index + 1
                 episodes.add(
                     newEpisode(link.url) {
@@ -403,16 +406,43 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
                     }
                 )
             }
-            Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from hubstream links")
-        } else {
-            // Single or no hubstream - treat all links as one episode
-            val data = links.joinToString(",") { it.url }
+            Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from streaming links")
+        } else if (streamingLinks.size == 1) {
+            // Single streaming link - create one episode with it
             episodes.add(
-                newEpisode(data) {
-                    this.name = "Full Season"
+                newEpisode(streamingLinks[0].url) {
+                    this.name = "Episode 1"
                     this.episode = 1
                 }
             )
+            Log.d("HDhub4uProvider", "Created 1 episode from single streaming link")
+        } else {
+            // No streaming links - try gadgetsweb/download links
+            val downloadLinks = links.filter { 
+                it.url.contains("gadgetsweb", true) && it.originalText.contains("episode", true)
+            }
+            
+            if (downloadLinks.isNotEmpty()) {
+                downloadLinks.forEachIndexed { index, link ->
+                    val episodeNum = index + 1
+                    episodes.add(
+                        newEpisode(link.url) {
+                            this.name = "Episode $episodeNum"
+                            this.episode = episodeNum
+                        }
+                    )
+                }
+                Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from gadgetsweb links")
+            } else {
+                // Fallback: treat all links as one episode (Full Season)
+                val data = links.joinToString(",") { it.url }
+                episodes.add(
+                    newEpisode(data) {
+                        this.name = "Full Season"
+                        this.episode = 1
+                    }
+                )
+            }
         }
     }
 
