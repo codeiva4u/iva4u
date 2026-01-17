@@ -235,31 +235,31 @@ override suspend fun load(url: String): LoadResponse? {
         val href = element.attr("href")
         var text = element.text().trim()
         
-        // If link text is empty, get context from parent/siblings for episode detection
-        if (text.isBlank()) {
-            // Try parent text
-            val parentText = element.parent()?.text()?.trim() ?: ""
-            // Try previous sibling text (common pattern: "EPiSODE 01" before link)
-            val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
-            // Try next sibling text
-            val nextSiblingText = element.nextElementSibling()?.text()?.trim() ?: ""
-            
-            // Combine context for episode detection
-            text = listOf(parentText, prevSiblingText, nextSiblingText)
-                .firstOrNull { it.contains("episode", true) || it.contains("ep", true) }
-                ?: parentText.ifBlank { href }
+        // Always get context from parent/siblings for better episode detection
+        // Even links with text like "WATCH" need prevSibling context ("EPiSODE 1")
+        val parentText = element.parent()?.text()?.trim() ?: ""
+        val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
+        val nextSiblingText = element.nextElementSibling()?.text()?.trim() ?: ""
+        
+        // Combine all context for episode detection
+        // Priority: link text, then sibling context, then parent
+        val episodeContext = when {
+            text.contains("episode", true) || text.contains("ep", true) -> text
+            prevSiblingText.contains("episode", true) -> "$prevSiblingText | $text"
+            parentText.contains("episode", true) -> parentText
+            else -> text.ifBlank { parentText.ifBlank { href } }
         }
 
         if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
-            val quality = extractQuality(text.ifBlank { href })
-            val size = parseFileSize(text)
+            val quality = extractQuality(episodeContext.ifBlank { href })
+            val size = parseFileSize(episodeContext)
 
             downloadLinks.add(
                 DownloadLink(
                     url = href,
                     quality = quality,
                     sizeMB = size,
-                    originalText = text
+                    originalText = episodeContext
                 )
             )
         }
