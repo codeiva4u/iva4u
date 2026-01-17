@@ -610,10 +610,25 @@ class HUBCDN : ExtractorApi() {
         }
         
         try {
-            // For gadgetsweb.xyz with encrypted id parameter - redirect to HubCloud
+            // For gadgetsweb.xyz with encrypted id parameter
+            // Flow: gadgetsweb.xyz -> hblinks.dad -> hubcloud/hubdrive
             if (url.contains("gadgetsweb.xyz", ignoreCase = true) && url.contains("id=", ignoreCase = true)) {
-                Log.d(tag, "Handling gadgetsweb.xyz - fetching page for hubcloud link")
+                Log.d(tag, "Handling gadgetsweb.xyz - fetching page for hblinks redirect")
+                
+                // Fetch the page - the JavaScript will reveal hblinks link
                 val doc = app.get(url, timeout = 20).document
+                
+                // First check for hblinks.dad link (this is the main redirect)
+                val hblinksLink = doc.select("a[href*=hblinks]").firstOrNull()?.attr("href")
+                    ?: doc.select("a#verify_btn[href*=hblinks]").firstOrNull()?.attr("href")
+                    
+                if (!hblinksLink.isNullOrBlank() && hblinksLink.contains("hblinks", true)) {
+                    Log.d(tag, "Found hblinks link: $hblinksLink - delegating to Hblinks extractor")
+                    Hblinks().getUrl(hblinksLink, referer, subtitleCallback, callback)
+                    return
+                }
+                
+                // Fallback: check for direct hubcloud link
                 val hubcloudLink = doc.select("a[href*=hubcloud]").firstOrNull()?.attr("href")
                     ?: doc.select("a[href*=drive]").firstOrNull()?.attr("href")
                 
@@ -622,7 +637,8 @@ class HUBCDN : ExtractorApi() {
                     HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
                     return
                 }
-                Log.w(tag, "No hubcloud link found on gadgetsweb page")
+                
+                Log.w(tag, "No hblinks/hubcloud link found on gadgetsweb page")
                 return
             }
         } catch (e: Exception) {
@@ -714,20 +730,29 @@ class Hubstream : ExtractorApi() {
             val doc = app.get(requestUrl, timeout = 15).document
             val pageHtml = doc.html()
             
-            // Pattern 1: Extract m3u8/stream source URL from page
-            // Format: https://cdn.domain/v4/xxx/{videoId}/cf-master.{timestamp}.txt
+            // Pattern 1: hubstream.art/hls/.../master.m3u8 format (primary HLS stream)
+            val hlsRegex = Regex("""(https?://[^"'\s]+/hls/[^"'\s]+master\.m3u8[^"'\s]*)""")
+            val hlsMatch = hlsRegex.find(pageHtml)
+            
+            // Pattern 2: pureluxurystudios.online/v4/.../cf-master.xxx.txt format
+            val pureStreamRegex = Regex("""(https?://[^"'\s]*pureluxurystudios[^"'\s]+/cf-master[^"'\s]+\.txt)""")
+            val pureMatch = pureStreamRegex.find(pageHtml)
+            
+            // Pattern 3: v4/us/{videoId}/cf-master format
             val streamRegex = Regex("""(https?://[^"'\s]+/v4/[^"'\s]+/$videoId/[^"'\s]+\.txt)""")
             val streamMatch = streamRegex.find(pageHtml)
             
-            // Pattern 2: Alternative source format
-            val altStreamRegex = Regex("""src['":\s]+['"]?(https?://[^"'\s]+(?:m3u8|txt|mp4)[^"'\s]*)['"]?""", RegexOption.IGNORE_CASE)
+            // Pattern 4: Generic src attribute
+            val altStreamRegex = Regex("""src['":\s]+['"](https?://[^"'\s]+(?:m3u8|txt|mp4)[^"'\s]*)['"]?""", RegexOption.IGNORE_CASE)
             val altMatch = altStreamRegex.find(pageHtml)
             
-            // Pattern 3: Extract from source element
+            // Pattern 5: Extract from source element
             val sourceRegex = Regex("""<source[^>]+src=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
             val sourceMatch = sourceRegex.find(pageHtml)
             
-            val streamUrl = streamMatch?.groupValues?.get(1)
+            val streamUrl = hlsMatch?.groupValues?.get(1)
+                ?: pureMatch?.groupValues?.get(1)
+                ?: streamMatch?.groupValues?.get(1)
                 ?: altMatch?.groupValues?.get(1)
                 ?: sourceMatch?.groupValues?.get(1)
             
