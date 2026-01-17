@@ -851,3 +851,88 @@ class Hubstream : ExtractorApi() {
         }
     }
 }
+
+// HDStream4u.com Video Streaming Extractor (JWPlayer based)
+// URL Pattern: /file/xxx -> /stream/.../master.m3u8
+class HDStream4u : ExtractorApi() {
+    override val name = "HDStream4u"
+    override val mainUrl = "https://hdstream4u.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "HDStream4u"
+        Log.d(tag, "Processing URL: $url")
+        
+        try {
+            // Fetch the video page
+            val response = app.get(url, referer = referer ?: mainUrl, timeout = 15)
+            val html = response.text
+            
+            // Method 1: Extract stream URL from JWPlayer setup
+            // Pattern: file:"https://hdstream4u.com/stream/.../master.m3u8"
+            val fileRegex = Regex("""file\s*[:=]\s*["']([^"']+master\.m3u8[^"']*)["']""", RegexOption.IGNORE_CASE)
+            val fileMatch = fileRegex.find(html)
+            
+            // Method 2: Extract from sources array
+            val sourcesRegex = Regex("""sources\s*[:=]\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            val sourcesMatch = sourcesRegex.find(html)
+            
+            // Method 3: Look for any m3u8 URL in the page
+            val m3u8Regex = Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8)""", RegexOption.IGNORE_CASE)
+            val m3u8Match = m3u8Regex.find(html)
+            
+            // Method 4: Look for relative URL and construct full URL
+            val relativeRegex = Regex("""["'](/stream/[^"']+master\.m3u8[^"']*)["']""")
+            val relativeMatch = relativeRegex.find(html)
+            
+            var streamUrl = fileMatch?.groupValues?.get(1)
+                ?: sourcesMatch?.groupValues?.get(1)
+                ?: m3u8Match?.groupValues?.get(1)
+                
+            // Handle relative URL
+            if (streamUrl == null && relativeMatch != null) {
+                streamUrl = mainUrl + relativeMatch.groupValues[1]
+            }
+            
+            if (!streamUrl.isNullOrEmpty()) {
+                // Make sure it's a full URL
+                if (streamUrl.startsWith("/")) {
+                    streamUrl = mainUrl + streamUrl
+                }
+                
+                Log.d(tag, "Found stream URL: $streamUrl")
+                
+                // Extract title for quality detection
+                val titleRegex = Regex("""<title>([^<]+)</title>""", RegexOption.IGNORE_CASE)
+                val title = titleRegex.find(html)?.groupValues?.get(1) ?: "HDStream4u"
+                
+                // Extract quality from title
+                val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
+                val quality = qualityRegex.find(title)?.groupValues?.get(1)?.toIntOrNull() ?: 1080
+                
+                callback.invoke(
+                    newExtractorLink(
+                        "HDStream4u",
+                        "HDStream4u [$title]",
+                        streamUrl,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = quality
+                    }
+                )
+                return
+            }
+            
+            Log.w(tag, "No stream URL found in page")
+            
+        } catch (e: Exception) {
+            Log.e(tag, "Error extracting hdstream4u: ${e.message}")
+        }
+    }
+}

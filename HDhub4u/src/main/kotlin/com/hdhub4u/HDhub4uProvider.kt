@@ -496,9 +496,11 @@ override suspend fun loadLinks(
                     link.contains("gamester", true) -> 
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("gadgetsweb", true) ||
-                    link.contains("hdstream4u", true) -> 
+                    link.contains("gadgetsweb", true) -> 
                         HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hdstream4u", true) -> 
+                        HDStream4u().getUrl(link, mainUrl, subtitleCallback, callback)
                     
                     link.contains("hubcdn", true) -> 
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
