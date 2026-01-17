@@ -437,12 +437,8 @@ override suspend fun loadLinks(
 
         Log.d(TAG, "Processing ${links.size} links in parallel")
 
-        // Limit to max 5 links for faster loading (links already sorted by quality)
-        val limitedLinks = links.take(5)
-        Log.d(TAG, "Limited to ${limitedLinks.size} best links for fast loading")
-
         // Process links in parallel for faster loading (skip 10s delay)
-        limitedLinks.amap { link ->
+        links.amap { link ->
             try {
                 when {
                     // Hubdrive patterns
@@ -469,11 +465,6 @@ override suspend fun loadLinks(
                     link.contains("hblinks", ignoreCase = true) ||
                             link.contains("4khdhub", ignoreCase = true) -> {
                         Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Hubstream.art video player
-                    link.contains("hubstream.art", ignoreCase = true) -> {
-                        HubstreamExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
                     }
 
                     // Skip unknown links - only use project extractors
