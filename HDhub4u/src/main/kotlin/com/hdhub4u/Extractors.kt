@@ -995,13 +995,16 @@ class HDStream4u : ExtractorApi() {
             
             Log.d(tag, "Found file ID: $fileId")
             
-            // Fetch hdstream4u.com page directly (packed JS is embedded on this page)
-            Log.d(tag, "Fetching hdstream4u page: $url")
+            // CRITICAL: Fetch minochinos.com/embed (NOT hdstream4u.com)
+            // hdstream4u.com returns JS-rendered page without packed JS
+            // minochinos.com/embed returns packed JS accessible via HTTP GET
+            val embedUrl = "https://minochinos.com/embed/$fileId"
+            Log.d(tag, "Fetching minochinos embed page: $embedUrl")
             
-            val pageResponse = app.get(url, referer = referer ?: mainUrl, timeout = 20)
-            val embedHtml = pageResponse.text
+            val embedResponse = app.get(embedUrl, referer = mainUrl, timeout = 20)
+            val embedHtml = embedResponse.text
             
-            Log.d(tag, "Page content length: ${embedHtml.length}")
+            Log.d(tag, "Embed content length: ${embedHtml.length}")
             
             // ============================================================
             // Method 1: Extract URLs directly from unpacked/decoded content
