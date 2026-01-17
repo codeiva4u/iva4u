@@ -271,16 +271,30 @@ override suspend fun load(url: String): LoadResponse? {
     val bodyHtml = document.body().html()
     val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art|hubcloud\.[a-z]+|hblinks\.[a-z]+)[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
 
+    // Pattern to find episode context before URLs (EPiSODE X, Episode X, EP X, E X)
+    val episodeContextPattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
+
     urlPattern.findAll(bodyHtml).forEach { match ->
         val linkUrl = match.value
         if (downloadLinks.none { it.url == linkUrl }) {
             val quality = extractQuality(linkUrl)
+            
+            // Try to find episode context from surrounding HTML (100 chars before the URL)
+            val startPos = maxOf(0, match.range.first - 100)
+            val surroundingText = bodyHtml.substring(startPos, match.range.first)
+            val episodeMatch = episodeContextPattern.findAll(surroundingText).lastOrNull()
+            val episodeContext = if (episodeMatch != null) {
+                "EPiSODE ${episodeMatch.groupValues[1]}"
+            } else {
+                ""
+            }
+            
             downloadLinks.add(
                 DownloadLink(
                     url = linkUrl,
                     quality = quality,
                     sizeMB = 0.0,
-                    originalText = ""
+                    originalText = episodeContext
                 )
             )
         }
