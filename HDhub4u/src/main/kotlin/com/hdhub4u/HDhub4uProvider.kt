@@ -41,13 +41,6 @@ class HDhub4uProvider : MainAPI() {
     
     override var mainUrl: String = "https://new2.hdhub4u.fo"
 
-    // Fallback domains in case primary fails
-    private val fallbackDomains = listOf(
-        "https://new2.hdhub4u.fo",
-        "https://hdhub4u.foo",
-        "https://hdhub4u.life"
-    )
-
     // Async domain fetch with 10s timeout - no blocking
     private suspend fun fetchMainUrl(): String {
         if (cachedMainUrl != null) return cachedMainUrl!!

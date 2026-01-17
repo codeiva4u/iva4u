@@ -52,22 +52,22 @@ suspend fun getLatestUrl(url: String, source: String): String {
     // Use cached JSON if available (fetch only once per session)
     if (cachedUrlsJson == null) {
         try {
-            // 5 second timeout for faster fallback
+            // 10 second timeout - no fallback, only urls.json
             cachedUrlsJson = org.json.JSONObject(
                 app.get(
                     "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 5
+                    timeout = 10
                 ).text
             )
         } catch (e: Exception) {
-            Log.w("getLatestUrl", "Failed to fetch urls.json: ${e.message}")
-            return getBaseUrl(url)
+            Log.e("getLatestUrl", "Failed to fetch urls.json: ${e.message}")
+            throw e  // No fallback - urls.json is required
         }
     }
     
     val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
-        return getBaseUrl(url)
+        throw IllegalStateException("Source '$source' not found in urls.json")
     }
     return link
 }
