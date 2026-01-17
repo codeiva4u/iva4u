@@ -467,6 +467,11 @@ override suspend fun loadLinks(
                         Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
                     }
 
+                    // Hubstream.art video player
+                    link.contains("hubstream.art", ignoreCase = true) -> {
+                        HubstreamExtractor().getUrl(link, mainUrl, subtitleCallback, callback)
+                    }
+
                     // Skip unknown links - only use project extractors
                     else -> {
                         Log.d(TAG, "Skipping unknown link (no extractor): $link")

@@ -659,3 +659,89 @@ class HUBCDN : ExtractorApi() {
         }
     }
 }
+
+// Hubstream.art Video Player Extractor
+class HubstreamExtractor : ExtractorApi() {
+    override val name = "Hubstream"
+    override val mainUrl = "https://hubstream.art"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "HubstreamExtractor"
+        Log.d(tag, "Processing URL: $url")
+        
+        // Extract video ID from URL hash (e.g., hubstream.art/#d8kdio -> d8kdio)
+        val videoIdRegex = Regex("""#([a-zA-Z0-9]+)""")
+        val videoId = videoIdRegex.find(url)?.groupValues?.get(1)
+        
+        if (videoId.isNullOrEmpty()) {
+            Log.e(tag, "No video ID found in URL: $url")
+            return
+        }
+        
+        Log.d(tag, "Found video ID: $videoId")
+        
+        try {
+            // Fetch the page to extract video source
+            val doc = app.get(url, timeout = 15).document
+            val pageHtml = doc.html()
+            
+            // Pattern 1: Extract m3u8/stream source URL from page
+            // Format: https://cdn.domain/v4/xxx/{videoId}/cf-master.{timestamp}.txt
+            val streamRegex = Regex("""(https?://[^"'\s]+/v4/[^"'\s]+/$videoId/[^"'\s]+\.txt)""")
+            val streamMatch = streamRegex.find(pageHtml)
+            
+            // Pattern 2: Alternative source format
+            val altStreamRegex = Regex("""src['":\s]+['"]?(https?://[^"'\s]+(?:m3u8|txt|mp4)[^"'\s]*)['"]?""", RegexOption.IGNORE_CASE)
+            val altMatch = altStreamRegex.find(pageHtml)
+            
+            // Pattern 3: Extract from source element
+            val sourceRegex = Regex("""<source[^>]+src=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
+            val sourceMatch = sourceRegex.find(pageHtml)
+            
+            val streamUrl = streamMatch?.groupValues?.get(1)
+                ?: altMatch?.groupValues?.get(1)
+                ?: sourceMatch?.groupValues?.get(1)
+            
+            if (!streamUrl.isNullOrEmpty()) {
+                Log.d(tag, "Found stream URL: $streamUrl")
+                
+                // Determine if it's m3u8 or direct
+                val linkType = when {
+                    streamUrl.contains("m3u8", true) || streamUrl.contains(".txt", true) -> ExtractorLinkType.M3U8
+                    streamUrl.contains("mp4", true) || streamUrl.contains("mkv", true) -> ExtractorLinkType.VIDEO
+                    else -> INFER_TYPE
+                }
+                
+                // Extract quality from title if available
+                val title = doc.title()
+                val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
+                val quality = qualityRegex.find(title)?.groupValues?.get(1)?.toIntOrNull() ?: Qualities.Unknown.value
+                
+                callback.invoke(
+                    newExtractorLink(
+                        "Hubstream [Stream]",
+                        "Hubstream [Stream] [$title]",
+                        streamUrl,
+                        linkType
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = quality
+                    }
+                )
+            }
+            
+            // Also provide download link if available
+            val downloadUrl = "$mainUrl/#$videoId&dl=1"
+            Log.d(tag, "Download link: $downloadUrl")
+            
+        } catch (e: Exception) {
+            Log.e(tag, "Error extracting hubstream: ${e.message}")
+        }
+    }
+}
