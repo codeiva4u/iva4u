@@ -233,7 +233,22 @@ override suspend fun load(url: String): LoadResponse? {
     // Method 1: Use CSS selectors to find all links on page
     document.select("a[href]").forEach { element ->
         val href = element.attr("href")
-        val text = element.text().trim()
+        var text = element.text().trim()
+        
+        // If link text is empty, get context from parent/siblings for episode detection
+        if (text.isBlank()) {
+            // Try parent text
+            val parentText = element.parent()?.text()?.trim() ?: ""
+            // Try previous sibling text (common pattern: "EPiSODE 01" before link)
+            val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
+            // Try next sibling text
+            val nextSiblingText = element.nextElementSibling()?.text()?.trim() ?: ""
+            
+            // Combine context for episode detection
+            text = listOf(parentText, prevSiblingText, nextSiblingText)
+                .firstOrNull { it.contains("episode", true) || it.contains("ep", true) }
+                ?: parentText.ifBlank { href }
+        }
 
         if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
             val quality = extractQuality(text.ifBlank { href })
@@ -336,16 +351,27 @@ private data class DownloadLink(
 )
 
 private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
-    // Try to extract episode info using Regex
     val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
 
-    // Pattern for episode numbers in links
-    val episodePattern = Regex("""(?:E|Episode|Ep)[\s.-]*(\d+)""", RegexOption.IGNORE_CASE)
+    // Pattern for episode numbers - multiple formats
+    val episodePattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
 
+    // Group links by episode number
     val groupedByEpisode = links.groupBy { link ->
-        episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        // Try to find episode number in text first
+        var episodeNum = episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
+        
+        // If not found in text, try URL (for hubstream.art links which have unique IDs per episode)
+        if (episodeNum == null || episodeNum == 0) {
+            // For web series, links are often in order - use index as fallback later
+            episodeNum = 0
+        }
+        episodeNum
     }
 
+    Log.d("HDhub4uProvider", "Episode grouping: ${groupedByEpisode.keys}")
+
+    // Create episodes from grouped links
     if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
         groupedByEpisode.forEach { (episodeNum, episodeLinks) ->
             if (episodeNum > 0) {
@@ -360,15 +386,34 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
         }
     }
 
-    // If no episodes found, treat all links as single episode
+    // If still no episodes but we have links, try position-based episode assignment
+    // Web series often have links in order: EP1 links, EP2 links, etc.
     if (episodes.isEmpty() && links.isNotEmpty()) {
-        val data = links.joinToString(",") { it.url }
-        episodes.add(
-            newEpisode(data) {
-                this.name = "Full Season"
-                this.episode = 1
+        // Check if we have hubstream links (watch/stream) - these are usually per-episode
+        val hubstreamLinks = links.filter { it.url.contains("hubstream", true) }
+        
+        if (hubstreamLinks.size > 1) {
+            // Multiple hubstream links = multiple episodes - assign by position
+            hubstreamLinks.forEachIndexed { index, link ->
+                val episodeNum = index + 1
+                episodes.add(
+                    newEpisode(link.url) {
+                        this.name = "Episode $episodeNum"
+                        this.episode = episodeNum
+                    }
+                )
             }
-        )
+            Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from hubstream links")
+        } else {
+            // Single or no hubstream - treat all links as one episode
+            val data = links.joinToString(",") { it.url }
+            episodes.add(
+                newEpisode(data) {
+                    this.name = "Full Season"
+                    this.episode = 1
+                }
+            )
+        }
     }
 
     return episodes.sortedBy { it.episode }
