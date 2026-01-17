@@ -600,11 +600,33 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Only skip hubcdn.fans/file/ URLs - they are ad redirect pages
-        // But hdstream4u.com/file/ URLs are valid video links
+        val tag = "HUBCDN"
+        Log.d(tag, "Processing URL: $url")
+        
+        // Skip hubcdn.fans/file/ URLs - they are ad redirect pages
         if (url.contains("hubcdn.fans/file/", ignoreCase = true)) {
-            Log.d("HUBCDN", "Skipping hubcdn.fans/file/ URL (ad page): $url")
+            Log.d(tag, "Skipping hubcdn.fans/file/ URL (ad page): $url")
             return
+        }
+        
+        try {
+            // For gadgetsweb.xyz with encrypted id parameter - redirect to HubCloud
+            if (url.contains("gadgetsweb.xyz", ignoreCase = true) && url.contains("id=", ignoreCase = true)) {
+                Log.d(tag, "Handling gadgetsweb.xyz - fetching page for hubcloud link")
+                val doc = app.get(url, timeout = 20).document
+                val hubcloudLink = doc.select("a[href*=hubcloud]").firstOrNull()?.attr("href")
+                    ?: doc.select("a[href*=drive]").firstOrNull()?.attr("href")
+                
+                if (!hubcloudLink.isNullOrBlank() && hubcloudLink.contains("hubcloud", true)) {
+                    Log.d(tag, "Found hubcloud link: $hubcloudLink")
+                    HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
+                    return
+                }
+                Log.w(tag, "No hubcloud link found on gadgetsweb page")
+                return
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error handling gadgetsweb: ${e.message}")
         }
         
         val doc = app.get(url).documentLarge
