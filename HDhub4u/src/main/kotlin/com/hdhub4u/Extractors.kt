@@ -5,6 +5,9 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
+import com.lagradost.cloudstream3.extractors.PixelDrain
+import com.lagradost.cloudstream3.extractors.VidHidePro
+import com.lagradost.cloudstream3.extractors.VidStack
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -12,6 +15,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import java.net.URI
 
 // Helper function to load source with extractor name
@@ -20,21 +24,16 @@ suspend fun loadSourceNameExtractor(
     url: String,
     referer: String,
     quality: Int,
+    subtitleCallback: (SubtitleFile) -> Unit,
     callback: (ExtractorLink) -> Unit
 ) {
-    try {
-        callback.invoke(
-            newExtractorLink(
-                name,
-                name,
-                url = url,
-            ) {
-                this.referer = referer
-                this.quality = quality
-            }
-        )
-    } catch (e: Exception) {
-        Log.e("loadSourceNameExtractor", "Error: ${e.message}")
+    loadExtractor(url, referer, subtitleCallback, callback)
+}
+
+// Utility functions for dynamic URL management
+fun getBaseUrl(url: String): String {
+    return URI(url).let {
+        "${it.scheme}://${it.host}"
     }
 }
 
@@ -45,22 +44,17 @@ suspend fun getLatestUrl(url: String, source: String): String {
     // Use cached JSON if available (fetch only once per session)
     if (cachedUrlsJson == null) {
         try {
-            // 10 second timeout - no fallback, only urls.json
             cachedUrlsJson = org.json.JSONObject(
-                app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
-                ).text
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
             )
         } catch (e: Exception) {
-            Log.e("getLatestUrl", "Failed to fetch urls.json: ${e.message}")
-            throw e  // No fallback - urls.json is required
+            return getBaseUrl(url)
         }
     }
     
     val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
-        throw IllegalStateException("Source '$source' not found in urls.json")
+        return getBaseUrl(url)
     }
     return link
 }
@@ -116,6 +110,15 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): 
     
     return adjustedQuality
 }
+
+class HdStream4u : VidHidePro() {
+    override var mainUrl = "https://hdstream4u.*"
+}
+
+class Hubstream : VidStack() {
+    override var mainUrl = "https://hubstream.*"
+}
+
 class Hubstreamdad : Hblinks() {
     override var mainUrl = "https://hblinks.*"
 }
@@ -138,7 +141,7 @@ open class Hblinks : ExtractorApi() {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
                 "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
                 "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value, callback)
+                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value,subtitleCallback, callback)
             }
         }
     }
@@ -178,6 +181,11 @@ class Hubcdnn : ExtractorApi() {
         }
     }
 }
+
+class PixelDrainDev : PixelDrain(){
+    override var mainUrl = "https://pixeldrain.dev"
+}
+
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
     override val mainUrl = "https://hubdrive.*"
@@ -192,8 +200,8 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Use CloudflareKiller interceptor to bypass Cloudflare 403 (15s timeout for speed)
-        val doc = app.get(url, timeout = 15, interceptor = cfKiller).documentLarge
+        // Use CloudflareKiller interceptor to bypass Cloudflare 403
+        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -246,8 +254,8 @@ class HubCloud : ExtractorApi() {
                 "hubcloud.php" in urlToUse || "gamerxyt.com" in urlToUse -> urlToUse
                 "/drive/" in urlToUse -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
-                    // Use CloudflareKiller with 15s timeout for speed
-                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document
+                    // Use CloudflareKiller to bypass protection
+                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
@@ -285,7 +293,7 @@ class HubCloud : ExtractorApi() {
                     }
                 }
                 else -> {
-                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document.select("#download").attr("href")
+                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
                     if (rawHref.startsWith("http", ignoreCase = true)) rawHref
                     else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
@@ -302,8 +310,8 @@ class HubCloud : ExtractorApi() {
 
         Log.d(tag, "Fetching download page: $href")
 
-        // Use CloudflareKiller for gamerxyt.com final download page (15s timeout)
-        val document = app.get(href, interceptor = cfKiller, timeout = 15).document
+        // Use CloudflareKiller for gamerxyt.com final download page
+        val document = app.get(href, interceptor = cfKiller).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
@@ -600,107 +608,10 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val tag = "HUBCDN"
-        Log.d(tag, "Processing URL: $url")
-        
-        // Skip hubcdn.fans/file/ URLs - they are ad redirect pages
-        if (url.contains("hubcdn.fans/file/", ignoreCase = true)) {
-            Log.d(tag, "Skipping hubcdn.fans/file/ URL (ad page): $url")
+        // Skip /file/ URLs - they are ad redirect pages with no video content
+        if ("/file/" in url) {
+            Log.d("HUBCDN", "Skipping /file/ URL (ad page): $url")
             return
-        }
-        
-        try {
-            // For gadgetsweb.xyz with encrypted id parameter
-            // Flow: gadgetsweb.xyz -> decrypt -> hblinks.dad -> hubcloud/hubdrive
-            if (url.contains("gadgetsweb.xyz", ignoreCase = true) && url.contains("id=", ignoreCase = true)) {
-                Log.d(tag, "Handling gadgetsweb.xyz - attempting to decrypt")
-                
-                // Fetch the initial redirect page
-                val response = app.get(url, timeout = 20)
-                val html = response.text
-                
-                // Method 1: Extract encrypted data from JavaScript s() function call
-                // Pattern: s('o','BASE64_DATA',180*1000)
-                val encryptedDataRegex = Regex("""s\s*\(\s*['"]o['"]\s*,\s*['"]([A-Za-z0-9+/=]+)['"]\s*,""")
-                val encryptedMatch = encryptedDataRegex.find(html)
-                
-                if (encryptedMatch != null) {
-                    val encryptedData = encryptedMatch.groupValues[1]
-                    Log.d(tag, "Found encrypted data: ${encryptedData.take(50)}...")
-                    
-                    try {
-                        // Gadgetsweb uses: Base64 -> ROT13-like -> Base64 -> hblinks URL
-                        // First decode
-                        val firstDecode = base64Decode(encryptedData)
-                        Log.d(tag, "First decode: ${firstDecode.take(50)}...")
-                        
-                        // Apply ROT13 variant (shift by 13)
-                        val rot13Decoded = firstDecode.map { char ->
-                            when {
-                                char in 'a'..'z' -> ((char - 'a' + 13) % 26 + 'a'.code).toChar()
-                                char in 'A'..'Z' -> ((char - 'A' + 13) % 26 + 'A'.code).toChar()
-                                else -> char
-                            }
-                        }.joinToString("")
-                        
-                        // Try second base64 decode
-                        val secondDecode = try { base64Decode(rot13Decoded) } catch (e: Exception) { rot13Decoded }
-                        Log.d(tag, "Second decode: ${secondDecode.take(100)}...")
-                        
-                        // Extract hblinks URL from decoded data
-                        val hblinksRegex = Regex("""https?://hblinks[^"'\s<>]+/archives/\d+""", RegexOption.IGNORE_CASE)
-                        val hblinksMatch = hblinksRegex.find(secondDecode)
-                        
-                        if (hblinksMatch != null) {
-                            val hblinksUrl = hblinksMatch.value
-                            Log.d(tag, "Decrypted hblinks URL: $hblinksUrl")
-                            Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
-                            return
-                        }
-                    } catch (e: Exception) {
-                        Log.e(tag, "Decryption failed: ${e.message}")
-                    }
-                }
-                
-                // Method 2: Fetch /homelander/ page and check for links
-                try {
-                    val homelanderDoc = app.get("https://gadgetsweb.xyz/homelander/", timeout = 15).document
-                    val hblinksLink = homelanderDoc.select("a[href*=hblinks]").firstOrNull()?.attr("href")
-                    if (!hblinksLink.isNullOrBlank()) {
-                        Log.d(tag, "Found hblinks on homelander page: $hblinksLink")
-                        Hblinks().getUrl(hblinksLink, referer, subtitleCallback, callback)
-                        return
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Homelander page fetch failed: ${e.message}")
-                }
-                
-                // Method 3: Original DOM parsing fallback
-                val doc = response.document
-                val hblinksLink = doc.select("a[href*=hblinks]").firstOrNull()?.attr("href")
-                    ?: doc.select("a#verify_btn[href*=hblinks]").firstOrNull()?.attr("href")
-                    
-                if (!hblinksLink.isNullOrBlank() && hblinksLink.contains("hblinks", true)) {
-                    Log.d(tag, "Found hblinks link: $hblinksLink")
-                    Hblinks().getUrl(hblinksLink, referer, subtitleCallback, callback)
-                    return
-                }
-                
-                // Method 4: Check for direct hubcloud link
-                val hubcloudLink = doc.select("a[href*=hubcloud]").firstOrNull()?.attr("href")
-                    ?: doc.select("a[href*=drive]").firstOrNull()?.attr("href")
-                
-                if (!hubcloudLink.isNullOrBlank() && hubcloudLink.contains("hubcloud", true)) {
-                    Log.d(tag, "Found hubcloud link: $hubcloudLink")
-                    HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
-                    return
-                }
-                
-                Log.w(tag, "No hblinks/hubcloud link found on gadgetsweb page")
-                return
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error handling gadgetsweb: ${e.message}")
         }
         
         val doc = app.get(url).documentLarge
@@ -747,378 +658,5 @@ class HUBCDN : ExtractorApi() {
                 Log.e("HUBCDN", "Fallback failed: ${e.message}")
             }
         }
-    }
-}
-
-// Hubstream.art Video Player Extractor
-class Hubstream : ExtractorApi() {
-    override val name = "Hubstream"
-    override val mainUrl = "https://hubstream.*"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "Hubstream"
-        Log.d(tag, "Processing URL: $url")
-        
-        // Extract video ID from URL hash (e.g., hubstream.art/#d8kdio -> d8kdio)
-        val videoIdRegex = Regex("""#([a-zA-Z0-9]+)""")
-        val videoId = videoIdRegex.find(url)?.groupValues?.get(1)
-        
-        if (videoId.isNullOrEmpty()) {
-            Log.e(tag, "No video ID found in URL: $url")
-            return
-        }
-        
-        Log.d(tag, "Found video ID: $videoId")
-        
-        try {
-            // Method 0: Try direct hubstream.art HLS endpoint (discovered via deep scraping)
-            // Pattern: https://hubstream.art/hls/{token}/us/{videoId}/{suffix}/master.m3u8
-            // The token is dynamic, but we can try to fetch the page and extract it
-            val hubstreamPageUrl = "https://hubstream.art/#$videoId"
-            Log.d(tag, "Fetching hubstream page for HLS URL: $hubstreamPageUrl")
-            
-            try {
-                val pageResponse = app.get(hubstreamPageUrl, timeout = 15)
-                val pageHtml = pageResponse.text
-                
-                // Look for direct HLS URL in page/script
-                val directHlsPatterns = listOf(
-                    Regex("""(https?://hubstream\.art/hls/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
-                    Regex("""(https?://[^"'\s<>]+hubstream[^"'\s<>]+/hls/[^"'\s<>]+\.m3u8)"""),
-                    Regex(""""src"\s*:\s*"(https?://[^"]+\.m3u8[^"]*)""""""),
-                    Regex("""source\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
-                )
-                
-                for (pattern in directHlsPatterns) {
-                    val match = pattern.find(pageHtml)
-                    if (match != null) {
-                        val streamUrl = match.groupValues[1]
-                        Log.d(tag, "Found direct HLS URL: $streamUrl")
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "Hubstream",
-                                "Hubstream [HLS Direct]",
-                                streamUrl,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = "https://hubstream.art/"
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                        return
-                    }
-                }
-                
-                // Try to extract video config from JavaScript
-                val configPatterns = listOf(
-                    Regex("""video_id\s*[=:]\s*['"]([^'"]+)['"]"""),
-                    Regex("""file\s*[=:]\s*['"]([^'"]+\.m3u8[^'"]*)['"]"""),
-                    Regex("""hls\s*[=:]\s*['"]([^'"]+)['"]""")
-                )
-                
-                for (pattern in configPatterns) {
-                    val match = pattern.find(pageHtml)
-                    if (match != null) {
-                        val value = match.groupValues[1]
-                        if (value.contains("m3u8") || value.contains("http")) {
-                            var streamUrl = value
-                            if (streamUrl.startsWith("/")) {
-                                streamUrl = "https://hubstream.art$streamUrl"
-                            }
-                            Log.d(tag, "Found config URL: $streamUrl")
-                            
-                            callback.invoke(
-                                newExtractorLink(
-                                    "Hubstream",
-                                    "Hubstream [Config]",
-                                    streamUrl,
-                                    ExtractorLinkType.M3U8
-                                ) {
-                                    this.referer = "https://hubstream.art/"
-                                    this.quality = Qualities.Unknown.value
-                                }
-                            )
-                            return
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(tag, "Direct HLS extraction failed: ${e.message}")
-            }
-            
-            // Method 1: Try pureluxurystudios.online direct URL (fallback)
-            // Pattern: https://srcf.pureluxurystudios.online/v4/us/{VIDEO_ID}/cf-master.{TIMESTAMP}.txt
-            
-            val pureServers = listOf("srcf", "sil5", "src2", "sil2")
-            val currentTimestamp = System.currentTimeMillis() / 1000
-            
-            for (server in pureServers) {
-                try {
-                    val pureStreamUrl = "https://$server.pureluxurystudios.online/v4/us/$videoId/cf-master.$currentTimestamp.txt"
-                    Log.d(tag, "Trying pureluxurystudios: $pureStreamUrl")
-                    
-                    // Check if URL is accessible with HEAD request
-                    val testResponse = app.head(pureStreamUrl, timeout = 5)
-                    if (testResponse.code == 200) {
-                        Log.d(tag, "Found working pureluxurystudios URL: $pureStreamUrl")
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "Hubstream",
-                                "Hubstream [HLS]",
-                                pureStreamUrl,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = "https://hubstream.art/"
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                        return
-                    }
-                } catch (e: Exception) {
-                    Log.d(tag, "Server $server not available: ${e.message}")
-                }
-            }
-            
-            // Method 2: Fetch hubstream page and look for stream URLs in HTML/JS
-            val hubstreamDomain = try {
-                getLatestUrl(url, "hubstream")
-            } catch (e: Exception) {
-                "https://hubstream.art"
-            }
-            Log.d(tag, "Using hubstream domain: $hubstreamDomain")
-        
-            // Construct URL with latest domain
-            val requestUrl = "$hubstreamDomain/#$videoId"
-            
-            // Fetch the page to extract video source
-            val doc = app.get(requestUrl, timeout = 15).document
-            val pageHtml = doc.html()
-            
-            // Pattern 1: hubstream.art/hls/.../master.m3u8 format (primary HLS stream)
-            val hlsRegex = Regex("""(https?://[^"'\s]+/hls/[^"'\s]+master\.m3u8[^"'\s]*)""")
-            val hlsMatch = hlsRegex.find(pageHtml)
-            
-            // Pattern 2: pureluxurystudios.online/v4/.../cf-master.xxx.txt format
-            val pureStreamRegex = Regex("""(https?://[^"'\s]*pureluxurystudios[^"'\s]+/cf-master[^"'\s]+\.txt)""")
-            val pureMatch = pureStreamRegex.find(pageHtml)
-            
-            // Pattern 3: v4/us/{videoId}/cf-master format
-            val streamRegex = Regex("""(https?://[^"'\s]+/v4/[^"'\s]+/$videoId/[^"'\s]+\.txt)""")
-            val streamMatch = streamRegex.find(pageHtml)
-            
-            // Pattern 4: Generic src attribute
-            val altStreamRegex = Regex("""src['":\s]+['"](https?://[^"'\s]+(?:m3u8|txt|mp4)[^"'\s]*)['"]?""", RegexOption.IGNORE_CASE)
-            val altMatch = altStreamRegex.find(pageHtml)
-            
-            // Pattern 5: Extract from source element
-            val sourceRegex = Regex("""<source[^>]+src=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
-            val sourceMatch = sourceRegex.find(pageHtml)
-            
-            val streamUrl = hlsMatch?.groupValues?.get(1)
-                ?: pureMatch?.groupValues?.get(1)
-                ?: streamMatch?.groupValues?.get(1)
-                ?: altMatch?.groupValues?.get(1)
-                ?: sourceMatch?.groupValues?.get(1)
-            
-            if (!streamUrl.isNullOrEmpty()) {
-                Log.d(tag, "Found stream URL: $streamUrl")
-                
-                // Determine if it's m3u8 or direct
-                val linkType = when {
-                    streamUrl.contains("m3u8", true) || streamUrl.contains(".txt", true) -> ExtractorLinkType.M3U8
-                    streamUrl.contains("mp4", true) || streamUrl.contains("mkv", true) -> ExtractorLinkType.VIDEO
-                    else -> INFER_TYPE
-                }
-                
-                // Extract quality from title if available
-                val title = doc.title()
-                val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-                val quality = qualityRegex.find(title)?.groupValues?.get(1)?.toIntOrNull() ?: Qualities.Unknown.value
-                
-                callback.invoke(
-                    newExtractorLink(
-                        "Hubstream [Stream]",
-                        "Hubstream [Stream] [$title]",
-                        streamUrl,
-                        linkType
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
-                    }
-                )
-            }
-            
-            // Also provide download link if available
-            val downloadUrl = "$mainUrl/#$videoId&dl=1"
-            Log.d(tag, "Download link: $downloadUrl")
-            
-        } catch (e: Exception) {
-            Log.e(tag, "Error extracting hubstream: ${e.message}")
-        }
-    }
-}
-
-// HDStream4u.com Video Streaming Extractor (JWPlayer based)
-// hdstream4u.com/file/xxx embeds packed JS directly on page with stream URLs
-// Decoded packed JS format: var links = {hls2: "https://...m3u8", hls3: "https://...txt", hls4: "/stream/...m3u8"}
-class HDStream4u : ExtractorApi() {
-    override val name = "HDStream4u"
-    override val mainUrl = "https://hdstream4u.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "HDStream4u"
-        Log.d(tag, "Processing URL: $url")
-        
-        try {
-            // Extract file ID from URL (e.g., /file/5cma7x2t4a88)
-            val fileIdRegex = Regex("""/file/([a-zA-Z0-9]+)""")
-            val fileId = fileIdRegex.find(url)?.groupValues?.get(1)
-            
-            if (fileId.isNullOrEmpty()) {
-                Log.e(tag, "Could not extract file ID from URL: $url")
-                return
-            }
-            
-            Log.d(tag, "Found file ID: $fileId")
-            
-            // CRITICAL: Fetch minochinos.com/embed (NOT hdstream4u.com)
-            // hdstream4u.com returns JS-rendered page without packed JS
-            // minochinos.com/embed returns packed JS accessible via HTTP GET
-            val embedUrl = "https://minochinos.com/embed/$fileId"
-            Log.d(tag, "Fetching minochinos embed page: $embedUrl")
-            
-            val embedResponse = app.get(embedUrl, referer = mainUrl, timeout = 20)
-            val embedHtml = embedResponse.text
-            
-            Log.d(tag, "Embed content length: ${embedHtml.length}")
-            
-            // ============================================================
-            // Method 1: Extract URLs directly from unpacked/decoded content
-            // Look for var links = {"hls2":"...", "hls3":"...", "hls4":"..."}
-            // ============================================================
-            
-            // Pattern 1: Full URL with domain (hls2/hls3 format)
-            val fullUrlPatterns = listOf(
-                Regex(""""hls[23]"\s*:\s*"(https?://[^"]+\.(m3u8|txt)[^"]*)""""),
-                Regex("""hls[23]\s*:\s*"(https?://[^"]+\.(m3u8|txt)[^"]*)""""),
-                Regex(""""hls[23]"\s*:\s*\\?"(https?://[^"\\]+\.(m3u8|txt)[^"\\]*)"""),
-                Regex("""(https?://[^"'\s<>]+\.acek-cdn\.com/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
-                Regex("""(https?://[^"'\s<>]+willowgrove[^"'\s<>]+master\.txt[^"'\s<>]*)"""),
-                Regex("""(https?://[^"'\s<>]+creativebranding[^"'\s<>]+master\.txt[^"'\s<>]*)""")
-            )
-            
-            for (pattern in fullUrlPatterns) {
-                val match = pattern.find(embedHtml)
-                if (match != null) {
-                    val streamUrl = match.groupValues[1]
-                    Log.d(tag, "Found full stream URL: $streamUrl")
-                    createExtractorLink(streamUrl, callback)
-                    return
-                }
-            }
-            
-            // Pattern 2: Relative URL (/stream/...) for hls4
-            val relativePatterns = listOf(
-                Regex(""""hls4"\s*:\s*"(/stream/[^"]+master\.m3u8[^"]*)""""),
-                Regex("""hls4\s*:\s*"(/stream/[^"]+)""""),
-                Regex(""""hls4"\s*:\s*\\?"(/stream/[^"\\]+)""")
-            )
-            
-            for (pattern in relativePatterns) {
-                val match = pattern.find(embedHtml)
-                if (match != null) {
-                    val streamPath = match.groupValues[1]
-                    val streamUrl = "https://minochinos.com$streamPath"
-                    Log.d(tag, "Found relative stream URL, converted to: $streamUrl")
-                    createExtractorLink(streamUrl, callback)
-                    return
-                }
-            }
-            
-            // ============================================================
-            // Method 2: Try to extract from JWPlayer source directly
-            // ============================================================
-            val jwSourcePatterns = listOf(
-                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*[^,]+\s*,\s*type\s*:\s*["']hls["']"""),
-                Regex("""file\s*:\s*links\.(hls\d)"""),
-                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']""")
-            )
-            
-            for (pattern in jwSourcePatterns) {
-                val match = pattern.find(embedHtml)
-                if (match != null && match.groupValues.size > 1) {
-                    val url = match.groupValues[1]
-                    if (url.startsWith("http")) {
-                        Log.d(tag, "Found JW source URL: $url")
-                        createExtractorLink(url, callback)
-                        return
-                    }
-                }
-            }
-            
-            // ============================================================
-            // Method 3: Use known CDN patterns with file ID
-            // ============================================================
-            Log.d(tag, "Trying CDN pattern construction with fileId: $fileId")
-            
-            // Try to construct stream URL using known patterns (this is a heuristic)
-            val streamUrlFromConstruction = "https://minochinos.com/stream/$fileId/master.m3u8"
-            
-            // Verify if URL works by checking headers
-            try {
-                val testResponse = app.head(streamUrlFromConstruction, timeout = 5)
-                if (testResponse.code == 200) {
-                    Log.d(tag, "Constructed stream URL works: $streamUrlFromConstruction")
-                    createExtractorLink(streamUrlFromConstruction, callback)
-                    return
-                }
-            } catch (e: Exception) {
-                Log.d(tag, "Constructed URL failed: ${e.message}")
-            }
-            
-            Log.w(tag, "No stream URL found for $url")
-            
-        } catch (e: Exception) {
-            Log.e(tag, "Error extracting hdstream4u: ${e.message}")
-        }
-    }
-    
-    private suspend fun createExtractorLink(streamUrl: String, callback: (ExtractorLink) -> Unit) {
-        // Determine quality from URL or default to 1080
-        val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-        val quality = qualityRegex.find(streamUrl)?.groupValues?.get(1)?.toIntOrNull() ?: 1080
-        
-        // Determine link type
-        val linkType = when {
-            streamUrl.contains(".m3u8", true) -> ExtractorLinkType.M3U8
-            streamUrl.contains(".txt", true) -> ExtractorLinkType.M3U8 // HLS with txt extension
-            else -> INFER_TYPE
-        }
-        
-        callback.invoke(
-            newExtractorLink(
-                name,
-                "$name [Stream]",
-                streamUrl,
-                linkType
-            ) {
-                this.referer = "https://minochinos.com/"
-                this.quality = quality
-            }
-        )
     }
 }
