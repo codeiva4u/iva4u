@@ -52,10 +52,15 @@ suspend fun getLatestUrl(url: String, source: String): String {
     // Use cached JSON if available (fetch only once per session)
     if (cachedUrlsJson == null) {
         try {
+            // 5 second timeout for faster fallback
             cachedUrlsJson = org.json.JSONObject(
-                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+                app.get(
+                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
+                    timeout = 5
+                ).text
             )
         } catch (e: Exception) {
+            Log.w("getLatestUrl", "Failed to fetch urls.json: ${e.message}")
             return getBaseUrl(url)
         }
     }
@@ -194,8 +199,8 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Use CloudflareKiller interceptor to bypass Cloudflare 403
-        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
+        // Use CloudflareKiller interceptor to bypass Cloudflare 403 (15s timeout for speed)
+        val doc = app.get(url, timeout = 15, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -248,8 +253,8 @@ class HubCloud : ExtractorApi() {
                 "hubcloud.php" in urlToUse || "gamerxyt.com" in urlToUse -> urlToUse
                 "/drive/" in urlToUse -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
-                    // Use CloudflareKiller to bypass protection
-                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
+                    // Use CloudflareKiller with 15s timeout for speed
+                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
@@ -287,7 +292,7 @@ class HubCloud : ExtractorApi() {
                     }
                 }
                 else -> {
-                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
+                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document.select("#download").attr("href")
                     if (rawHref.startsWith("http", ignoreCase = true)) rawHref
                     else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
@@ -304,8 +309,8 @@ class HubCloud : ExtractorApi() {
 
         Log.d(tag, "Fetching download page: $href")
 
-        // Use CloudflareKiller for gamerxyt.com final download page
-        val document = app.get(href, interceptor = cfKiller).document
+        // Use CloudflareKiller for gamerxyt.com final download page (15s timeout)
+        val document = app.get(href, interceptor = cfKiller, timeout = 15).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
