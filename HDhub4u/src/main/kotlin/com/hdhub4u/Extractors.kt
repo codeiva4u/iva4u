@@ -111,12 +111,280 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): 
     return adjustedQuality
 }
 
-class HdStream4u : VidHidePro() {
-    override var mainUrl = "https://hdstream4u.*"
+class HdStream4u : ExtractorApi() {
+    override val name = "HdStream4u"
+    override val mainUrl = "https://hdstream4u.com"
+    override val requiresReferer = true
+    
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        Log.d("HdStream4u", "Processing: $url")
+        
+        try {
+            val document = app.get(url, referer = referer ?: mainUrl).document
+            val html = document.html()
+            
+            // Method 1: Find packed JavaScript (eval/function(p,a,c,k,e,d))
+            val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?\.split\('\|'\)\)\)""", RegexOption.DOT_MATCHES_ALL)
+            val packedMatch = packedRegex.find(html)
+            
+            if (packedMatch != null) {
+                val unpacked = unpackJs(packedMatch.value)
+                Log.d("HdStream4u", "Unpacked JS length: ${unpacked.length}")
+                
+                // Extract HLS URLs from unpacked JS
+                // Pattern: var links={"hls4":"/stream/...", "hls2":"https://..."}
+                val hlsRegex = Regex("""["']hls[234]["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']""")
+                val hlsMatches = hlsRegex.findAll(unpacked)
+                
+                hlsMatches.forEachIndexed { index, match ->
+                    var hlsUrl = match.groupValues[1]
+                    
+                    // Fix relative URLs
+                    if (hlsUrl.startsWith("/")) {
+                        hlsUrl = "https://hdstream4u.com$hlsUrl"
+                    }
+                    
+                    Log.d("HdStream4u", "Found HLS $index: $hlsUrl")
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = if (index == 0) "$name [Primary]" else "$name [CDN $index]",
+                            url = hlsUrl,
+                            type = ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                }
+                
+                // Also extract quality labels if available
+                val qualityRegex = Regex("""qualityLabels['"]\s*:\s*\{([^}]+)\}""")
+                val qualityMatch = qualityRegex.find(unpacked)
+                if (qualityMatch != null) {
+                    Log.d("HdStream4u", "Quality labels: ${qualityMatch.groupValues[1]}")
+                }
+            }
+            
+            // Method 2: Fallback - Look for direct m3u8 URLs in page
+            if (packedMatch == null) {
+                val m3u8Regex = Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""")
+                val m3u8Matches = m3u8Regex.findAll(html)
+                
+                m3u8Matches.forEachIndexed { index, match ->
+                    val hlsUrl = match.value
+                    Log.d("HdStream4u", "Direct M3U8 $index: $hlsUrl")
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = "$name [Stream $index]",
+                            url = hlsUrl,
+                            type = ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e("HdStream4u", "Error: ${e.message}")
+        }
+    }
+    
+    // JavaScript unpacker for eval(function(p,a,c,k,e,d){...})
+    private fun unpackJs(packed: String): String {
+        try {
+            // Extract the packed data
+            val dataRegex = Regex("""}\('([^']+)',(\d+),(\d+),'([^']+)'\.split\('\|'\)\)""")
+            val match = dataRegex.find(packed) ?: return ""
+            
+            val p = match.groupValues[1]
+            val a = match.groupValues[2].toInt()
+            val c = match.groupValues[3].toInt()
+            val kWords = match.groupValues[4].split("|")
+            
+            // Build replacement map
+            val result = StringBuilder(p)
+            
+            // Replace encoded values with words from dictionary
+            for (i in (c - 1) downTo 0) {
+                val encoded = encodeBase(i, a)
+                val word = if (i < kWords.size && kWords[i].isNotEmpty()) kWords[i] else encoded
+                
+                // Replace all occurrences of encoded value with word
+                val regex = Regex("\\b$encoded\\b")
+                val newResult = result.toString().replace(regex, word)
+                result.clear()
+                result.append(newResult)
+            }
+            
+            return result.toString()
+        } catch (e: Exception) {
+            Log.e("HdStream4u", "Unpack error: ${e.message}")
+            return ""
+        }
+    }
+    
+    // Convert number to base (supports up to base 62)
+    private fun encodeBase(num: Int, base: Int): String {
+        if (num < base) {
+            return when {
+                num < 10 -> num.toString()
+                num < 36 -> ('a' + (num - 10)).toString()
+                else -> ('A' + (num - 36)).toString()
+            }
+        }
+        return encodeBase(num / base, base) + encodeBase(num % base, base)
+    }
 }
 
-class Hubstream : VidStack() {
-    override var mainUrl = "https://hubstream.*"
+class Hubstream : ExtractorApi() {
+    override val name = "Hubstream"
+    override val mainUrl = "https://hubstream.art"
+    override val requiresReferer = true
+    
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        Log.d("Hubstream", "Processing: $url")
+        
+        try {
+            // Extract file ID from hash (e.g., https://hubstream.art/#6pxb6v -> 6pxb6v)
+            val fileId = url.substringAfter("#").takeIf { it.isNotBlank() } 
+                ?: url.substringAfterLast("/").takeIf { it.isNotBlank() }
+                ?: return
+            
+            Log.d("Hubstream", "File ID: $fileId")
+            
+            // Method 1: Try API endpoint to get HLS URL
+            val apiUrl = "$mainUrl/api/file/$fileId"
+            try {
+                val apiResponse = app.get(apiUrl, referer = url).text
+                val hlsRegex = Regex("""["']?(?:url|file|source|src)["']?\s*:\s*["']([^"']+\.m3u8[^"']*)["']""")
+                val hlsMatch = hlsRegex.find(apiResponse)
+                
+                if (hlsMatch != null) {
+                    val hlsUrl = hlsMatch.groupValues[1]
+                    Log.d("Hubstream", "API HLS: $hlsUrl")
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = "$name [API]",
+                            url = hlsUrl,
+                            type = ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = url
+                            this.quality = Qualities.P1080.value
+                        }
+                    )
+                    return
+                }
+            } catch (e: Exception) {
+                Log.d("Hubstream", "API method failed, trying page scrape")
+            }
+            
+            // Method 2: Fetch page and extract HLS from scripts/network
+            val document = app.get(url, referer = referer ?: mainUrl).document
+            val html = document.html()
+            
+            // Look for HLS master playlist URLs in page content
+            // Pattern from deep scrape: hubstream.art/hls/{token}/.../{fileId}/.../master.m3u8
+            val hlsPatterns = listOf(
+                Regex("""hubstream\.art/hls/[^"'\s<>]+master\.m3u8[^"'\s<>]*"""),
+                Regex("""https?://[^"'\s<>]*\.m3u8[^"'\s<>]*"""),
+                Regex("""["']([^"']*master\.m3u8[^"']*)["']"""),
+                // CDN patterns from deep scrape
+                Regex("""https?://[a-zA-Z0-9]+\.[a-zA-Z]+\.[a-zA-Z]+/v4/[^"'\s<>]+"""),
+                Regex("""srcf\.[^"'\s<>]+/v4/[^"'\s<>]+cf-master[^"'\s<>]*""")
+            )
+            
+            val foundUrls = mutableSetOf<String>()
+            
+            for (pattern in hlsPatterns) {
+                pattern.findAll(html).forEach { match ->
+                    var hlsUrl = match.groupValues.getOrNull(1) ?: match.value
+                    
+                    // Clean up URL
+                    hlsUrl = hlsUrl.trim('"', '\'', ' ')
+                    
+                    // Add protocol if missing
+                    if (hlsUrl.startsWith("hubstream.art")) {
+                        hlsUrl = "https://$hlsUrl"
+                    }
+                    
+                    if (hlsUrl.isNotBlank() && hlsUrl.contains("m3u8", true) && !foundUrls.contains(hlsUrl)) {
+                        foundUrls.add(hlsUrl)
+                        Log.d("Hubstream", "Found HLS: $hlsUrl")
+                    }
+                }
+            }
+            
+            // Return found URLs
+            foundUrls.forEachIndexed { index, hlsUrl ->
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = if (index == 0) "$name [Primary]" else "$name [CDN $index]",
+                        url = hlsUrl,
+                        type = ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+            
+            // Method 3: If nothing found, try constructing URL from fileId pattern
+            if (foundUrls.isEmpty()) {
+                Log.d("Hubstream", "No HLS found, trying constructed URL")
+                
+                // Try common CDN patterns observed in deep scrape
+                val constructedUrls = listOf(
+                    "https://hubstream.art/hls/default/us/$fileId/tt/master.m3u8",
+                    "https://hubstream.art/stream/$fileId/master.m3u8"
+                )
+                
+                for (constructedUrl in constructedUrls) {
+                    try {
+                        val testResp = app.get(constructedUrl, referer = url, timeout = 5)
+                        if (testResp.isSuccessful && testResp.text.contains("#EXTM3U")) {
+                            Log.d("Hubstream", "Constructed URL works: $constructedUrl")
+                            callback.invoke(
+                                newExtractorLink(
+                                    source = name,
+                                    name = "$name [Constructed]",
+                                    url = constructedUrl,
+                                    type = ExtractorLinkType.M3U8
+                                ) {
+                                    this.referer = url
+                                    this.quality = Qualities.P1080.value
+                                }
+                            )
+                            break
+                        }
+                    } catch (e: Exception) {
+                        // Try next URL
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e("Hubstream", "Error: ${e.message}")
+        }
+    }
 }
 
 class Hubstreamdad : Hblinks() {
