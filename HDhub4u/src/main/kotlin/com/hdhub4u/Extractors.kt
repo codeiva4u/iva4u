@@ -16,7 +16,12 @@ import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.newSubtitleFile
+import com.lagradost.cloudstream3.utils.fixUrl
 import java.net.URI
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 // Helper function to load source with extractor name
 suspend fun loadSourceNameExtractor(
@@ -247,144 +252,110 @@ class HdStream4u : ExtractorApi() {
     }
 }
 
-class Hubstream : ExtractorApi() {
-    override val name = "Hubstream"
-    override val mainUrl = "https://hubstream.art"
+// Working VidStack implementation with AES decryption
+open class VidStackExtractor : ExtractorApi() {
+    override var name = "Vidstack"
+    override var mainUrl = "https://vidstack.io"
     override val requiresReferer = true
-    
+
     override suspend fun getUrl(
         url: String,
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("Hubstream", "Processing: $url")
-        
-        try {
-            // Extract file ID from hash (e.g., https://hubstream.art/#6pxb6v -> 6pxb6v)
-            val fileId = url.substringAfter("#").takeIf { it.isNotBlank() } 
-                ?: url.substringAfterLast("/").takeIf { it.isNotBlank() }
-                ?: return
-            
-            Log.d("Hubstream", "File ID: $fileId")
-            
-            // Method 1: Try API endpoint to get HLS URL
-            val apiUrl = "$mainUrl/api/file/$fileId"
+        val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
+        val hash = url.substringAfterLast("#").substringAfter("/")
+        val baseurl = getVidstackBaseUrl(url)
+
+        Log.d("VidStack", "Processing: $url, hash: $hash, baseurl: $baseurl")
+
+        val encoded = app.get("$baseurl/api/v1/video?id=$hash", headers = headers).text.trim()
+
+        val key = "kiemtienmua911ca"
+        val ivList = listOf("1234567890oiuytr", "0123456789abcdef")
+
+        val decryptedText = ivList.firstNotNullOfOrNull { iv ->
             try {
-                val apiResponse = app.get(apiUrl, referer = url).text
-                val hlsRegex = Regex("""["']?(?:url|file|source|src)["']?\s*:\s*["']([^"']+\.m3u8[^"']*)["']""")
-                val hlsMatch = hlsRegex.find(apiResponse)
-                
-                if (hlsMatch != null) {
-                    val hlsUrl = hlsMatch.groupValues[1]
-                    Log.d("Hubstream", "API HLS: $hlsUrl")
-                    
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = "$name [API]",
-                            url = hlsUrl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.d("Hubstream", "API method failed, trying page scrape")
+                AesHelper.decryptAES(encoded, key, iv)
+            } catch (_: Exception) {
+                null
             }
-            
-            // Method 2: Fetch page and extract HLS from scripts/network
-            val document = app.get(url, referer = referer ?: mainUrl).document
-            val html = document.html()
-            
-            // Look for HLS master playlist URLs in page content
-            // Pattern from deep scrape: hubstream.art/hls/{token}/.../{fileId}/.../master.m3u8
-            val hlsPatterns = listOf(
-                Regex("""hubstream\.art/hls/[^"'\s<>]+master\.m3u8[^"'\s<>]*"""),
-                Regex("""https?://[^"'\s<>]*\.m3u8[^"'\s<>]*"""),
-                Regex("""["']([^"']*master\.m3u8[^"']*)["']"""),
-                // CDN patterns from deep scrape
-                Regex("""https?://[a-zA-Z0-9]+\.[a-zA-Z]+\.[a-zA-Z]+/v4/[^"'\s<>]+"""),
-                Regex("""srcf\.[^"'\s<>]+/v4/[^"'\s<>]+cf-master[^"'\s<>]*""")
+        } ?: throw Exception("Failed to decrypt with all IVs")
+
+        Log.d("VidStack", "Decrypted: ${decryptedText.take(200)}")
+
+        val m3u8 = Regex("\"source\":\"(.*?)\"").find(decryptedText)
+            ?.groupValues?.get(1)
+            ?.replace("\\/", "/") ?: ""
+        
+        // Extract subtitles
+        val subtitlePattern = Regex("\"([^\"]+)\":\\s*\"([^\"]+)\"")
+        val subtitleSection = Regex("\"subtitle\":\\{(.*?)\\}").find(decryptedText)?.groupValues?.get(1)
+
+        subtitleSection?.let { section ->
+            subtitlePattern.findAll(section).forEach { match ->
+                val lang = match.groupValues[1]
+                val rawPath = match.groupValues[2].split("#")[0]
+                if (rawPath.isNotEmpty()) {
+                    val path = rawPath.replace("\\/", "/")
+                    val subUrl = "$mainUrl$path"
+                    subtitleCallback(newSubtitleFile(lang, fixUrl(subUrl)))
+                }
+            }
+        }
+
+        if (m3u8.isNotBlank()) {
+            Log.d("VidStack", "Found M3U8: $m3u8")
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = m3u8.replace("https", "http"),
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    this.referer = url
+                    this.headers = mapOf("referer" to url, "Origin" to url.substringAfterLast("/"))
+                    this.quality = Qualities.Unknown.value
+                }
             )
-            
-            val foundUrls = mutableSetOf<String>()
-            
-            for (pattern in hlsPatterns) {
-                pattern.findAll(html).forEach { match ->
-                    var hlsUrl = match.groupValues.getOrNull(1) ?: match.value
-                    
-                    // Clean up URL
-                    hlsUrl = hlsUrl.trim('"', '\'', ' ')
-                    
-                    // Add protocol if missing
-                    if (hlsUrl.startsWith("hubstream.art")) {
-                        hlsUrl = "https://$hlsUrl"
-                    }
-                    
-                    if (hlsUrl.isNotBlank() && hlsUrl.contains("m3u8", true) && !foundUrls.contains(hlsUrl)) {
-                        foundUrls.add(hlsUrl)
-                        Log.d("Hubstream", "Found HLS: $hlsUrl")
-                    }
-                }
-            }
-            
-            // Return found URLs
-            foundUrls.forEachIndexed { index, hlsUrl ->
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = if (index == 0) "$name [Primary]" else "$name [CDN $index]",
-                        url = hlsUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.P1080.value
-                    }
-                )
-            }
-            
-            // Method 3: If nothing found, try constructing URL from fileId pattern
-            if (foundUrls.isEmpty()) {
-                Log.d("Hubstream", "No HLS found, trying constructed URL")
-                
-                // Try common CDN patterns observed in deep scrape
-                val constructedUrls = listOf(
-                    "https://hubstream.art/hls/default/us/$fileId/tt/master.m3u8",
-                    "https://hubstream.art/stream/$fileId/master.m3u8"
-                )
-                
-                for (constructedUrl in constructedUrls) {
-                    try {
-                        val testResp = app.get(constructedUrl, referer = url, timeout = 5)
-                        if (testResp.isSuccessful && testResp.text.contains("#EXTM3U")) {
-                            Log.d("Hubstream", "Constructed URL works: $constructedUrl")
-                            callback.invoke(
-                                newExtractorLink(
-                                    source = name,
-                                    name = "$name [Constructed]",
-                                    url = constructedUrl,
-                                    type = ExtractorLinkType.M3U8
-                                ) {
-                                    this.referer = url
-                                    this.quality = Qualities.P1080.value
-                                }
-                            )
-                            break
-                        }
-                    } catch (e: Exception) {
-                        // Try next URL
-                    }
-                }
-            }
-            
-        } catch (e: Exception) {
-            Log.e("Hubstream", "Error: ${e.message}")
         }
     }
+
+    private fun getVidstackBaseUrl(url: String): String {
+        return try {
+            URI(url).let { "${it.scheme}://${it.host}" }
+        } catch (e: Exception) {
+            Log.e("Vidstack", "getBaseUrl fallback: ${e.message}")
+            mainUrl
+        }
+    }
+}
+
+// AES Helper for decryption
+object AesHelper {
+    private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
+
+    fun decryptAES(inputHex: String, key: String, iv: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
+        val ivSpec = IvParameterSpec(iv.toByteArray(Charsets.UTF_8))
+
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
+        val decryptedBytes = cipher.doFinal(inputHex.hexToByteArray())
+        return String(decryptedBytes, Charsets.UTF_8)
+    }
+
+    private fun String.hexToByteArray(): ByteArray {
+        check(length % 2 == 0) { "Hex string must have an even length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
+}
+
+// Hubstream uses VidStack API
+class Hubstream : VidStackExtractor() {
+    override var mainUrl = "https://hubstream.art"
+    override var name = "Hubstream"
 }
 
 class Hubstreamdad : Hblinks() {
