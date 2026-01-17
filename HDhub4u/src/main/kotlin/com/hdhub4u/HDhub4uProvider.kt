@@ -21,7 +21,6 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -456,9 +455,21 @@ override suspend fun loadLinks(
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     }
 
-                    // Generic extractor
+                    // HUBCDN patterns
+                    link.contains("gadgetsweb", ignoreCase = true) ||
+                            link.contains("hdstream4u", ignoreCase = true) -> {
+                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                    }
+
+                    // Hblinks patterns
+                    link.contains("hblinks", ignoreCase = true) ||
+                            link.contains("4khdhub", ignoreCase = true) -> {
+                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                    }
+
+                    // Skip unknown links - only use project extractors
                     else -> {
-                        loadExtractor(link, mainUrl, subtitleCallback, callback)
+                        Log.d(TAG, "Skipping unknown link (no extractor): $link")
                     }
                 }
             } catch (e: Exception) {
