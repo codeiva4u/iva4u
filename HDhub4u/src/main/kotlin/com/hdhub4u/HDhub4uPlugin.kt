@@ -21,5 +21,11 @@ class HDhub4uPlugin: BasePlugin() {
         registerExtractorAPI(VidStack())
         registerExtractorAPI(PixelDrain())
         registerExtractorAPI(PixelDrainDev())
+        // StreamWish extractors
+        registerExtractorAPI(StreamWishExtractor())
+        registerExtractorAPI(StreamwishCom())
+        registerExtractorAPI(Wishembed())
+        registerExtractorAPI(Sfastwish())
+        registerExtractorAPI(Flaswish())
     }
 }

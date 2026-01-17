@@ -19,6 +19,7 @@ import com.lagradost.cloudstream3.utils.getPacked
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
+import com.lagradost.cloudstream3.network.WebViewResolver
 import org.json.JSONObject
 import java.net.URI
 import javax.crypto.Cipher
@@ -695,4 +696,117 @@ class HUBCDN : ExtractorApi() {
             }
         }
     }
+}
+
+// ==================== StreamWish Extractor ====================
+open class StreamWishExtractor : ExtractorApi() {
+    override val name = "Streamwish"
+    override val mainUrl = "https://streamwish.to"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val headers = mapOf(
+            "Accept" to "*/*",
+            "Connection" to "keep-alive",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "cross-site",
+            "Referer" to "$mainUrl/",
+            "Origin" to "$mainUrl/",
+            "User-Agent" to USER_AGENT
+        )
+
+        try {
+            val pageResponse = app.get(resolveEmbedUrl(url), referer = referer, timeout = 15)
+
+            val playerScriptData = when {
+                !getPacked(pageResponse.text).isNullOrEmpty() -> getAndUnpack(pageResponse.text)
+                pageResponse.document.select("script").any { it.html().contains("jwplayer") } ->
+                    pageResponse.document.select("script").firstOrNull {
+                        it.html().contains("jwplayer")
+                    }?.html()
+                else -> pageResponse.document.selectFirst("script:containsData(sources:)")?.data()
+            }
+
+            val directStreamUrl = playerScriptData?.let {
+                Regex("""file:\s*"(.*?m3u8.*?)"""").find(it)?.groupValues?.getOrNull(1)
+            }
+
+            if (!directStreamUrl.isNullOrEmpty()) {
+                generateM3u8(
+                    name,
+                    directStreamUrl,
+                    mainUrl,
+                    headers = headers
+                ).forEach(callback)
+            } else {
+                // Fallback: Try WebViewResolver for JS rendered m3u8
+                try {
+                    val webViewM3u8Resolver = WebViewResolver(
+                        interceptUrl = Regex("""txt|m3u8"""),
+                        additionalUrls = listOf(Regex("""txt|m3u8""")),
+                        useOkhttp = false,
+                        timeout = 15_000L
+                    )
+
+                    val interceptedStreamUrl = app.get(
+                        url,
+                        referer = referer,
+                        interceptor = webViewM3u8Resolver
+                    ).url
+
+                    if (interceptedStreamUrl.isNotEmpty() && (interceptedStreamUrl.contains("m3u8") || interceptedStreamUrl.contains("txt"))) {
+                        generateM3u8(
+                            name,
+                            interceptedStreamUrl,
+                            mainUrl,
+                            headers = headers
+                        ).forEach(callback)
+                    } else {
+                        Log.d("StreamWish", "No m3u8 found in fallback")
+                    }
+                } catch (e: Exception) {
+                    Log.e("StreamWish", "WebView fallback failed: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StreamWish", "Error: ${e.message}")
+        }
+    }
+
+    private fun resolveEmbedUrl(inputUrl: String): String {
+        return when {
+            inputUrl.contains("/f/") -> {
+                val videoId = inputUrl.substringAfter("/f/")
+                "$mainUrl/$videoId"
+            }
+            inputUrl.contains("/e/") -> {
+                val videoId = inputUrl.substringAfter("/e/")
+                "$mainUrl/$videoId"
+            }
+            else -> inputUrl
+        }
+    }
+}
+
+// StreamWish domain variants
+class StreamwishCom : StreamWishExtractor() {
+    override val mainUrl = "https://streamwish.com"
+}
+
+class Wishembed : StreamWishExtractor() {
+    override val mainUrl = "https://wishembed.pro"
+}
+
+class Sfastwish : StreamWishExtractor() {
+    override val mainUrl = "https://sfastwish.com"
+}
+
+class Flaswish : StreamWishExtractor() {
+    override val mainUrl = "https://flaswish.com"
 }
