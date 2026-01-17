@@ -663,7 +663,7 @@ class HUBCDN : ExtractorApi() {
 // Hubstream.art Video Player Extractor
 class HubstreamExtractor : ExtractorApi() {
     override val name = "Hubstream"
-    override val mainUrl = "https://hubstream.art"
+    override val mainUrl = "https://hubstream.*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -674,6 +674,10 @@ class HubstreamExtractor : ExtractorApi() {
     ) {
         val tag = "HubstreamExtractor"
         Log.d(tag, "Processing URL: $url")
+        
+        // Get latest hubstream domain from urls.json
+        val hubstreamDomain = getLatestUrl(url, "hubstream")
+        Log.d(tag, "Using hubstream domain: $hubstreamDomain")
         
         // Extract video ID from URL hash (e.g., hubstream.art/#d8kdio -> d8kdio)
         val videoIdRegex = Regex("""#([a-zA-Z0-9]+)""")
@@ -687,8 +691,11 @@ class HubstreamExtractor : ExtractorApi() {
         Log.d(tag, "Found video ID: $videoId")
         
         try {
+            // Construct URL with latest domain
+            val requestUrl = "$hubstreamDomain/#$videoId"
+            
             // Fetch the page to extract video source
-            val doc = app.get(url, timeout = 15).document
+            val doc = app.get(requestUrl, timeout = 15).document
             val pageHtml = doc.html()
             
             // Pattern 1: Extract m3u8/stream source URL from page
