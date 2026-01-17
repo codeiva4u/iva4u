@@ -777,9 +777,84 @@ class Hubstream : ExtractorApi() {
         Log.d(tag, "Found video ID: $videoId")
         
         try {
-            // Method 1: Try pureluxurystudios.online direct URL (most reliable)
+            // Method 0: Try direct hubstream.art HLS endpoint (discovered via deep scraping)
+            // Pattern: https://hubstream.art/hls/{token}/us/{videoId}/{suffix}/master.m3u8
+            // The token is dynamic, but we can try to fetch the page and extract it
+            val hubstreamPageUrl = "https://hubstream.art/#$videoId"
+            Log.d(tag, "Fetching hubstream page for HLS URL: $hubstreamPageUrl")
+            
+            try {
+                val pageResponse = app.get(hubstreamPageUrl, timeout = 15)
+                val pageHtml = pageResponse.text
+                
+                // Look for direct HLS URL in page/script
+                val directHlsPatterns = listOf(
+                    Regex("""(https?://hubstream\.art/hls/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
+                    Regex("""(https?://[^"'\s<>]+hubstream[^"'\s<>]+/hls/[^"'\s<>]+\.m3u8)"""),
+                    Regex(""""src"\s*:\s*"(https?://[^"]+\.m3u8[^"]*)""""""),
+                    Regex("""source\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
+                )
+                
+                for (pattern in directHlsPatterns) {
+                    val match = pattern.find(pageHtml)
+                    if (match != null) {
+                        val streamUrl = match.groupValues[1]
+                        Log.d(tag, "Found direct HLS URL: $streamUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "Hubstream",
+                                "Hubstream [HLS Direct]",
+                                streamUrl,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = "https://hubstream.art/"
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                        return
+                    }
+                }
+                
+                // Try to extract video config from JavaScript
+                val configPatterns = listOf(
+                    Regex("""video_id\s*[=:]\s*['"]([^'"]+)['"]"""),
+                    Regex("""file\s*[=:]\s*['"]([^'"]+\.m3u8[^'"]*)['"]"""),
+                    Regex("""hls\s*[=:]\s*['"]([^'"]+)['"]""")
+                )
+                
+                for (pattern in configPatterns) {
+                    val match = pattern.find(pageHtml)
+                    if (match != null) {
+                        val value = match.groupValues[1]
+                        if (value.contains("m3u8") || value.contains("http")) {
+                            var streamUrl = value
+                            if (streamUrl.startsWith("/")) {
+                                streamUrl = "https://hubstream.art$streamUrl"
+                            }
+                            Log.d(tag, "Found config URL: $streamUrl")
+                            
+                            callback.invoke(
+                                newExtractorLink(
+                                    "Hubstream",
+                                    "Hubstream [Config]",
+                                    streamUrl,
+                                    ExtractorLinkType.M3U8
+                                ) {
+                                    this.referer = "https://hubstream.art/"
+                                    this.quality = Qualities.Unknown.value
+                                }
+                            )
+                            return
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(tag, "Direct HLS extraction failed: ${e.message}")
+            }
+            
+            // Method 1: Try pureluxurystudios.online direct URL (fallback)
             // Pattern: https://srcf.pureluxurystudios.online/v4/us/{VIDEO_ID}/cf-master.{TIMESTAMP}.txt
-            // We'll try to fetch even without exact timestamp - server may accept or redirect
             
             val pureServers = listOf("srcf", "sil5", "src2", "sil2")
             val currentTimestamp = System.currentTimeMillis() / 1000
