@@ -52,22 +52,17 @@ suspend fun getLatestUrl(url: String, source: String): String {
     // Use cached JSON if available (fetch only once per session)
     if (cachedUrlsJson == null) {
         try {
-            // 10 second timeout - no fallback, only urls.json
             cachedUrlsJson = org.json.JSONObject(
-                app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
-                ).text
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
             )
         } catch (e: Exception) {
-            Log.e("getLatestUrl", "Failed to fetch urls.json: ${e.message}")
-            throw e  // No fallback - urls.json is required
+            return getBaseUrl(url)
         }
     }
     
     val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
-        throw IllegalStateException("Source '$source' not found in urls.json")
+        return getBaseUrl(url)
     }
     return link
 }
@@ -199,8 +194,8 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Use CloudflareKiller interceptor to bypass Cloudflare 403 (15s timeout for speed)
-        val doc = app.get(url, timeout = 15, interceptor = cfKiller).documentLarge
+        // Use CloudflareKiller interceptor to bypass Cloudflare 403
+        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -253,8 +248,8 @@ class HubCloud : ExtractorApi() {
                 "hubcloud.php" in urlToUse || "gamerxyt.com" in urlToUse -> urlToUse
                 "/drive/" in urlToUse -> {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
-                    // Use CloudflareKiller with 15s timeout for speed
-                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document
+                    // Use CloudflareKiller to bypass protection
+                    val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
                     
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
@@ -292,7 +287,7 @@ class HubCloud : ExtractorApi() {
                     }
                 }
                 else -> {
-                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 15).document.select("#download").attr("href")
+                    val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
                     if (rawHref.startsWith("http", ignoreCase = true)) rawHref
                     else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
@@ -309,8 +304,8 @@ class HubCloud : ExtractorApi() {
 
         Log.d(tag, "Fetching download page: $href")
 
-        // Use CloudflareKiller for gamerxyt.com final download page (15s timeout)
-        val document = app.get(href, interceptor = cfKiller, timeout = 15).document
+        // Use CloudflareKiller for gamerxyt.com final download page
+        val document = app.get(href, interceptor = cfKiller).document
         val size = document.selectFirst("i#size")?.text().orEmpty()
         val header = document.selectFirst("div.card-header")?.text().orEmpty()
 
@@ -656,99 +651,6 @@ class HUBCDN : ExtractorApi() {
             } catch (e: Exception) {
                 Log.e("HUBCDN", "Fallback failed: ${e.message}")
             }
-        }
-    }
-}
-
-// Hubstream.art Video Player Extractor
-class HubstreamExtractor : ExtractorApi() {
-    override val name = "Hubstream"
-    override val mainUrl = "https://hubstream.*"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "HubstreamExtractor"
-        Log.d(tag, "Processing URL: $url")
-        
-        // Get latest hubstream domain from urls.json
-        val hubstreamDomain = getLatestUrl(url, "hubstream")
-        Log.d(tag, "Using hubstream domain: $hubstreamDomain")
-        
-        // Extract video ID from URL hash (e.g., hubstream.art/#d8kdio -> d8kdio)
-        val videoIdRegex = Regex("""#([a-zA-Z0-9]+)""")
-        val videoId = videoIdRegex.find(url)?.groupValues?.get(1)
-        
-        if (videoId.isNullOrEmpty()) {
-            Log.e(tag, "No video ID found in URL: $url")
-            return
-        }
-        
-        Log.d(tag, "Found video ID: $videoId")
-        
-        try {
-            // Construct URL with latest domain
-            val requestUrl = "$hubstreamDomain/#$videoId"
-            
-            // Fetch the page to extract video source
-            val doc = app.get(requestUrl, timeout = 15).document
-            val pageHtml = doc.html()
-            
-            // Pattern 1: Extract m3u8/stream source URL from page
-            // Format: https://cdn.domain/v4/xxx/{videoId}/cf-master.{timestamp}.txt
-            val streamRegex = Regex("""(https?://[^"'\s]+/v4/[^"'\s]+/$videoId/[^"'\s]+\.txt)""")
-            val streamMatch = streamRegex.find(pageHtml)
-            
-            // Pattern 2: Alternative source format
-            val altStreamRegex = Regex("""src['":\s]+['"]?(https?://[^"'\s]+(?:m3u8|txt|mp4)[^"'\s]*)['"]?""", RegexOption.IGNORE_CASE)
-            val altMatch = altStreamRegex.find(pageHtml)
-            
-            // Pattern 3: Extract from source element
-            val sourceRegex = Regex("""<source[^>]+src=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
-            val sourceMatch = sourceRegex.find(pageHtml)
-            
-            val streamUrl = streamMatch?.groupValues?.get(1)
-                ?: altMatch?.groupValues?.get(1)
-                ?: sourceMatch?.groupValues?.get(1)
-            
-            if (!streamUrl.isNullOrEmpty()) {
-                Log.d(tag, "Found stream URL: $streamUrl")
-                
-                // Determine if it's m3u8 or direct
-                val linkType = when {
-                    streamUrl.contains("m3u8", true) || streamUrl.contains(".txt", true) -> ExtractorLinkType.M3U8
-                    streamUrl.contains("mp4", true) || streamUrl.contains("mkv", true) -> ExtractorLinkType.VIDEO
-                    else -> INFER_TYPE
-                }
-                
-                // Extract quality from title if available
-                val title = doc.title()
-                val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-                val quality = qualityRegex.find(title)?.groupValues?.get(1)?.toIntOrNull() ?: Qualities.Unknown.value
-                
-                callback.invoke(
-                    newExtractorLink(
-                        "Hubstream [Stream]",
-                        "Hubstream [Stream] [$title]",
-                        streamUrl,
-                        linkType
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
-                    }
-                )
-            }
-            
-            // Also provide download link if available
-            val downloadUrl = "$mainUrl/#$videoId&dl=1"
-            Log.d(tag, "Download link: $downloadUrl")
-            
-        } catch (e: Exception) {
-            Log.e(tag, "Error extracting hubstream: ${e.message}")
         }
     }
 }

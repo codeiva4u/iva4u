@@ -8,7 +8,6 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -21,7 +20,8 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import kotlinx.coroutines.withTimeoutOrNull
+import com.lagradost.cloudstream3.utils.loadExtractor
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
@@ -34,37 +34,33 @@ class HDhub4uProvider : MainAPI() {
     // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
     val cfKiller by lazy { CloudflareKiller() }
 
-    // Cached domain URL - fetched once per session (async, no blocking)
-    private var cachedMainUrl: String? = null
-    private var urlsFetched = false
-    
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
-
-    // Async domain fetch with 10s timeout - no blocking
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-        
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(10_000L) {
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
-                )
+    // Fetch mainUrl from remote config
+    private val basemainUrl: String? by lazy {
+        runBlocking {
+            try {
+                val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
                 val json = response.text
                 val jsonObject = JSONObject(json)
                 jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
+            } catch (_: Exception) {
+                null
             }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
         }
-        return mainUrl
+    }
+    
+    override var mainUrl: String = "https://new2.hdhub4u.fo"
+
+    // Fallback domains in case primary fails
+    private val fallbackDomains = listOf(
+        "https://new2.hdhub4u.fo",
+        "https://hdhub4u.foo",
+        "https://hdhub4u.life"
+    )
+
+    init {
+        basemainUrl?.takeIf { it.isNotBlank() }?.let {
+            mainUrl = it
+        }
     }
 
     override var name = "HDHub4U"
@@ -90,9 +86,6 @@ override suspend fun getMainPage(
     page: Int,
     request: MainPageRequest
 ): HomePageResponse {
-    // Fetch latest mainUrl (async, cached)
-    fetchMainUrl()
-    
     val url = if (page == 1) {
         "$mainUrl/${request.data}"
     } else {
@@ -100,7 +93,7 @@ override suspend fun getMainPage(
     }
 
     Log.d(TAG, "Loading main page: $url")
-    val document = app.get(url, headers = headers, timeout = 20).document
+    val document = app.get(url, headers = headers, timeout = 60).document
 
     // Correct selector: li.thumb contains movie items
     val home = document.select("li.thumb").mapNotNull {
@@ -202,10 +195,7 @@ override suspend fun search(query: String): List<SearchResponse> {
 
 override suspend fun load(url: String): LoadResponse? {
     Log.d(TAG, "Loading: $url")
-    // Fetch latest mainUrl (async, cached)
-    fetchMainUrl()
-    
-    val document = app.get(url, headers = headers, timeout = 20).document
+    val document = app.get(url, headers = headers, timeout = 60).document
 
     // Extract title using Regex
     val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1")?.text()?.trim()
@@ -271,24 +261,10 @@ override suspend fun load(url: String): LoadResponse? {
 
     Log.d(TAG, "Total links found: ${downloadLinks.size}")
 
-    // Smart sort: 1080p priority → Smallest Size → Fastest Server
+    // Smart sort: Quality DESC, Size ASC, then priority
     val sortedLinks = downloadLinks.sortedWith(
-        compareByDescending<DownloadLink> { 
-            // Priority 1: 1080p gets highest score
-            when (it.quality) {
-                1080 -> 100
-                2160 -> 90  // 4K is good but 1080p preferred
-                720 -> 70
-                480 -> 50
-                else -> 30
-            }
-        }.thenBy { 
-            // Priority 2: Smallest file size among same quality
-            if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE 
-        }.thenByDescending { 
-            // Priority 3: Fastest server based on name
-            getServerPriority(it.originalText)
-        }
+        compareByDescending<DownloadLink> { it.quality }
+            .thenBy { if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE }
     )
 
     // Create data string (comma separated URLs)
@@ -399,21 +375,6 @@ private fun parseFileSize(text: String): Double {
     return if (unit == "GB") value * 1024 else value
 }
 
-// Server speed priority (higher = faster/preferred)
-private fun getServerPriority(serverName: String): Int {
-    return when {
-        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
-        serverName.contains("Direct", true) -> 90
-        serverName.contains("FSLv2", true) -> 85
-        serverName.contains("FSL", true) -> 80
-        serverName.contains("10Gbps", true) -> 88
-        serverName.contains("Download File", true) -> 70
-        serverName.contains("Pixel", true) -> 60
-        serverName.contains("Buzz", true) -> 55
-        else -> 50
-    }
-}
-
 override suspend fun loadLinks(
     data: String,
     isCasting: Boolean,
@@ -435,10 +396,9 @@ override suspend fun loadLinks(
             data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         }
 
-        Log.d(TAG, "Processing ${links.size} links in parallel")
+        Log.d(TAG, "Processing ${links.size} links")
 
-        // Process links in parallel for faster loading (skip 10s delay)
-        links.amap { link ->
+        links.forEach { link ->
             try {
                 when {
                     // Hubdrive patterns
@@ -455,21 +415,9 @@ override suspend fun loadLinks(
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     }
 
-                    // HUBCDN patterns
-                    link.contains("gadgetsweb", ignoreCase = true) ||
-                            link.contains("hdstream4u", ignoreCase = true) -> {
-                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Hblinks patterns
-                    link.contains("hblinks", ignoreCase = true) ||
-                            link.contains("4khdhub", ignoreCase = true) -> {
-                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Skip unknown links - only use project extractors
+                    // Generic extractor
                     else -> {
-                        Log.d(TAG, "Skipping unknown link (no extractor): $link")
+                        loadExtractor(link, mainUrl, subtitleCallback, callback)
                     }
                 }
             } catch (e: Exception) {
