@@ -248,10 +248,11 @@ override suspend fun load(url: String): LoadResponse? {
                 )
             )
         }
+
     }
 
     // Method 2: Use Regex on full body HTML for any missed links
-    val bodyHtml = document.body()?.html() ?: ""
+    val bodyHtml = document.body().html()
     val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art)[^"'<\s>]+""", RegexOption.IGNORE_CASE)
 
     urlPattern.findAll(bodyHtml).forEach { match ->
@@ -431,72 +432,20 @@ override suspend fun loadLinks(
     Log.d(TAG, "Loading links from: $data")
 
     try {
-        val links = if (data.isBlank()) {
-            emptyList()
-        } else if (data.startsWith("http")) {
-            if (data.contains(",")) {
-                data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            } else {
-                listOf(data)
-            }
-        } else {
-            data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        }
+        // Parse comma-separated URLs
+        val links = data.split(",")
+            .map { it.trim() }
+            .filter { it.startsWith("http") }
 
-        Log.d(TAG, "Processing ${links.size} links in parallel")
+        Log.d(TAG, "Processing ${links.size} links")
 
-        // Limit to max 3 links for fast loading (10-15 sec target)
-        // Links already sorted by quality (1080p first) and size (smallest first)
-        val limitedLinks = links.take(3)
-        Log.d(TAG, "Taking ${limitedLinks.size} best quality-sorted links")
-
-        // Process links in parallel for faster loading (skip 10s delay)
-        limitedLinks.amap { link ->
-            try {
-                when {
-                    // Hubdrive patterns
-                    link.contains("hubdrive", ignoreCase = true) -> {
-                        Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // HubCloud/Gamerxyt/hubstream patterns
-                    link.contains("hubcloud", ignoreCase = true) ||
-                            link.contains("hubcdn", ignoreCase = true) ||
-                            link.contains("hubstream", ignoreCase = true) ||
-                            link.contains("gamester", ignoreCase = true) ||
-                            link.contains("gamerxyt", ignoreCase = true) -> {
-                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // HUBCDN patterns
-                    link.contains("gadgetsweb", ignoreCase = true) ||
-                            link.contains("hdstream4u", ignoreCase = true) -> {
-                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Hblinks patterns
-                    link.contains("hblinks", ignoreCase = true) ||
-                            link.contains("4khdhub", ignoreCase = true) -> {
-                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Hubstream.art video player
-                    link.contains("hubstream.art", ignoreCase = true) -> {
-                        Hubstream().getUrl(link, mainUrl, subtitleCallback, callback)
-                    }
-
-                    // Skip unknown links - only use project extractors
-                    else -> {
-                        Log.d(TAG, "Skipping unknown link (no extractor): $link")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading link $link: ${e.message}")
-            }
+        // Take top 3 links (already sorted by quality in load())
+        // Use extractFromUrl from Extractors.kt - 100% extraction logic is there
+        links.take(3).amap { link ->
+            extractFromUrl(link, mainUrl, subtitleCallback, callback)
         }
     } catch (e: Exception) {
         Log.e(TAG, "Error in loadLinks: ${e.message}")
-        e.printStackTrace()
     }
 
     return true

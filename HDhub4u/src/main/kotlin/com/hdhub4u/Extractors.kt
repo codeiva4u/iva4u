@@ -14,9 +14,62 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 
-fun getBaseUrl(url: String): String {
-    return URI(url).let {
-        "${it.scheme}://${it.host}"
+/**
+ * Universal URL Extractor - Automatically detects URL pattern and calls appropriate extractor
+ * This is the SINGLE entry point for all extraction - HDhub4uProvider just calls this
+ */
+suspend fun extractFromUrl(
+    url: String,
+    referer: String,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+) {
+    val tag = "ExtractFromUrl"
+    Log.d(tag, "Processing: $url")
+    
+    try {
+        when {
+            // Hubdrive patterns
+            url.contains("hubdrive", ignoreCase = true) -> {
+                Hubdrive().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // HubCloud patterns (including gamerxyt, gamester)
+            url.contains("hubcloud", ignoreCase = true) ||
+            url.contains("gamerxyt", ignoreCase = true) ||
+            url.contains("gamester", ignoreCase = true) -> {
+                HubCloud().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // HUBCDN patterns (gadgetsweb, hdstream4u) - but NOT hubcdn.fans
+            url.contains("gadgetsweb", ignoreCase = true) ||
+            url.contains("hdstream4u", ignoreCase = true) -> {
+                HUBCDN().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // hubcdn.fans goes to HubCloud (different from HUBCDN)
+            url.contains("hubcdn", ignoreCase = true) -> {
+                HubCloud().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Hubstream.art video player
+            url.contains("hubstream", ignoreCase = true) -> {
+                Hubstream().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Hblinks patterns
+            url.contains("hblinks", ignoreCase = true) ||
+            url.contains("4khdhub", ignoreCase = true) -> {
+                Hblinks().getUrl(url, referer, subtitleCallback, callback)
+            }
+            
+            // Unknown URL - log and skip
+            else -> {
+                Log.w(tag, "No extractor for URL: $url")
+            }
+        }
+    } catch (e: Exception) {
+        Log.e(tag, "Error extracting from $url: ${e.message}")
     }
 }
 
@@ -26,7 +79,6 @@ suspend fun loadSourceNameExtractor(
     url: String,
     referer: String,
     quality: Int,
-    subtitleCallback: (SubtitleFile) -> Unit,
     callback: (ExtractorLink) -> Unit
 ) {
     try {
@@ -145,7 +197,7 @@ open class Hblinks : ExtractorApi() {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
                 "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
                 "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value,subtitleCallback, callback)
+                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value, callback)
             }
         }
     }
