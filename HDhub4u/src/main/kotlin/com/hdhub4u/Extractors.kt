@@ -893,6 +893,7 @@ class Hubstream : ExtractorApi() {
 
 // HDStream4u.com Video Streaming Extractor (JWPlayer based)
 // Flow: hdstream4u.com/file/xxx -> minochinos.com/embed/xxx -> packed JS with stream URLs
+// Decoded packed JS format: var links = {hls2: "https://...m3u8", hls3: "https://...txt", hls4: "/stream/...m3u8"}
 class HDStream4u : ExtractorApi() {
     override val name = "HDStream4u"
     override val mainUrl = "https://hdstream4u.com"
@@ -919,110 +920,105 @@ class HDStream4u : ExtractorApi() {
             
             Log.d(tag, "Found file ID: $fileId")
             
-            // Fetch the embed page from minochinos.com (this has the player)
+            // Fetch the embed page from minochinos.com (this has the packed player)
             val embedUrl = "https://minochinos.com/embed/$fileId"
             Log.d(tag, "Fetching embed page: $embedUrl")
             
             val embedResponse = app.get(embedUrl, referer = mainUrl, timeout = 20)
             val embedHtml = embedResponse.text
             
-            // Method 1: Find packed/eval JavaScript and extract URLs
-            // Pattern: eval(function(p,a,c,k,e,d){...}('...',36,624,'...'...))
-            val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)\{[^}]+\}\s*\(\s*'([^']+)'[^)]+\)""")
-            val packedMatch = packedRegex.find(embedHtml)
+            // ============================================================
+            // Method 1: Extract URLs directly from unpacked/decoded content
+            // Look for var links = {"hls2":"...", "hls3":"...", "hls4":"..."}
+            // ============================================================
             
-            if (packedMatch != null) {
-                val packedCode = packedMatch.groupValues[0]
-                Log.d(tag, "Found packed JS, attempting to extract URLs")
-                
-                // Extract the dictionary from packed JS (the split array at the end)
-                val dictRegex = Regex("""'([^']+)'\.split\('\|'\)""")
-                val dictMatch = dictRegex.find(packedCode)
-                
-                if (dictMatch != null) {
-                    val dictionary = dictMatch.groupValues[1].split("|")
-                    Log.d(tag, "Dictionary has ${dictionary.size} entries")
-                    
-                    // Look for stream URL patterns in dictionary
-                    // hls2 = relative stream URL (/stream/...)
-                    // hls3 or hls4 = full URL (https://...)
-                    
-                    val streamPatterns = listOf(
-                        Regex("""(https?://[^|]+/stream/[^|]+master\.m3u8[^|]*)"""),
-                        Regex("""(https?://[^|]+\.m3u8[^|]*)"""),
-                        Regex("""(https?://[^|]+\.txt\?[^|]*)""") // HLS with .txt extension
-                    )
-                    
-                    for (pattern in streamPatterns) {
-                        for (entry in dictionary) {
-                            val match = pattern.find(entry)
-                            if (match != null) {
-                                val streamUrl = match.groupValues[1]
-                                Log.d(tag, "Found stream URL from dictionary: $streamUrl")
-                                
-                                createExtractorLink(streamUrl, "HDStream4u", callback)
-                                return
-                            }
-                        }
-                    }
-                    
-                    // Look for domain patterns and construct URL
-                    val domains = dictionary.filter { 
-                        it.contains("minochinos") || it.contains("aurorion") || 
-                        it.contains("stream") || it.contains("online")
-                    }
-                    Log.d(tag, "Found domains: $domains")
-                }
-            }
-            
-            // Method 2: Try to find m3u8/stream URLs directly in page
-            val streamPatterns = listOf(
-                Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
-                Regex("""(https?://minochinos\.com/stream/[^"'\s<>]+)"""),
-                Regex("""(https?://[^"'\s<>]+aurorion[^"'\s<>]+\.m3u8[^"'\s<>]*)"""),
-                Regex("""(https?://[^"'\s<>]+\.txt\?t=[^"'\s<>]+)"""),  // HLS txt format
-                Regex("""file\s*:\s*["']([^"']+m3u8[^"']*)["']"""),
-                Regex("""hls[234]\s*:\s*["']([^"']+)["']""")
+            // Pattern 1: Full URL with domain (hls2/hls3 format)
+            val fullUrlPatterns = listOf(
+                Regex(""""hls[23]"\s*:\s*"(https?://[^"]+\.(m3u8|txt)[^"]*)""""),
+                Regex("""hls[23]\s*:\s*"(https?://[^"]+\.(m3u8|txt)[^"]*)""""),
+                Regex(""""hls[23]"\s*:\s*\\?"(https?://[^"\\]+\.(m3u8|txt)[^"\\]*)"""),
+                Regex("""(https?://[^"'\s<>]+\.acek-cdn\.com/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
+                Regex("""(https?://[^"'\s<>]+willowgrove[^"'\s<>]+master\.txt[^"'\s<>]*)"""),
+                Regex("""(https?://[^"'\s<>]+creativebranding[^"'\s<>]+master\.txt[^"'\s<>]*)""")
             )
             
-            for (pattern in streamPatterns) {
+            for (pattern in fullUrlPatterns) {
                 val match = pattern.find(embedHtml)
                 if (match != null) {
-                    var streamUrl = match.groupValues[1]
-                    
-                    // Make relative URLs absolute
-                    if (streamUrl.startsWith("/")) {
-                        streamUrl = "https://minochinos.com$streamUrl"
-                    }
-                    
-                    Log.d(tag, "Found stream URL: $streamUrl")
-                    createExtractorLink(streamUrl, "HDStream4u", callback)
+                    val streamUrl = match.groupValues[1]
+                    Log.d(tag, "Found full stream URL: $streamUrl")
+                    createExtractorLink(streamUrl, callback)
                     return
                 }
             }
             
-            // Method 3: Fallback - try hdstream4u.com page directly
-            val mainPageResponse = app.get(url, referer = referer ?: mainUrl, timeout = 15)
-            val mainHtml = mainPageResponse.text
+            // Pattern 2: Relative URL (/stream/...) for hls4
+            val relativePatterns = listOf(
+                Regex(""""hls4"\s*:\s*"(/stream/[^"]+master\.m3u8[^"]*)""""),
+                Regex("""hls4\s*:\s*"(/stream/[^"]+)""""),
+                Regex(""""hls4"\s*:\s*\\?"(/stream/[^"\\]+)""")
+            )
             
-            val directStreamRegex = Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8)""")
-            val directMatch = directStreamRegex.find(mainHtml)
-            
-            if (directMatch != null) {
-                val streamUrl = directMatch.groupValues[1]
-                Log.d(tag, "Found direct stream URL from main page: $streamUrl")
-                createExtractorLink(streamUrl, "HDStream4u", callback)
-                return
+            for (pattern in relativePatterns) {
+                val match = pattern.find(embedHtml)
+                if (match != null) {
+                    val streamPath = match.groupValues[1]
+                    val streamUrl = "https://minochinos.com$streamPath"
+                    Log.d(tag, "Found relative stream URL, converted to: $streamUrl")
+                    createExtractorLink(streamUrl, callback)
+                    return
+                }
             }
             
-            Log.w(tag, "No stream URL found")
+            // ============================================================
+            // Method 2: Try to extract from JWPlayer source directly
+            // ============================================================
+            val jwSourcePatterns = listOf(
+                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*[^,]+\s*,\s*type\s*:\s*["']hls["']"""),
+                Regex("""file\s*:\s*links\.(hls\d)"""),
+                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']""")
+            )
+            
+            for (pattern in jwSourcePatterns) {
+                val match = pattern.find(embedHtml)
+                if (match != null && match.groupValues.size > 1) {
+                    val url = match.groupValues[1]
+                    if (url.startsWith("http")) {
+                        Log.d(tag, "Found JW source URL: $url")
+                        createExtractorLink(url, callback)
+                        return
+                    }
+                }
+            }
+            
+            // ============================================================
+            // Method 3: Use known CDN patterns with file ID
+            // ============================================================
+            Log.d(tag, "Trying CDN pattern construction with fileId: $fileId")
+            
+            // Try to construct stream URL using known patterns (this is a heuristic)
+            val streamUrlFromConstruction = "https://minochinos.com/stream/$fileId/master.m3u8"
+            
+            // Verify if URL works by checking headers
+            try {
+                val testResponse = app.head(streamUrlFromConstruction, timeout = 5)
+                if (testResponse.code == 200) {
+                    Log.d(tag, "Constructed stream URL works: $streamUrlFromConstruction")
+                    createExtractorLink(streamUrlFromConstruction, callback)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.d(tag, "Constructed URL failed: ${e.message}")
+            }
+            
+            Log.w(tag, "No stream URL found for $url")
             
         } catch (e: Exception) {
             Log.e(tag, "Error extracting hdstream4u: ${e.message}")
         }
     }
     
-    private suspend fun createExtractorLink(streamUrl: String, name: String, callback: (ExtractorLink) -> Unit) {
+    private suspend fun createExtractorLink(streamUrl: String, callback: (ExtractorLink) -> Unit) {
         // Determine quality from URL or default to 1080
         val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
         val quality = qualityRegex.find(streamUrl)?.groupValues?.get(1)?.toIntOrNull() ?: 1080
