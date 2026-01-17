@@ -12,11 +12,56 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
 import java.net.URI
 
 fun getBaseUrl(url: String): String {
     return URI(url).let {
         "${it.scheme}://${it.host}"
+    }
+}
+
+/**
+ * UrlManager - Dynamic URL fetching from urls.json API
+ * Features:
+ * - 10 second timeout for fast loading
+ * - 30 minute cache duration
+ * - Fallback to default URL if fetch fails
+ */
+object UrlManager {
+    private var cachedUrls: Map<String, String>? = null
+    private var lastFetch: Long = 0
+    private const val CACHE_DURATION = 30 * 60 * 1000L // 30 minutes
+    private const val API_URL = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+    
+    suspend fun getUrl(source: String, fallback: String): String {
+        val now = System.currentTimeMillis()
+        
+        // Return cached if still fresh
+        if (cachedUrls != null && now - lastFetch < CACHE_DURATION) {
+            return cachedUrls?.get(source) ?: fallback
+        }
+        
+        // Fetch with 10s timeout for fast loading
+        return try {
+            val response = app.get(API_URL, timeout = 10)
+            val json = JSONObject(response.text)
+            val urls = mutableMapOf<String, String>()
+            json.keys().forEach { key -> urls[key] = json.optString(key) }
+            cachedUrls = urls
+            lastFetch = now
+            Log.d("UrlManager", "Fetched ${urls.size} URLs from API")
+            urls[source] ?: fallback
+        } catch (e: Exception) {
+            Log.w("UrlManager", "Failed to fetch urls.json: ${e.message}")
+            fallback
+        }
+    }
+    
+    // Force refresh cache
+    fun clearCache() {
+        cachedUrls = null
+        lastFetch = 0
     }
 }
 
@@ -43,28 +88,6 @@ suspend fun loadSourceNameExtractor(
     } catch (e: Exception) {
         Log.e("loadSourceNameExtractor", "Error: ${e.message}")
     }
-}
-
-// Cached URLs to avoid fetching urls.json on every call
-private var cachedUrlsJson: org.json.JSONObject? = null
-
-suspend fun getLatestUrl(url: String, source: String): String {
-    // Use cached JSON if available (fetch only once per session)
-    if (cachedUrlsJson == null) {
-        try {
-            cachedUrlsJson = org.json.JSONObject(
-                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-            )
-        } catch (e: Exception) {
-            return getBaseUrl(url)
-        }
-    }
-    
-    val link = cachedUrlsJson?.optString(source)
-    if (link.isNullOrEmpty()) {
-        return getBaseUrl(url)
-    }
-    return link
 }
 
 // Parse file size string to MB (e.g., "1.8GB" -> 1843, "500MB" -> 500)

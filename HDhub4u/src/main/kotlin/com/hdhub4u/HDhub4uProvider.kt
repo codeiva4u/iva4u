@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -20,46 +21,28 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
-import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 
 class HDhub4uProvider : MainAPI() {
     companion object {
         private const val TAG = "HDhub4uProvider"
+        private const val DEFAULT_URL = "https://new2.hdhub4u.fo"
     }
 
-    // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
+    // CloudflareKiller for bypassing Cloudflare protection
     val cfKiller by lazy { CloudflareKiller() }
 
-    // Fetch mainUrl from remote config
-    private val basemainUrl: String? by lazy {
-        runBlocking {
-            try {
-                val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
+    // Dynamic mainUrl - fetched async from UrlManager
+    override var mainUrl: String = DEFAULT_URL
+    private var mainUrlInitialized = false
     
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
-
-    // Fallback domains in case primary fails
-    private val fallbackDomains = listOf(
-        "https://new2.hdhub4u.fo",
-        "https://hdhub4u.foo",
-        "https://hdhub4u.life"
-    )
-
-    init {
-        basemainUrl?.takeIf { it.isNotBlank() }?.let {
-            mainUrl = it
+    // Async init mainUrl (non-blocking)
+    private suspend fun ensureMainUrl() {
+        if (!mainUrlInitialized) {
+            mainUrl = UrlManager.getUrl("hdhub4u", DEFAULT_URL)
+            mainUrlInitialized = true
+            Log.d(TAG, "Initialized mainUrl: $mainUrl")
         }
     }
 
@@ -86,6 +69,9 @@ override suspend fun getMainPage(
     page: Int,
     request: MainPageRequest
 ): HomePageResponse {
+    // Ensure mainUrl is fetched (async, non-blocking)
+    ensureMainUrl()
+    
     val url = if (page == 1) {
         "$mainUrl/${request.data}"
     } else {
@@ -93,7 +79,7 @@ override suspend fun getMainPage(
     }
 
     Log.d(TAG, "Loading main page: $url")
-    val document = app.get(url, headers = headers, timeout = 60).document
+    val document = app.get(url, headers = headers, timeout = 20).document
 
     // Correct selector: li.thumb contains movie items
     val home = document.select("li.thumb").mapNotNull {
@@ -167,7 +153,7 @@ override suspend fun search(query: String): List<SearchResponse> {
         // Fetch first 3 pages of content to search through
         for (page in 1..3) {
             val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-            val document = app.get(url, headers = headers, timeout = 30).document
+            val document = app.get(url, headers = headers, timeout = 20).document
 
             document.select("li.thumb").forEach { element ->
                 val searchResult = element.toSearchResult()
@@ -195,7 +181,10 @@ override suspend fun search(query: String): List<SearchResponse> {
 
 override suspend fun load(url: String): LoadResponse? {
     Log.d(TAG, "Loading: $url")
-    val document = app.get(url, headers = headers, timeout = 60).document
+    // Ensure mainUrl is initialized
+    ensureMainUrl()
+    
+    val document = app.get(url, headers = headers, timeout = 20).document
 
     // Extract title using Regex
     val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1")?.text()?.trim()
@@ -261,10 +250,25 @@ override suspend fun load(url: String): LoadResponse? {
 
     Log.d(TAG, "Total links found: ${downloadLinks.size}")
 
-    // Smart sort: Quality DESC, Size ASC, then priority
+    // Smart sort: X264 1080p priority -> Smallest Size -> Fastest Server
     val sortedLinks = downloadLinks.sortedWith(
-        compareByDescending<DownloadLink> { it.quality }
-            .thenBy { if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE }
+        compareByDescending<DownloadLink> {
+            // Priority 1: X264 1080p gets highest score
+            when {
+                it.quality == 1080 && it.originalText.contains("x264", true) -> 200
+                it.quality == 1080 -> 150
+                it.quality == 2160 -> 140  // 4K
+                it.quality == 720 -> 100
+                it.quality == 480 -> 70
+                else -> 50
+            }
+        }.thenBy {
+            // Priority 2: Smallest file size
+            if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+        }.thenByDescending {
+            // Priority 3: Fastest server
+            getServerPriority(it.originalText)
+        }
     )
 
     // Create data string (comma separated URLs)
@@ -359,7 +363,7 @@ private fun extractQuality(text: String): Int {
         text.contains("1080", ignoreCase = true) -> 1080
         text.contains("720", ignoreCase = true) -> 720
         text.contains("480", ignoreCase = true) -> 480
-        text.contains("360", ignoreCase = true) -> 360
+            text.contains("360", ignoreCase = true) -> 360
         else -> 0
     }
 }
@@ -373,6 +377,23 @@ private fun parseFileSize(text: String): Double {
     val unit = match.groupValues[2].uppercase()
 
     return if (unit == "GB") value * 1024 else value
+}
+
+// Server speed priority (higher = faster/preferred)
+private fun getServerPriority(serverName: String): Int {
+    return when {
+        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
+        serverName.contains("Direct", true) -> 90
+        serverName.contains("FSLv2", true) -> 85
+        serverName.contains("FSL", true) -> 80
+        serverName.contains("10Gbps", true) -> 88
+        serverName.contains("r2.dev", true) -> 85
+        serverName.contains("gdboka", true) -> 82
+        serverName.contains("Download", true) -> 70
+        serverName.contains("Pixel", true) -> 60
+        serverName.contains("Buzz", true) -> 55
+        else -> 50
+    }
 }
 
 override suspend fun loadLinks(
@@ -396,9 +417,14 @@ override suspend fun loadLinks(
             data.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         }
 
-        Log.d(TAG, "Processing ${links.size} links")
+        Log.d(TAG, "Processing ${links.size} links in parallel")
+        
+        // Limit to 5 best links for fast loading (10 sec target)
+        val limitedLinks = links.take(5)
+        Log.d(TAG, "Limited to ${limitedLinks.size} best links")
 
-        links.forEach { link ->
+        // Process links in parallel using amap for 10 sec loading
+        limitedLinks.amap { link ->
             try {
                 when {
                     // Hubdrive patterns
@@ -408,16 +434,28 @@ override suspend fun loadLinks(
 
                     // HubCloud/Gamerxyt/hubstream patterns
                     link.contains("hubcloud", ignoreCase = true) ||
-                            link.contains("hubcdn", ignoreCase = true) ||
-                            link.contains("hubstream", ignoreCase = true) ||
-                            link.contains("gamester", ignoreCase = true) ||
-                            link.contains("gamerxyt", ignoreCase = true) -> {
+                    link.contains("hubcdn", ignoreCase = true) ||
+                    link.contains("hubstream", ignoreCase = true) ||
+                    link.contains("gamester", ignoreCase = true) ||
+                    link.contains("gamerxyt", ignoreCase = true) -> {
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     }
 
-                    // Generic extractor
+                    // HUBCDN patterns (gadgetsweb, hdstream4u)
+                    link.contains("gadgetsweb", ignoreCase = true) ||
+                    link.contains("hdstream4u", ignoreCase = true) -> {
+                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                    }
+
+                    // Hblinks patterns
+                    link.contains("hblinks", ignoreCase = true) ||
+                    link.contains("4khdhub", ignoreCase = true) -> {
+                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                    }
+
+                    // Skip unknown links - only use project extractors
                     else -> {
-                        loadExtractor(link, mainUrl, subtitleCallback, callback)
+                        Log.d(TAG, "Skipping unknown link (no extractor): $link")
                     }
                 }
             } catch (e: Exception) {
