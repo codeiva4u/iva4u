@@ -967,7 +967,7 @@ class Hubstream : ExtractorApi() {
 }
 
 // HDStream4u.com Video Streaming Extractor (JWPlayer based)
-// Flow: hdstream4u.com/file/xxx -> minochinos.com/embed/xxx -> packed JS with stream URLs
+// hdstream4u.com/file/xxx embeds packed JS directly on page with stream URLs
 // Decoded packed JS format: var links = {hls2: "https://...m3u8", hls3: "https://...txt", hls4: "/stream/...m3u8"}
 class HDStream4u : ExtractorApi() {
     override val name = "HDStream4u"
@@ -995,12 +995,13 @@ class HDStream4u : ExtractorApi() {
             
             Log.d(tag, "Found file ID: $fileId")
             
-            // Fetch the embed page from minochinos.com (this has the packed player)
-            val embedUrl = "https://minochinos.com/embed/$fileId"
-            Log.d(tag, "Fetching embed page: $embedUrl")
+            // Fetch hdstream4u.com page directly (packed JS is embedded on this page)
+            Log.d(tag, "Fetching hdstream4u page: $url")
             
-            val embedResponse = app.get(embedUrl, referer = mainUrl, timeout = 20)
-            val embedHtml = embedResponse.text
+            val pageResponse = app.get(url, referer = referer ?: mainUrl, timeout = 20)
+            val embedHtml = pageResponse.text
+            
+            Log.d(tag, "Page content length: ${embedHtml.length}")
             
             // ============================================================
             // Method 1: Extract URLs directly from unpacked/decoded content
