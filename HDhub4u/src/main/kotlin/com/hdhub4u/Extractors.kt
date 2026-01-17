@@ -611,24 +611,82 @@ class HUBCDN : ExtractorApi() {
         
         try {
             // For gadgetsweb.xyz with encrypted id parameter
-            // Flow: gadgetsweb.xyz -> hblinks.dad -> hubcloud/hubdrive
+            // Flow: gadgetsweb.xyz -> decrypt -> hblinks.dad -> hubcloud/hubdrive
             if (url.contains("gadgetsweb.xyz", ignoreCase = true) && url.contains("id=", ignoreCase = true)) {
-                Log.d(tag, "Handling gadgetsweb.xyz - fetching page for hblinks redirect")
+                Log.d(tag, "Handling gadgetsweb.xyz - attempting to decrypt")
                 
-                // Fetch the page - the JavaScript will reveal hblinks link
-                val doc = app.get(url, timeout = 20).document
+                // Fetch the initial redirect page
+                val response = app.get(url, timeout = 20)
+                val html = response.text
                 
-                // First check for hblinks.dad link (this is the main redirect)
+                // Method 1: Extract encrypted data from JavaScript s() function call
+                // Pattern: s('o','BASE64_DATA',180*1000)
+                val encryptedDataRegex = Regex("""s\s*\(\s*['"]o['"]\s*,\s*['"]([A-Za-z0-9+/=]+)['"]\s*,""")
+                val encryptedMatch = encryptedDataRegex.find(html)
+                
+                if (encryptedMatch != null) {
+                    val encryptedData = encryptedMatch.groupValues[1]
+                    Log.d(tag, "Found encrypted data: ${encryptedData.take(50)}...")
+                    
+                    try {
+                        // Gadgetsweb uses: Base64 -> ROT13-like -> Base64 -> hblinks URL
+                        // First decode
+                        val firstDecode = base64Decode(encryptedData)
+                        Log.d(tag, "First decode: ${firstDecode.take(50)}...")
+                        
+                        // Apply ROT13 variant (shift by 13)
+                        val rot13Decoded = firstDecode.map { char ->
+                            when {
+                                char in 'a'..'z' -> ((char - 'a' + 13) % 26 + 'a'.code).toChar()
+                                char in 'A'..'Z' -> ((char - 'A' + 13) % 26 + 'A'.code).toChar()
+                                else -> char
+                            }
+                        }.joinToString("")
+                        
+                        // Try second base64 decode
+                        val secondDecode = try { base64Decode(rot13Decoded) } catch (e: Exception) { rot13Decoded }
+                        Log.d(tag, "Second decode: ${secondDecode.take(100)}...")
+                        
+                        // Extract hblinks URL from decoded data
+                        val hblinksRegex = Regex("""https?://hblinks[^"'\s<>]+/archives/\d+""", RegexOption.IGNORE_CASE)
+                        val hblinksMatch = hblinksRegex.find(secondDecode)
+                        
+                        if (hblinksMatch != null) {
+                            val hblinksUrl = hblinksMatch.value
+                            Log.d(tag, "Decrypted hblinks URL: $hblinksUrl")
+                            Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
+                            return
+                        }
+                    } catch (e: Exception) {
+                        Log.e(tag, "Decryption failed: ${e.message}")
+                    }
+                }
+                
+                // Method 2: Fetch /homelander/ page and check for links
+                try {
+                    val homelanderDoc = app.get("https://gadgetsweb.xyz/homelander/", timeout = 15).document
+                    val hblinksLink = homelanderDoc.select("a[href*=hblinks]").firstOrNull()?.attr("href")
+                    if (!hblinksLink.isNullOrBlank()) {
+                        Log.d(tag, "Found hblinks on homelander page: $hblinksLink")
+                        Hblinks().getUrl(hblinksLink, referer, subtitleCallback, callback)
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Homelander page fetch failed: ${e.message}")
+                }
+                
+                // Method 3: Original DOM parsing fallback
+                val doc = response.document
                 val hblinksLink = doc.select("a[href*=hblinks]").firstOrNull()?.attr("href")
                     ?: doc.select("a#verify_btn[href*=hblinks]").firstOrNull()?.attr("href")
                     
                 if (!hblinksLink.isNullOrBlank() && hblinksLink.contains("hblinks", true)) {
-                    Log.d(tag, "Found hblinks link: $hblinksLink - delegating to Hblinks extractor")
+                    Log.d(tag, "Found hblinks link: $hblinksLink")
                     Hblinks().getUrl(hblinksLink, referer, subtitleCallback, callback)
                     return
                 }
                 
-                // Fallback: check for direct hubcloud link
+                // Method 4: Check for direct hubcloud link
                 val hubcloudLink = doc.select("a[href*=hubcloud]").firstOrNull()?.attr("href")
                     ?: doc.select("a[href*=drive]").firstOrNull()?.attr("href")
                 
