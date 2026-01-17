@@ -765,10 +765,6 @@ class Hubstream : ExtractorApi() {
         val tag = "Hubstream"
         Log.d(tag, "Processing URL: $url")
         
-        // Get latest hubstream domain from urls.json
-        val hubstreamDomain = getLatestUrl(url, "hubstream")
-        Log.d(tag, "Using hubstream domain: $hubstreamDomain")
-        
         // Extract video ID from URL hash (e.g., hubstream.art/#d8kdio -> d8kdio)
         val videoIdRegex = Regex("""#([a-zA-Z0-9]+)""")
         val videoId = videoIdRegex.find(url)?.groupValues?.get(1)
@@ -781,6 +777,49 @@ class Hubstream : ExtractorApi() {
         Log.d(tag, "Found video ID: $videoId")
         
         try {
+            // Method 1: Try pureluxurystudios.online direct URL (most reliable)
+            // Pattern: https://srcf.pureluxurystudios.online/v4/us/{VIDEO_ID}/cf-master.{TIMESTAMP}.txt
+            // We'll try to fetch even without exact timestamp - server may accept or redirect
+            
+            val pureServers = listOf("srcf", "sil5", "src2", "sil2")
+            val currentTimestamp = System.currentTimeMillis() / 1000
+            
+            for (server in pureServers) {
+                try {
+                    val pureStreamUrl = "https://$server.pureluxurystudios.online/v4/us/$videoId/cf-master.$currentTimestamp.txt"
+                    Log.d(tag, "Trying pureluxurystudios: $pureStreamUrl")
+                    
+                    // Check if URL is accessible with HEAD request
+                    val testResponse = app.head(pureStreamUrl, timeout = 5)
+                    if (testResponse.code == 200) {
+                        Log.d(tag, "Found working pureluxurystudios URL: $pureStreamUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "Hubstream",
+                                "Hubstream [HLS]",
+                                pureStreamUrl,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = "https://hubstream.art/"
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.d(tag, "Server $server not available: ${e.message}")
+                }
+            }
+            
+            // Method 2: Fetch hubstream page and look for stream URLs in HTML/JS
+            val hubstreamDomain = try {
+                getLatestUrl(url, "hubstream")
+            } catch (e: Exception) {
+                "https://hubstream.art"
+            }
+            Log.d(tag, "Using hubstream domain: $hubstreamDomain")
+        
             // Construct URL with latest domain
             val requestUrl = "$hubstreamDomain/#$videoId"
             
@@ -853,7 +892,7 @@ class Hubstream : ExtractorApi() {
 }
 
 // HDStream4u.com Video Streaming Extractor (JWPlayer based)
-// URL Pattern: /file/xxx -> /stream/.../master.m3u8
+// Flow: hdstream4u.com/file/xxx -> minochinos.com/embed/xxx -> packed JS with stream URLs
 class HDStream4u : ExtractorApi() {
     override val name = "HDStream4u"
     override val mainUrl = "https://hdstream4u.com"
@@ -869,70 +908,142 @@ class HDStream4u : ExtractorApi() {
         Log.d(tag, "Processing URL: $url")
         
         try {
-            // Fetch the video page
-            val response = app.get(url, referer = referer ?: mainUrl, timeout = 15)
-            val html = response.text
+            // Extract file ID from URL (e.g., /file/5cma7x2t4a88)
+            val fileIdRegex = Regex("""/file/([a-zA-Z0-9]+)""")
+            val fileId = fileIdRegex.find(url)?.groupValues?.get(1)
             
-            // Method 1: Extract stream URL from JWPlayer setup
-            // Pattern: file:"https://hdstream4u.com/stream/.../master.m3u8"
-            val fileRegex = Regex("""file\s*[:=]\s*["']([^"']+master\.m3u8[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val fileMatch = fileRegex.find(html)
-            
-            // Method 2: Extract from sources array
-            val sourcesRegex = Regex("""sources\s*[:=]\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-            val sourcesMatch = sourcesRegex.find(html)
-            
-            // Method 3: Look for any m3u8 URL in the page
-            val m3u8Regex = Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8)""", RegexOption.IGNORE_CASE)
-            val m3u8Match = m3u8Regex.find(html)
-            
-            // Method 4: Look for relative URL and construct full URL
-            val relativeRegex = Regex("""["'](/stream/[^"']+master\.m3u8[^"']*)["']""")
-            val relativeMatch = relativeRegex.find(html)
-            
-            var streamUrl = fileMatch?.groupValues?.get(1)
-                ?: sourcesMatch?.groupValues?.get(1)
-                ?: m3u8Match?.groupValues?.get(1)
-                
-            // Handle relative URL
-            if (streamUrl == null && relativeMatch != null) {
-                streamUrl = mainUrl + relativeMatch.groupValues[1]
-            }
-            
-            if (!streamUrl.isNullOrEmpty()) {
-                // Make sure it's a full URL
-                if (streamUrl.startsWith("/")) {
-                    streamUrl = mainUrl + streamUrl
-                }
-                
-                Log.d(tag, "Found stream URL: $streamUrl")
-                
-                // Extract title for quality detection
-                val titleRegex = Regex("""<title>([^<]+)</title>""", RegexOption.IGNORE_CASE)
-                val title = titleRegex.find(html)?.groupValues?.get(1) ?: "HDStream4u"
-                
-                // Extract quality from title
-                val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-                val quality = qualityRegex.find(title)?.groupValues?.get(1)?.toIntOrNull() ?: 1080
-                
-                callback.invoke(
-                    newExtractorLink(
-                        "HDStream4u",
-                        "HDStream4u [$title]",
-                        streamUrl,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
-                    }
-                )
+            if (fileId.isNullOrEmpty()) {
+                Log.e(tag, "Could not extract file ID from URL: $url")
                 return
             }
             
-            Log.w(tag, "No stream URL found in page")
+            Log.d(tag, "Found file ID: $fileId")
+            
+            // Fetch the embed page from minochinos.com (this has the player)
+            val embedUrl = "https://minochinos.com/embed/$fileId"
+            Log.d(tag, "Fetching embed page: $embedUrl")
+            
+            val embedResponse = app.get(embedUrl, referer = mainUrl, timeout = 20)
+            val embedHtml = embedResponse.text
+            
+            // Method 1: Find packed/eval JavaScript and extract URLs
+            // Pattern: eval(function(p,a,c,k,e,d){...}('...',36,624,'...'...))
+            val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)\{[^}]+\}\s*\(\s*'([^']+)'[^)]+\)""")
+            val packedMatch = packedRegex.find(embedHtml)
+            
+            if (packedMatch != null) {
+                val packedCode = packedMatch.groupValues[0]
+                Log.d(tag, "Found packed JS, attempting to extract URLs")
+                
+                // Extract the dictionary from packed JS (the split array at the end)
+                val dictRegex = Regex("""'([^']+)'\.split\('\|'\)""")
+                val dictMatch = dictRegex.find(packedCode)
+                
+                if (dictMatch != null) {
+                    val dictionary = dictMatch.groupValues[1].split("|")
+                    Log.d(tag, "Dictionary has ${dictionary.size} entries")
+                    
+                    // Look for stream URL patterns in dictionary
+                    // hls2 = relative stream URL (/stream/...)
+                    // hls3 or hls4 = full URL (https://...)
+                    
+                    val streamPatterns = listOf(
+                        Regex("""(https?://[^|]+/stream/[^|]+master\.m3u8[^|]*)"""),
+                        Regex("""(https?://[^|]+\.m3u8[^|]*)"""),
+                        Regex("""(https?://[^|]+\.txt\?[^|]*)""") // HLS with .txt extension
+                    )
+                    
+                    for (pattern in streamPatterns) {
+                        for (entry in dictionary) {
+                            val match = pattern.find(entry)
+                            if (match != null) {
+                                val streamUrl = match.groupValues[1]
+                                Log.d(tag, "Found stream URL from dictionary: $streamUrl")
+                                
+                                createExtractorLink(streamUrl, "HDStream4u", callback)
+                                return
+                            }
+                        }
+                    }
+                    
+                    // Look for domain patterns and construct URL
+                    val domains = dictionary.filter { 
+                        it.contains("minochinos") || it.contains("aurorion") || 
+                        it.contains("stream") || it.contains("online")
+                    }
+                    Log.d(tag, "Found domains: $domains")
+                }
+            }
+            
+            // Method 2: Try to find m3u8/stream URLs directly in page
+            val streamPatterns = listOf(
+                Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8[^"'\s<>]*)"""),
+                Regex("""(https?://minochinos\.com/stream/[^"'\s<>]+)"""),
+                Regex("""(https?://[^"'\s<>]+aurorion[^"'\s<>]+\.m3u8[^"'\s<>]*)"""),
+                Regex("""(https?://[^"'\s<>]+\.txt\?t=[^"'\s<>]+)"""),  // HLS txt format
+                Regex("""file\s*:\s*["']([^"']+m3u8[^"']*)["']"""),
+                Regex("""hls[234]\s*:\s*["']([^"']+)["']""")
+            )
+            
+            for (pattern in streamPatterns) {
+                val match = pattern.find(embedHtml)
+                if (match != null) {
+                    var streamUrl = match.groupValues[1]
+                    
+                    // Make relative URLs absolute
+                    if (streamUrl.startsWith("/")) {
+                        streamUrl = "https://minochinos.com$streamUrl"
+                    }
+                    
+                    Log.d(tag, "Found stream URL: $streamUrl")
+                    createExtractorLink(streamUrl, "HDStream4u", callback)
+                    return
+                }
+            }
+            
+            // Method 3: Fallback - try hdstream4u.com page directly
+            val mainPageResponse = app.get(url, referer = referer ?: mainUrl, timeout = 15)
+            val mainHtml = mainPageResponse.text
+            
+            val directStreamRegex = Regex("""(https?://[^"'\s<>]+/stream/[^"'\s<>]+master\.m3u8)""")
+            val directMatch = directStreamRegex.find(mainHtml)
+            
+            if (directMatch != null) {
+                val streamUrl = directMatch.groupValues[1]
+                Log.d(tag, "Found direct stream URL from main page: $streamUrl")
+                createExtractorLink(streamUrl, "HDStream4u", callback)
+                return
+            }
+            
+            Log.w(tag, "No stream URL found")
             
         } catch (e: Exception) {
             Log.e(tag, "Error extracting hdstream4u: ${e.message}")
         }
+    }
+    
+    private suspend fun createExtractorLink(streamUrl: String, name: String, callback: (ExtractorLink) -> Unit) {
+        // Determine quality from URL or default to 1080
+        val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
+        val quality = qualityRegex.find(streamUrl)?.groupValues?.get(1)?.toIntOrNull() ?: 1080
+        
+        // Determine link type
+        val linkType = when {
+            streamUrl.contains(".m3u8", true) -> ExtractorLinkType.M3U8
+            streamUrl.contains(".txt", true) -> ExtractorLinkType.M3U8 // HLS with txt extension
+            else -> INFER_TYPE
+        }
+        
+        callback.invoke(
+            newExtractorLink(
+                name,
+                "$name [Stream]",
+                streamUrl,
+                linkType
+            ) {
+                this.referer = "https://minochinos.com/"
+                this.quality = quality
+            }
+        )
     }
 }
