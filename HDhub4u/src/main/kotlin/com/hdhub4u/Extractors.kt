@@ -200,6 +200,33 @@ class HdStream4u : ExtractorApi() {
                 }
             }
             
+            // Method 3: Extract from JWPlayer sources array (handles setup({sources:[{file:"..."}]}))
+            val jwSourcesRegex = Regex(""""file"\s*:\s*"([^"]+\.m3u8[^"]*)"""")
+            val jwMatches = jwSourcesRegex.findAll(html)
+            
+            jwMatches.forEachIndexed { index, match ->
+                var hlsUrl = match.groupValues[1].replace("\\/", "/")
+                
+                // Fix relative URLs
+                if (hlsUrl.startsWith("/")) {
+                    hlsUrl = "https://hdstream4u.com$hlsUrl"
+                }
+                
+                Log.d("HdStream4u", "JWPlayer source $index: $hlsUrl")
+                
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = "$name [JW $index]",
+                        url = hlsUrl,
+                        type = ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.quality = Qualities.P1080.value
+                    }
+                )
+            }
+            
         } catch (e: Exception) {
             Log.e("HdStream4u", "Error: ${e.message}")
         }
@@ -847,9 +874,10 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Skip /file/ URLs - they are ad redirect pages with no video content
-        if ("/file/" in url) {
-            Log.d("HUBCDN", "Skipping /file/ URL (ad page): $url")
+        // hdstream4u.com /file/ URLs are valid streaming pages - redirect to HdStream4u extractor
+        if ("/file/" in url && url.contains("hdstream4u", ignoreCase = true)) {
+            Log.d("HUBCDN", "Redirecting hdstream4u /file/ URL to HdStream4u extractor: $url")
+            HdStream4u().getUrl(url, referer, subtitleCallback, callback)
             return
         }
         
