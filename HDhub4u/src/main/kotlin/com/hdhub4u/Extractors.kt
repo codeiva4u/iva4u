@@ -609,8 +609,9 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
-                // FSL Server - fsl.gigabytes.icu
+                // FSL Server - fsl.gigabytes.icu, hub.fsl-lover.buzz
                 link.contains("fsl.gigabytes", ignoreCase = true) || 
+                link.contains("fsl-lover.buzz", ignoreCase = true) ||
                 (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
                     callback.invoke(
                         newExtractorLink(
@@ -621,9 +622,11 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
-                // FSLv2 - r2.dev or gdboka.buzz
+                // FSLv2 - r2.dev, gdboka.buzz, cdn.fukggl.buzz, carnewz.site
                 link.contains("r2.dev", ignoreCase = true) || 
-                link.contains("gdboka.buzz", ignoreCase = true) -> {
+                link.contains("gdboka.buzz", ignoreCase = true) ||
+                link.contains("fukggl.buzz", ignoreCase = true) ||
+                link.contains("carnewz.site", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
                             "$referer [FSLv2]",
