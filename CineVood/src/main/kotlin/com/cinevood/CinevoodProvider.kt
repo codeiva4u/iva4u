@@ -145,14 +145,22 @@ class CinevoodProvider : MainAPI() {
         val title = cleanTitle(rawTitle)
         if (title.isBlank()) return null
 
-        // 3. Extract poster - check multiple sources
-        val posterUrl = selectFirst(".featured-thumbnail img, .post-thumbnail img, img")?.let { img ->
+        // 3. Extract poster - check multiple sources with better fallbacks
+        val imgElement = selectFirst(".featured-thumbnail img")
+            ?: selectFirst(".post-thumbnail img")
+            ?: selectFirst("a.post-image img")
+            ?: selectFirst("img[src]")
+            ?: selectFirst("img")
+        
+        val posterUrl = imgElement?.let { img ->
             val src = img.attr("src").ifBlank { 
                 img.attr("data-src").ifBlank { 
-                    img.attr("data-lazy-src") 
+                    img.attr("data-lazy-src").ifBlank {
+                        img.attr("data-original")
+                    }
                 } 
             }
-            fixUrlNull(src)
+            if (src.isNotBlank()) fixUrlNull(src) else null
         }
 
         // 4. Determine type using regex
