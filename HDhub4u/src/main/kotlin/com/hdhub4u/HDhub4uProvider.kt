@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
-import com.lagradost.cloudstream3.SearchQuality
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -22,21 +21,17 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
 import org.jsoup.nodes.Element
-import java.text.Normalizer
 
 class HDhub4uProvider : MainAPI() {
     companion object {
         private const val TAG = "HDhub4uProvider"
         
-        // Regex patterns for title/content parsing
+        // Regex patterns for content parsing
         private val SERIES_PATTERN = Regex("""(?i)(Season|S0\d|Episode|E0\d|Complete|Web\s*Series|All\s+Episodes)""")
         private val SEASON_PATTERN = Regex("""(?i)Season\s*(\d+)""")
         private val YEAR_PATTERN = Regex("""[\(\[]?(\d{4})[\)\]]?""")
         private val EPISODE_PATTERN = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
-        private val SIZE_PATTERN = Regex("""(\d+(?:\.\d+)?)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
         
         // Title cleaning patterns
         private val CLEAN_YEAR = Regex("""(?i)\s*[\(\[]?\d{4}[\)\]]?""")
@@ -45,51 +40,9 @@ class HDhub4uProvider : MainAPI() {
         private val CLEAN_LANG = Regex("""(?i)\s*(hindi|english|dual audio|esub|esubs).*""")
         private val CLEAN_DOWNLOAD = Regex("""(?i)\s*download\s*(free)?.*""")
         private val CLEAN_WHITESPACE = Regex("""\s+""")
-        
-        // Search quality patterns
-        private val QUALITY_4K = Regex("""\b(4k|uhd|2160p)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_HDCAM = Regex("""\b(hdcam|hdtc)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_CAMRIP = Regex("""\b(camrip)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_CAM = Regex("""\b(cam)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_WEBRIP = Regex("""\b(webrip|webdl)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_BLURAY = Regex("""\b(bluray)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_1080 = Regex("""\b(1080p)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_720 = Regex("""\b(720p)\b""", RegexOption.IGNORE_CASE)
-        private val QUALITY_DVD = Regex("""\b(dvd)\b""", RegexOption.IGNORE_CASE)
     }
 
-    // Cached domain URL
-    private var cachedMainUrl: String? = null
-    private var urlsFetched = false
-    
     override var mainUrl: String = "https://new2.hdhub4u.fo"
-
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-        
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(10_000L) {
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
-            }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
-        }
-        return mainUrl
-    }
-
     override var name = "HDHub4U"
     override var lang = "hi"
     override val hasMainPage = true
@@ -110,9 +63,16 @@ class HDhub4uProvider : MainAPI() {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Cookie" to "xla=s4t"
     )
+    
+    // Initialize and fetch domains
+    private suspend fun initDomains() {
+        DomainConfig.fetchDomains()
+        val domain = DomainConfig.get("hdhub4u")
+        if (domain.isNotBlank()) mainUrl = domain
+    }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        fetchMainUrl()
+        initDomains()
         
         val url = if (page == 1) "$mainUrl/${request.data}" else "$mainUrl/${request.data}page/$page/"
         Log.d(TAG, "Loading main page: $url")
@@ -190,7 +150,7 @@ class HDhub4uProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        fetchMainUrl()
+        initDomains()
         val doc = app.get(url, headers = headers, timeout = 20).document
 
         // Extract title
@@ -208,7 +168,7 @@ class HDhub4uProvider : MainAPI() {
         val description = doc.selectFirst(".page-body p:first-child")?.text()
             ?: doc.selectFirst("meta[name=description]")?.attr("content")
 
-        // Extract year using regex
+        // Extract year
         val year = YEAR_PATTERN.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
 
         // Extract IMDB URL
@@ -221,7 +181,7 @@ class HDhub4uProvider : MainAPI() {
         val isSeries = SERIES_PATTERN.containsMatchIn(rawTitle)
         val seasonNumber = SEASON_PATTERN.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
 
-        // Extract download links using ExtractorPatterns
+        // Extract download links
         val downloadLinks = mutableListOf<DownloadLink>()
         
         doc.select("a[href]").forEach { element ->
@@ -230,36 +190,53 @@ class HDhub4uProvider : MainAPI() {
             
             if (ExtractorPatterns.isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
                 val quality = ExtractorPatterns.extractQuality(text.ifBlank { href })
-                val size = parseFileSize(text)
-                downloadLinks.add(DownloadLink(href, quality, size, text))
+                val size = ExtractorPatterns.extractSize(text)
+                val isX264 = ExtractorPatterns.isX264(text)
+                downloadLinks.add(DownloadLink(href, quality, size, text, isX264))
             }
         }
         
-        // Also extract from page HTML using regex
+        // Also extract from page HTML
         val bodyHtml = doc.body().html()
         ExtractorPatterns.VALID_LINK.findAll(bodyHtml).forEach { match ->
             val linkUrl = match.value
             if (downloadLinks.none { it.url == linkUrl }) {
-                downloadLinks.add(DownloadLink(linkUrl, ExtractorPatterns.extractQuality(linkUrl), 0.0, ""))
+                downloadLinks.add(DownloadLink(
+                    linkUrl, 
+                    ExtractorPatterns.extractQuality(linkUrl), 
+                    0.0, 
+                    "",
+                    false
+                ))
             }
         }
 
         Log.d(TAG, "Found ${downloadLinks.size} download links")
 
-        // Sort links by quality and priority
+        // SMART LINK SELECTION:
+        // Priority 1: 1080p quality
+        // Priority 2: x264 codec preferred over x265/HEVC
+        // Priority 3: Smallest file size
+        // Priority 4: Fastest server (stream > download)
         val sortedLinks = downloadLinks.sortedWith(
             compareByDescending<DownloadLink> {
+                // Priority 1: Quality (1080p = 100, 720p = 70, etc.)
                 when (it.quality) {
                     1080 -> 100
-                    2160 -> 90
                     720 -> 70
                     480 -> 50
+                    2160 -> 40  // 4K lower priority as bigger files
                     else -> 30
                 }
-            }.thenByDescending { 
-                ExtractorPatterns.getServerPriority(it.url) 
-            }.thenBy { 
-                if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE 
+            }.thenByDescending {
+                // Priority 2: x264 preferred over x265
+                if (it.isX264) 1 else 0
+            }.thenBy {
+                // Priority 3: Smaller file size
+                if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+            }.thenByDescending {
+                // Priority 4: Server priority (streaming first)
+                ExtractorPatterns.getServerPriority(it.url)
             }
         )
 
@@ -288,7 +265,8 @@ class HDhub4uProvider : MainAPI() {
         val url: String,
         val quality: Int,
         val sizeMB: Double,
-        val originalText: String
+        val originalText: String,
+        val isX264: Boolean
     )
 
     private fun parseEpisodes(
@@ -306,9 +284,13 @@ class HDhub4uProvider : MainAPI() {
         if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
             groupedByEpisode.forEach { (epNum, epLinks) ->
                 if (epNum > 0) {
-                    val sortedLinks = epLinks.sortedByDescending { link ->
-                        ExtractorPatterns.getServerPriority(link.url)
-                    }
+                    // Apply smart sorting to episode links too
+                    val sortedLinks = epLinks.sortedWith(
+                        compareByDescending<DownloadLink> { it.quality == 1080 }
+                            .thenByDescending { it.isX264 }
+                            .thenBy { if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE }
+                            .thenByDescending { ExtractorPatterns.getServerPriority(it.url) }
+                    )
                     val data = sortedLinks.joinToString(",") { it.url }
                     episodes.add(newEpisode(data) {
                         this.name = "Episode $epNum"
@@ -319,7 +301,7 @@ class HDhub4uProvider : MainAPI() {
             }
         }
 
-        // Fallback: use streaming links as episodes
+        // Fallback: use streaming links
         if (episodes.isEmpty() && links.isNotEmpty()) {
             val streamingLinks = links.filter {
                 ExtractorPatterns.HUBSTREAM.containsMatchIn(it.url) || 
@@ -393,14 +375,7 @@ class HDhub4uProvider : MainAPI() {
         return true
     }
 
-    // Helper functions using companion object patterns
-    private fun parseFileSize(text: String): Double {
-        val match = SIZE_PATTERN.find(text) ?: return 0.0
-        val value = match.groupValues[1].toDoubleOrNull() ?: return 0.0
-        val unit = match.groupValues[2].uppercase()
-        return if (unit == "GB") value * 1024 else value
-    }
-
+    // Helper functions
     private fun cleanTitle(title: String): String {
         return title
             .replace(CLEAN_YEAR, "")
@@ -421,24 +396,6 @@ class HDhub4uProvider : MainAPI() {
         } catch (e: Exception) {
             Log.e(TAG, "Redirect error: ${e.message}")
             url
-        }
-    }
-
-    fun getSearchQuality(check: String?): SearchQuality? {
-        val s = check ?: return null
-        val u = Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase()
-        
-        return when {
-            QUALITY_4K.containsMatchIn(u) -> SearchQuality.FourK
-            QUALITY_HDCAM.containsMatchIn(u) -> SearchQuality.HdCam
-            QUALITY_CAMRIP.containsMatchIn(u) -> SearchQuality.CamRip
-            QUALITY_CAM.containsMatchIn(u) -> SearchQuality.Cam
-            QUALITY_WEBRIP.containsMatchIn(u) -> SearchQuality.WebRip
-            QUALITY_BLURAY.containsMatchIn(u) -> SearchQuality.BlueRay
-            QUALITY_1080.containsMatchIn(u) -> SearchQuality.HD
-            QUALITY_720.containsMatchIn(u) -> SearchQuality.SD
-            QUALITY_DVD.containsMatchIn(u) -> SearchQuality.DVD
-            else -> null
         }
     }
 }
