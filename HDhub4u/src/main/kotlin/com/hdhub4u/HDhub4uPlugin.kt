@@ -13,6 +13,10 @@ class HDhub4uPlugin: BasePlugin() {
         registerExtractorAPI(Hubcdnn())
         registerExtractorAPI(Hubdrive())
         registerExtractorAPI(Hubstream())
+        registerExtractorAPI(HdStream4u())
         registerExtractorAPI(HUBCDN())
+        registerExtractorAPI(PixelDrainDev())
+        registerExtractorAPI(Hubstreamdad())
+        registerExtractorAPI(VidStackExtractor())
     }
 }
