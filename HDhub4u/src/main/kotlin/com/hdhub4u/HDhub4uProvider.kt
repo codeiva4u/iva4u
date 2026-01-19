@@ -80,11 +80,82 @@ class HDhub4uProvider : MainAPI() {
     // ===== Search =====
     
     override suspend fun search(query: String): List<SearchResponse> {
-        val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
+        // HDhub4u uses search.html?q= format for search
+        val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
         Log.d(TAG, "Searching: $searchUrl")
         
         val document = app.get(searchUrl, timeout = 15000).document
-        return document.toSearchResults()
+        val results = document.toSearchResults()
+        
+        // Fallback: If no results from standard selectors, extract from search page links
+        if (results.isEmpty()) {
+            return document.toSearchLinkResults()
+        }
+        
+        return results
+    }
+    
+    // ===== Parse Search Page Links (for search.html page format) =====
+    
+    private fun Document.toSearchLinkResults(): List<SearchResponse> {
+        val results = mutableListOf<SearchResponse>()
+        val mainHost = mainUrl.substringAfter("://").substringBefore("/")
+        
+        // Series detection patterns
+        val seriesPatterns = listOf(
+            """(?i)Season\s*\d+""".toRegex(),
+            """(?i)\bS\d+\b""".toRegex(),
+            """(?i)EP\s*[-]?\s*\d+""".toRegex(),
+            """(?i)Episode\s*\d+""".toRegex(),
+            """(?i)All\s*Episodes?""".toRegex(),
+            """(?i)Web\s*Series""".toRegex(),
+            """(?i)\bSeries\b""".toRegex()
+        )
+        
+        select("a[href]").forEach { link ->
+            val href = link.absUrl("href")
+            val text = link.text().trim()
+            
+            // Filter: Only movie/show pages (length > 20 chars, contains main domain, not category/search pages)
+            if (href.contains(mainHost) && 
+                text.length > 20 && 
+                !href.contains("/category/") && 
+                !href.contains("/search") &&
+                !href.contains("/page/") &&
+                (href.contains("-movie") || href.contains("-full-") || href.contains("-season") || 
+                 href.contains("-episode") || href.contains("-webrip") || href.contains("-hindi"))) {
+                
+                val cleanedTitle = extractCleanTitle(text)
+                val year = extractYear(text)
+                val isSeries = seriesPatterns.any { it.containsMatchIn(text) } || 
+                               href.contains("season") || href.contains("series")
+                
+                val response = if (isSeries) {
+                    newTvSeriesSearchResponse(
+                        name = cleanedTitle,
+                        url = href,
+                        type = TvType.TvSeries
+                    ) {
+                        year?.let { this.year = it }
+                    }
+                } else {
+                    newMovieSearchResponse(
+                        name = cleanedTitle,
+                        url = href,
+                        type = TvType.Movie
+                    ) {
+                        year?.let { this.year = it }
+                    }
+                }
+                
+                // Avoid duplicates
+                if (results.none { it.url == href }) {
+                    results.add(response)
+                }
+            }
+        }
+        
+        return results
     }
     
     // ===== Parse Search/Category Results =====
