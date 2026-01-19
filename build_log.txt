@@ -1,0 +1,35 @@
+﻿> Task :HDhub4u:preBuild UP-TO-DATE
+> Task :HDhub4u:preDebugBuild UP-TO-DATE
+> Task :HDhub4u:mergeDebugJniLibFolders UP-TO-DATE
+> Task :HDhub4u:mergeDebugNativeLibs NO-SOURCE
+> Task :HDhub4u:stripDebugDebugSymbols NO-SOURCE
+> Task :HDhub4u:copyDebugJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :HDhub4u:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :HDhub4u:generateDebugResValues UP-TO-DATE
+> Task :HDhub4u:generateDebugResources UP-TO-DATE
+> Task :HDhub4u:packageDebugResources UP-TO-DATE
+> Task :HDhub4u:parseDebugLocalResources UP-TO-DATE
+> Task :HDhub4u:generateDebugRFile UP-TO-DATE
+> Task :HDhub4u:extractDeepLinksForAarDebug UP-TO-DATE
+> Task :HDhub4u:javaPreCompileDebug UP-TO-DATE
+> Task :HDhub4u:mergeDebugShaders UP-TO-DATE
+> Task :HDhub4u:compileDebugShaders NO-SOURCE
+> Task :HDhub4u:generateDebugAssets UP-TO-DATE
+> Task :HDhub4u:packageDebugAssets UP-TO-DATE
+> Task :HDhub4u:prepareDebugArtProfile UP-TO-DATE
+> Task :HDhub4u:prepareLintJarForPublish UP-TO-DATE
+> Task :HDhub4u:processDebugManifest UP-TO-DATE
+> Task :HDhub4u:writeDebugAarMetadata UP-TO-DATE
+> Task :HDhub4u:compileDebugKotlin
+> Task :HDhub4u:extractDebugAnnotations
+> Task :HDhub4u:compileDebugJavaWithJavac NO-SOURCE
+> Task :HDhub4u:mergeDebugGeneratedProguardFiles UP-TO-DATE
+> Task :HDhub4u:mergeDebugConsumerProguardFiles UP-TO-DATE
+> Task :HDhub4u:processDebugJavaRes UP-TO-DATE
+> Task :HDhub4u:mergeDebugJavaResource UP-TO-DATE
+> Task :HDhub4u:syncDebugLibJars
+> Task :HDhub4u:bundleDebugAar
+> Task :HDhub4u:assembleDebug
+
+BUILD SUCCESSFUL in 2s
+23 actionable tasks: 4 executed, 19 up-to-date

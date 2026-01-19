@@ -27,44 +27,38 @@ import org.jsoup.nodes.Element
 
 
 class HDhub4uProvider : MainAPI() {
-    companion object {
-        private const val TAG = "HDhub4uProvider"
-    }
-
     // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
     val cfKiller by lazy { CloudflareKiller() }
 
-    // Cached domain URL - fetched once per session (async, no blocking)
-    private var cachedMainUrl: String? = null
+    // Cached domain URLs - fetched once per session
     private var urlsFetched = false
-    
     override var mainUrl: String = "https://new2.hdhub4u.fo"
+    
+    // Dynamic domain URLs from urls.json
+    companion object {
+        private const val TAG = "HDhub4uProvider"
+        private const val URLS_JSON = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+    }
 
-    // Async domain fetch with 10s timeout - no blocking
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-        
+    // Fetch mainUrl from urls.json (async with 10s timeout)
+    private suspend fun fetchDomainUrls() {
+        if (urlsFetched) return
         urlsFetched = true
+        
         try {
             val result = withTimeoutOrNull(10_000L) {
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
+                val response = app.get(URLS_JSON, timeout = 10)
+                val json = JSONObject(response.text)
+                mainUrl = json.optString("hdhub4u", mainUrl)
+                Log.d(TAG, "Fetched mainUrl from urls.json: $mainUrl")
+                true
             }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
+            if (result != true) {
+                Log.w(TAG, "Timeout fetching URLs, using default")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
+            Log.w(TAG, "Failed to fetch URLs: ${e.message}")
         }
-        return mainUrl
     }
 
     override var name = "HDHub4U"
@@ -90,8 +84,8 @@ override suspend fun getMainPage(
     page: Int,
     request: MainPageRequest
 ): HomePageResponse {
-    // Fetch latest mainUrl (async, cached)
-    fetchMainUrl()
+    // Fetch all domain URLs (async, cached)
+    fetchDomainUrls()
     
     val url = if (page == 1) {
         "$mainUrl/${request.data}"
@@ -202,8 +196,8 @@ override suspend fun search(query: String): List<SearchResponse> {
 
 override suspend fun load(url: String): LoadResponse? {
     Log.d(TAG, "Loading: $url")
-    // Fetch latest mainUrl (async, cached)
-    fetchMainUrl()
+    // Fetch all domain URLs (async, cached)
+    fetchDomainUrls()
     
     val document = app.get(url, headers = headers, timeout = 20).document
 
@@ -551,8 +545,8 @@ override suspend fun loadLinks(
 
         Log.d(TAG, "Processing ${links.size} links")
 
-        // Take top 3 links (already sorted by quality in load())
-        links.take(3).amap { link ->
+        // Process ALL links (sorted by quality: X264 1080p → Smallest Size → Fastest)
+        links.amap { link ->
             try {
                 when {
                     link.contains("hubdrive", true) -> 
