@@ -84,7 +84,8 @@ object ExtractorPatterns {
     // Domain patterns - match multiple TLDs
     val HUBDRIVE = Regex("""(?i)hubdrive\.[a-z]+""")
     val HUBCLOUD = Regex("""(?i)(hubcloud\.[a-z]+|gamerxyt\.com|cloud\.php)""")
-    val HUBCDN = Regex("""(?i)(hubcdn\.[a-z]+|gadgetsweb\.[a-z]+)""")
+    val HUBCDN = Regex("""(?i)hubcdn\.[a-z]+""")
+    val GADGETSWEB = Regex("""(?i)gadgetsweb\.[a-z]+""")
     val HDSTREAM4U = Regex("""(?i)(hdstream4u\.[a-z]+|vidhidepro\.[a-z]+)""")
     val HUBSTREAM = Regex("""(?i)hubstream\.[a-z]+""")
     val HBLINKS = Regex("""(?i)(hblinks\.[a-z]+|4khdhub\.[a-z]+)""")
@@ -138,6 +139,7 @@ object ExtractorPatterns {
      */
     fun matchExtractor(url: String): ExtractorType = when {
         HUBDRIVE.containsMatchIn(url) -> ExtractorType.HUBDRIVE
+        GADGETSWEB.containsMatchIn(url) -> ExtractorType.GADGETSWEB
         HUBCLOUD.containsMatchIn(url) -> ExtractorType.HUBCLOUD
         HUBCDN.containsMatchIn(url) -> ExtractorType.HUBCDN
         HDSTREAM4U.containsMatchIn(url) -> ExtractorType.HDSTREAM4U
@@ -214,7 +216,7 @@ object ExtractorPatterns {
 }
 
 enum class ExtractorType {
-    HUBDRIVE, HUBCLOUD, HUBCDN, HDSTREAM4U, HUBSTREAM, HBLINKS, PIXELDRAIN, VIDSTACK
+    HUBDRIVE, HUBCLOUD, HUBCDN, GADGETSWEB, HDSTREAM4U, HUBSTREAM, HBLINKS, PIXELDRAIN, VIDSTACK
 }
 
 // ============== EXTRACTORS ==============
@@ -444,6 +446,83 @@ class Hubcdnn : ExtractorApi() {
 class PixelDrainDev : PixelDrain() {
     override var mainUrl = "https://pixeldrain.dev"
 }
+
+/**
+ * GadgetsWeb Extractor
+ * Handles URLs like: https://gadgetsweb.xyz/?id=base64encodeddata
+ * Decodes the base64 ID and routes to appropriate extractor
+ */
+class GadgetsWeb : ExtractorApi() {
+    override val name = "GadgetsWeb"
+    override val mainUrl = "https://gadgetsweb.xyz"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            // URL format: gadgetsweb.xyz/?id=BASE64DATA
+            val id = url.substringAfter("?id=").substringBefore("&")
+            if (id.isBlank()) {
+                Log.e("GadgetsWeb", "No ID found in URL: $url")
+                return
+            }
+            
+            // Decode base64 ID
+            val decoded = try {
+                base64Decode(id)
+            } catch (e: Exception) {
+                Log.e("GadgetsWeb", "Base64 decode failed: ${e.message}")
+                return
+            }
+            
+            Log.d("GadgetsWeb", "Decoded URL: $decoded")
+            
+            // Decoded URL might be direct link or path
+            // Format can be: /path/to/file or full URL
+            val finalUrl = when {
+                decoded.startsWith("http") -> decoded
+                decoded.startsWith("/") -> "https://hubcloud.foo$decoded"
+                else -> decoded
+            }
+            
+            // Route to appropriate extractor based on decoded URL
+            when (ExtractorPatterns.matchExtractor(finalUrl)) {
+                ExtractorType.HUBDRIVE -> Hubdrive().getUrl(finalUrl, name, subtitleCallback, callback)
+                ExtractorType.HUBCLOUD -> HubCloud().getUrl(finalUrl, name, subtitleCallback, callback)
+                ExtractorType.HUBCDN -> HUBCDN().getUrl(finalUrl, name, subtitleCallback, callback)
+                ExtractorType.HDSTREAM4U -> HdStream4u().getUrl(finalUrl, name, subtitleCallback, callback)
+                ExtractorType.HUBSTREAM -> Hubstream().getUrl(finalUrl, name, subtitleCallback, callback)
+                ExtractorType.HBLINKS -> Hblinks().getUrl(finalUrl, name, subtitleCallback, callback)
+                else -> {
+                    // Direct callback if it looks like a stream URL
+                    if (finalUrl.contains(".m3u8") || finalUrl.contains(".mp4")) {
+                        callback(
+                            newExtractorLink(
+                                name,
+                                name,
+                                finalUrl,
+                                INFER_TYPE
+                            ) {
+                                this.referer = url
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    } else {
+                        // Try HubCloud as default
+                        HubCloud().getUrl(finalUrl, name, subtitleCallback, callback)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("GadgetsWeb", "Error processing URL: ${e.message}")
+        }
+    }
+}
+
 
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
@@ -693,6 +772,7 @@ suspend fun loadSourceNameExtractor(
         ExtractorType.HUBDRIVE -> Hubdrive().getUrl(url, referer, subtitleCallback, callback)
         ExtractorType.HUBCLOUD -> HubCloud().getUrl(url, referer, subtitleCallback, callback)
         ExtractorType.HUBCDN -> HUBCDN().getUrl(url, referer, subtitleCallback, callback)
+        ExtractorType.GADGETSWEB -> GadgetsWeb().getUrl(url, referer, subtitleCallback, callback)
         ExtractorType.HDSTREAM4U -> HdStream4u().getUrl(url, referer, subtitleCallback, callback)
         ExtractorType.HUBSTREAM -> Hubstream().getUrl(url, referer, subtitleCallback, callback)
         ExtractorType.HBLINKS -> Hblinks().getUrl(url, referer, subtitleCallback, callback)
@@ -700,6 +780,7 @@ suspend fun loadSourceNameExtractor(
         ExtractorType.VIDSTACK -> VidStack().getUrl(url, referer, subtitleCallback, callback)
     }
 }
+
 
 // Backward compatibility
 fun getServerPriority(text: String): Int = ExtractorPatterns.getServerPriority(text)

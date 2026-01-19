@@ -10,11 +10,43 @@ import org.jsoup.nodes.Element
 /**
  * HDhub4u Provider for CloudStream
  * Flexible scraping with inline regex patterns for https://new2.hdhub4u.fo/
+ * Uses dynamic domain fetching from urls.json API
  */
 class HDhub4uProvider : MainAPI() {
     
     companion object {
         private const val TAG = "HDhub4u"
+        
+        // ===== Inline Regex Patterns for Flexible Scraping =====
+        
+        // Series detection patterns
+        private val SERIES_PATTERNS = listOf(
+            """(?i)Season\s*\d+""".toRegex(),
+            """(?i)\bS\d+\b""".toRegex(),
+            """(?i)EP\s*[-]?\s*\d+""".toRegex(),
+            """(?i)Episode\s*\d+""".toRegex(),
+            """(?i)All\s*Episodes?""".toRegex(),
+            """(?i)Web\s*Series""".toRegex(),
+            """(?i)\bSeries\b""".toRegex(),
+            """(?i)EP[-_]?\d+\s*Added""".toRegex(),
+            """(?i)VOL[-_]?\d+""".toRegex()
+        )
+        
+        // Quality extraction pattern
+        private val QUALITY_REGEX = """(?i)(480p|720p|1080p|2160p|4K|HDRip|WEB-?DL|WEBRip|BluRay|HDTC|HDCAM|DS4K|HQ)""".toRegex()
+        
+        // Year extraction pattern
+        private val YEAR_REGEX = """\b(19|20)\d{2}\b""".toRegex()
+        
+        // Title cleaning pattern
+        private val TITLE_CLEAN_REGEX = """^(.+?)\s*(?:\d{4})?\s*[\[\(]?(?:Hindi|English|Tamil|Telugu|WEB-?DL|WEBRip|BluRay|HDRip|HDTC|HDCAM|4K|1080p|720p|480p|HEVC|x264|x265|Dual\s*Audio|HQ|Studio\s*Dub|Full\s*Movie|Full\s*Series|Season|EP|Episode)""".toRegex(RegexOption.IGNORE_CASE)
+        
+        // Season/Episode extraction
+        private val SEASON_REGEX = """(?i)(?:Season|S)\s*0?(\d+)""".toRegex()
+        private val EPISODE_REGEX = """(?i)EP(?:i?sode)?\s*[-_]?\s*0?(\d+)""".toRegex()
+        
+        // Download domain pattern
+        private val DOWNLOAD_DOMAINS_REGEX = """(?i)(hubdrive|gadgetsweb|hubstream|hdstream4u|hubcloud|hblinks|4khdhub|gamerxyt)""".toRegex()
     }
     
     // ===== Provider Configuration =====
@@ -37,7 +69,7 @@ class HDhub4uProvider : MainAPI() {
         }
     }
     
-    // ===== Categories (Main Page) =====
+    // ===== Categories (Main Page) - Updated from website scraping =====
     
     override val mainPage = mainPageOf(
         "/" to "Latest",
@@ -45,12 +77,20 @@ class HDhub4uProvider : MainAPI() {
         "/category/hollywood-movies/" to "Hollywood",
         "/category/hindi-dubbed/" to "Hindi Dubbed",
         "/category/south-hindi-movies/" to "South Hindi",
-        "/category/category/web-series/" to "Web Series",
+        "/category/web-series/" to "Web Series",
         "/category/animated-movies/" to "Animation",
         "/category/action-movies/" to "Action",
         "/category/comedy-movies/" to "Comedy",
         "/category/drama/" to "Drama",
-        "/category/thriller/" to "Thriller"
+        "/category/thriller/" to "Thriller",
+        "/category/horror-movies/" to "Horror",
+        "/category/romantic-movies/" to "Romance",
+        "/category/sci-fi/" to "Sci-Fi",
+        "/category/adventure/" to "Adventure",
+        "/category/family/" to "Family",
+        "/category/fantasy/" to "Fantasy",
+        "/category/crime/" to "Crime",
+        "/category/mystery/" to "Mystery"
     )
     
     // ===== Main Page Loading =====
@@ -77,19 +117,86 @@ class HDhub4uProvider : MainAPI() {
         )
     }
     
-    // ===== Search =====
+    // ===== Search - Using search.html?q= format =====
+    
+    // ===== Search - Using Typesense API =====
     
     override suspend fun search(query: String): List<SearchResponse> {
-        // HDhub4u uses search.html?q= format for search
-        val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
-        Log.d(TAG, "Searching: $searchUrl")
+        val results = mutableListOf<SearchResponse>()
+        
+        try {
+            // Try API first
+            val apiResults = fetchSearchApi(query)
+            if (apiResults.isNotEmpty()) {
+                Log.d(TAG, "API returned ${apiResults.size} results")
+                return apiResults
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "API search failed: ${e.message}")
+        }
+        
+        // Fallback to standard request
+        val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
+        Log.d(TAG, "Searching fallback: $searchUrl")
         
         val document = app.get(searchUrl, timeout = 15000).document
-        val results = document.toSearchResults()
+        val htmlResults = document.toSearchResults()
         
-        // Fallback: If no results from standard selectors, extract from search page links
-        if (results.isEmpty()) {
-            return document.toSearchLinkResults()
+        if (htmlResults.isNotEmpty()) return htmlResults
+        
+        return document.toSearchLinkResults()
+    }
+
+    private suspend fun fetchSearchApi(query: String): List<SearchResponse> {
+        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val today = formatter.format(java.util.Date())
+        
+        val apiUrl = "https://search.pingora.fyi/collections/post/documents/search" +
+                "?q=${query}" +
+                "&query_by=post_title,category,stars,director,imdb_id" +
+                "&query_by_weights=4,2,2,2,4" +
+                "&sort_by=sort_by_date:desc" +
+                "&limit=15" +
+                "&highlight_fields=none" +
+                "&use_cache=true" +
+                "&page=1" +
+                "&analytics_tag=$today"
+
+        Log.d(TAG, "API Search: $apiUrl")
+        
+        val response = app.get(apiUrl, headers = mapOf("Referer" to "$mainUrl/")).text
+        val json = org.json.JSONObject(response)
+        val hits = json.optJSONArray("hits") ?: return emptyList()
+        
+        val results = mutableListOf<SearchResponse>()
+        
+        for (i in 0 until hits.length()) {
+            val hit = hits.getJSONObject(i)
+            val doc = hit.getJSONObject("document")
+            
+            val rawTitle = doc.getString("post_title")
+            val permalink = doc.getString("permalink")
+            val poster = doc.optString("post_thumbnail")
+            
+            // Construct full URL
+            val url = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
+            
+            val cleanedTitle = extractCleanTitle(rawTitle)
+            val year = extractYear(rawTitle)
+            val isSeries = isTvSeries(rawTitle, url)
+            
+            val searchResponse = if (isSeries) {
+                newTvSeriesSearchResponse(cleanedTitle, url, TvType.TvSeries) {
+                    this.posterUrl = poster
+                    year?.let { this.year = it }
+                }
+            } else {
+                newMovieSearchResponse(cleanedTitle, url, TvType.Movie) {
+                    this.posterUrl = poster
+                    year?.let { this.year = it }
+                }
+            }
+            results.add(searchResponse)
         }
         
         return results
@@ -101,17 +208,6 @@ class HDhub4uProvider : MainAPI() {
         val results = mutableListOf<SearchResponse>()
         val mainHost = mainUrl.substringAfter("://").substringBefore("/")
         
-        // Series detection patterns
-        val seriesPatterns = listOf(
-            """(?i)Season\s*\d+""".toRegex(),
-            """(?i)\bS\d+\b""".toRegex(),
-            """(?i)EP\s*[-]?\s*\d+""".toRegex(),
-            """(?i)Episode\s*\d+""".toRegex(),
-            """(?i)All\s*Episodes?""".toRegex(),
-            """(?i)Web\s*Series""".toRegex(),
-            """(?i)\bSeries\b""".toRegex()
-        )
-        
         select("a[href]").forEach { link ->
             val href = link.absUrl("href")
             val text = link.text().trim()
@@ -122,13 +218,14 @@ class HDhub4uProvider : MainAPI() {
                 !href.contains("/category/") && 
                 !href.contains("/search") &&
                 !href.contains("/page/") &&
+                !href.contains("/tag/") &&
                 (href.contains("-movie") || href.contains("-full-") || href.contains("-season") || 
-                 href.contains("-episode") || href.contains("-webrip") || href.contains("-hindi"))) {
+                 href.contains("-episode") || href.contains("-webrip") || href.contains("-hindi") ||
+                 href.contains("-dubbed") || href.contains("-hdtc") || href.contains("-hdcam"))) {
                 
                 val cleanedTitle = extractCleanTitle(text)
                 val year = extractYear(text)
-                val isSeries = seriesPatterns.any { it.containsMatchIn(text) } || 
-                               href.contains("season") || href.contains("series")
+                val isSeries = isTvSeries(text, href)
                 
                 val response = if (isSeries) {
                     newTvSeriesSearchResponse(
@@ -163,7 +260,7 @@ class HDhub4uProvider : MainAPI() {
     private fun Document.toSearchResults(): List<SearchResponse> {
         val results = mutableListOf<SearchResponse>()
         
-        // Primary selector: ul.recent-movies > li
+        // Primary selector: ul.recent-movies > li (from website scraping)
         select("ul.recent-movies > li").forEach { element ->
             toResult(element)?.let { results.add(it) }
         }
@@ -181,18 +278,18 @@ class HDhub4uProvider : MainAPI() {
     // ===== Convert Element to SearchResponse =====
     
     private fun toResult(post: Element): SearchResponse? {
-        // Extract link
-        val link = post.selectFirst("a")?.absUrl("href")
+        // Extract link from figure > a or direct a
+        val link = post.selectFirst("figure a, a")?.absUrl("href")
             ?.takeIf { it.isNotBlank() && it.contains(mainUrl.substringAfter("://").substringBefore("/")) }
             ?: return null
         
-        // Extract poster
+        // Extract poster - check multiple sources
         val posterElement = post.selectFirst("img")
-        val poster = posterElement?.absUrl("src")
-            ?: posterElement?.attr("data-src")
+        val poster = posterElement?.absUrl("src")?.takeIf { it.isNotBlank() }
+            ?: posterElement?.attr("data-src")?.takeIf { it.isNotBlank() }
             ?: posterElement?.absUrl("data-lazy-src")
         
-        // Extract title from multiple sources
+        // Extract title from multiple sources (priority order)
         val rawTitle = post.selectFirst("figcaption p")?.text()
             ?: post.selectFirst("figcaption a")?.text()
             ?: post.selectFirst(".title")?.text()
@@ -205,20 +302,8 @@ class HDhub4uProvider : MainAPI() {
         val cleanedTitle = extractCleanTitle(rawTitle)
         val year = extractYear(rawTitle)
         
-        // Detect if series using inline regex
-        val seriesPatterns = listOf(
-            """(?i)Season\s*\d+""".toRegex(),
-            """(?i)\bS\d+\b""".toRegex(),
-            """(?i)EP\s*[-]?\s*\d+""".toRegex(),
-            """(?i)Episode\s*\d+""".toRegex(),
-            """(?i)All\s*Episodes?""".toRegex(),
-            """(?i)Web\s*Series""".toRegex(),
-            """(?i)\bSeries\b""".toRegex()
-        )
-        val isSeries = seriesPatterns.any { it.containsMatchIn(rawTitle) } || 
-                       link.contains("season", ignoreCase = true) || 
-                       link.contains("episode", ignoreCase = true) || 
-                       link.contains("series", ignoreCase = true)
+        // Detect if series
+        val isSeries = isTvSeries(rawTitle, link)
         
         return if (isSeries) {
             newTvSeriesSearchResponse(
@@ -253,32 +338,24 @@ class HDhub4uProvider : MainAPI() {
         val cleanedTitle = extractCleanTitle(rawTitle)
         val year = extractYear(rawTitle)
         
-        // Extract poster
-        val poster = document.selectFirst(".entry-content img, .post-content img, article img")?.absUrl("src")
-            ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+        // Extract poster - check og:image first, then entry-content img
+        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+            ?: document.selectFirst(".entry-content img, .post-content img, article img")?.absUrl("src")
         
         // Extract description/plot
-        val plot = document.selectFirst(".entry-content > p, .post-content > p")?.text()
-            ?.takeIf { it.length > 20 && !it.contains("Download", ignoreCase = true) }
+        val plot = document.select(".entry-content > p, .post-content > p").firstOrNull { p ->
+            val text = p.text()
+            text.length > 50 && 
+            !text.contains("Download", ignoreCase = true) &&
+            !text.contains("Click Here", ignoreCase = true) &&
+            !text.contains("Join", ignoreCase = true)
+        }?.text()
         
-        // Detect quality from title - inline regex
-        val qualityRegex = """(?i)(480p|720p|1080p|2160p|4K|HDRip|WEB-?DL|WEBRip|BluRay|HDTC|HDCAM)""".toRegex()
-        val quality = qualityRegex.find(rawTitle)?.value
+        // Detect quality from title
+        val quality = QUALITY_REGEX.find(rawTitle)?.value
         
-        // Check if series using inline regex patterns
-        val seriesPatterns = listOf(
-            """(?i)Season\s*\d+""".toRegex(),
-            """(?i)\bS\d+\b""".toRegex(),
-            """(?i)EP\s*[-]?\s*\d+""".toRegex(),
-            """(?i)Episode\s*\d+""".toRegex(),
-            """(?i)All\s*Episodes?""".toRegex(),
-            """(?i)Web\s*Series""".toRegex(),
-            """(?i)\bSeries\b""".toRegex()
-        )
-        val isSeries = seriesPatterns.any { it.containsMatchIn(rawTitle) } || 
-                       url.contains("season", ignoreCase = true) ||
-                       url.contains("episode", ignoreCase = true) || 
-                       url.contains("series", ignoreCase = true)
+        // Check if series
+        val isSeries = isTvSeries(rawTitle, url)
         
         return if (isSeries) {
             // Extract episodes
@@ -315,39 +392,50 @@ class HDhub4uProvider : MainAPI() {
     private fun extractEpisodes(document: Document, baseUrl: String, rawTitle: String): List<Episode> {
         val episodes = mutableListOf<Episode>()
         
-        // Season regex - inline
-        val seasonRegex = """(?i)(?:Season|S)\s*0?(\d+)""".toRegex()
-        val seasonNum = seasonRegex.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        // Extract season number
+        val seasonNum = SEASON_REGEX.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 1
         
-        // Episode regex - inline
-        val episodeRegex = """(?i)EP(?:isode)?\s*[-_]?\s*0?(\d+)""".toRegex()
+        // Extract base slug for filtering (e.g., "knight-of-seven-kingdoms")
+        val baseSlug = baseUrl.substringAfterLast("/")
+            .substringBefore("-season")
+            .substringBefore("-hindi")
+            .take(30)
         
-        // Download domains regex - inline
-        val downloadDomainsRegex = """(?i)(hubdrive|gadgetsweb|hubstream|hdstream4u|hubcloud|hblinks|4khdhub)""".toRegex()
-        
-        // Find all episode links
+        // Collect episode links
         document.select("a").forEach { link ->
             val text = link.text().trim()
             val href = link.absUrl("href").takeIf { it.isNotBlank() } ?: return@forEach
             
-            // Match episode pattern
-            val episodeMatch = episodeRegex.find(text)
+            // Match episode pattern: EP1, EP-01, EPiSODE 1, etc.
+            val episodeMatch = EPISODE_REGEX.find(text)
             if (episodeMatch != null) {
                 val episodeNum = episodeMatch.groupValues[1].toIntOrNull() ?: return@forEach
                 
-                // Skip if it's a link to another series (unless it's a download domain)
-                val baseSlug = baseUrl.substringAfterLast("/").substringBefore("-season")
-                if (!href.contains(baseSlug, ignoreCase = true) && !downloadDomainsRegex.containsMatchIn(href)) {
+                // Filter: Only links that are download links or same series
+                val isDownloadLink = DOWNLOAD_DOMAINS_REGEX.containsMatchIn(href)
+                val isSameSeries = href.contains(baseSlug, ignoreCase = true)
+                
+                if (!isDownloadLink && !isSameSeries) {
                     return@forEach
                 }
                 
-                episodes.add(
-                    newEpisode(href) {
-                        this.name = "Episode $episodeNum"
-                        this.season = seasonNum
-                        this.episode = episodeNum
-                    }
-                )
+                // Prefer download links over series page links
+                val episodeUrl = if (isDownloadLink) href else baseUrl
+                
+                // Extract quality from text
+                val quality = QUALITY_REGEX.find(text)?.value ?: ""
+                val episodeName = "Episode $episodeNum${if (quality.isNotBlank()) " [$quality]" else ""}"
+                
+                // Add if not duplicate
+                if (episodes.none { it.episode == episodeNum && it.data == episodeUrl }) {
+                    episodes.add(
+                        newEpisode(episodeUrl) {
+                            this.name = episodeName
+                            this.season = seasonNum
+                            this.episode = episodeNum
+                        }
+                    )
+                }
             }
         }
         
@@ -362,7 +450,7 @@ class HDhub4uProvider : MainAPI() {
             )
         }
         
-        return episodes.distinctBy { it.episode }.sortedBy { it.episode }
+        return episodes.distinctBy { "${it.season}-${it.episode}" }.sortedBy { it.episode }
     }
     
     // ===== Load Links (Extractors) =====
@@ -378,78 +466,114 @@ class HDhub4uProvider : MainAPI() {
         val document = app.get(data, timeout = 15000).document
         var foundLinks = false
         
-        // Download domains regex - inline for this function
-        val downloadDomainsRegex = """(?i)(hubdrive|gadgetsweb|hubstream|hdstream4u|hubcloud|hblinks|4khdhub)""".toRegex()
+        // Collect all potential download links with metadata
+        val downloadLinks = mutableListOf<DownloadLink>()
         
-        // Extract all download/stream links
         document.select("a[href]").forEach { link ->
             val href = link.absUrl("href").takeIf { it.isNotBlank() } ?: return@forEach
-            val text = link.text().lowercase()
+            val text = link.text().trim()
+            val parentText = link.parent()?.text()?.trim() ?: text
             
             // Skip navigation and irrelevant links
             if (href.contains("disclaimer") || href.contains("how-to-download") ||
-                href.contains("join-our-group") || href.contains("request-a-movie")) {
+                href.contains("join-our-group") || href.contains("request-a-movie") ||
+                href.contains("/category/") || href.contains("#comment")) {
                 return@forEach
             }
             
-            // Match download domains using inline regex
-            if (downloadDomainsRegex.containsMatchIn(href)) {
-                Log.d(TAG, "Found link: $text -> $href")
+            // Match download domains
+            if (DOWNLOAD_DOMAINS_REGEX.containsMatchIn(href)) {
+                val quality = ExtractorPatterns.extractQuality(parentText)
+                val size = ExtractorPatterns.extractSize(parentText)
+                val priority = ExtractorPatterns.getServerPriority(href)
+                val isX264 = ExtractorPatterns.isX264(parentText)
                 
-                // Determine quality from link text
-                val quality = ExtractorPatterns.extractQuality(text)
+                downloadLinks.add(DownloadLink(
+                    url = href,
+                    text = text,
+                    quality = quality,
+                    size = size,
+                    priority = priority,
+                    isX264 = isX264
+                ))
+            }
+        }
+        
+        // Sort links: higher quality, x264 codec preferred, then by priority
+        val sortedLinks = downloadLinks.sortedWith(
+            compareByDescending<DownloadLink> { it.quality }
+                .thenByDescending { it.isX264 }
+                .thenByDescending { it.priority }
+        )
+        
+        Log.d(TAG, "Found ${sortedLinks.size} download links")
+        
+        // Process each link
+        for (dl in sortedLinks) {
+            try {
+                val quality = if (dl.quality > 0) dl.quality else Qualities.Unknown.value
                 
-                try {
-                    when (ExtractorPatterns.matchExtractor(href)) {
-                        ExtractorType.HUBDRIVE -> {
-                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        ExtractorType.HUBCLOUD -> {
-                            HubCloud().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        ExtractorType.HUBCDN -> {
-                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        ExtractorType.HDSTREAM4U -> {
-                            HdStream4u().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        ExtractorType.HUBSTREAM -> {
-                            Hubstream().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        ExtractorType.HBLINKS -> {
-                            Hblinks().getUrl(href, name, subtitleCallback, callback)
-                            foundLinks = true
-                        }
-                        else -> {
-                            loadSourceNameExtractor(name, href, "", quality, subtitleCallback, callback)
-                            foundLinks = true
-                        }
+                when (ExtractorPatterns.matchExtractor(dl.url)) {
+                    ExtractorType.HUBDRIVE -> {
+                        Hubdrive().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Extractor error for $href: ${e.message}")
+                    ExtractorType.HUBCLOUD -> {
+                        HubCloud().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    ExtractorType.HUBCDN -> {
+                        HUBCDN().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    ExtractorType.HDSTREAM4U -> {
+                        HdStream4u().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    ExtractorType.HUBSTREAM -> {
+                        Hubstream().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    ExtractorType.HBLINKS -> {
+                        Hblinks().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    ExtractorType.GADGETSWEB -> {
+                        GadgetsWeb().getUrl(dl.url, name, subtitleCallback, callback)
+                        foundLinks = true
+                    }
+                    else -> {
+                        loadSourceNameExtractor(name, dl.url, "", quality, subtitleCallback, callback)
+                        foundLinks = true
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Extractor error for ${dl.url}: ${e.message}")
             }
         }
         
         return foundLinks
     }
     
-    // ===== Helper Functions (with inline regex) =====
+    // ===== Helper Functions =====
+    
+    /**
+     * Check if content is a TV series based on title and URL patterns
+     */
+    private fun isTvSeries(text: String, url: String): Boolean {
+        return SERIES_PATTERNS.any { it.containsMatchIn(text) } || 
+               url.contains("season", ignoreCase = true) ||
+               url.contains("episode", ignoreCase = true) || 
+               url.contains("series", ignoreCase = true) ||
+               url.contains("-all-episodes", ignoreCase = true)
+    }
     
     /**
      * Extract clean title removing quality/language tags
      */
     private fun extractCleanTitle(rawTitle: String): String {
-        // Inline regex for cleaning title
-        val cleanTitleRegex = """^(.+?)\s*(?:\d{4})?\s*[\[\(]?(?:Hindi|English|Tamil|Telugu|WEB-?DL|WEBRip|BluRay|HDRip|HDTC|HDCAM|4K|1080p|720p|480p|HEVC|x264|x265|Dual\s*Audio|HQ|Studio\s*Dub|Full\s*Movie|Full\s*Series|Season|EP|Episode)""".toRegex(RegexOption.IGNORE_CASE)
-        
         // Try regex first
-        cleanTitleRegex.find(rawTitle)?.groupValues?.get(1)?.trim()?.let { 
+        TITLE_CLEAN_REGEX.find(rawTitle)?.groupValues?.get(1)?.trim()?.let { 
             if (it.length > 2) return it 
         }
         
@@ -462,8 +586,18 @@ class HDhub4uProvider : MainAPI() {
      * Extract year from title
      */
     private fun extractYear(text: String): Int? {
-        // Inline regex for year extraction
-        val yearRegex = """\b(19|20)\d{2}\b""".toRegex()
-        return yearRegex.find(text)?.value?.toIntOrNull()
+        return YEAR_REGEX.find(text)?.value?.toIntOrNull()
     }
+    
+    /**
+     * Data class for download link metadata
+     */
+    private data class DownloadLink(
+        val url: String,
+        val text: String,
+        val quality: Int,
+        val size: Double,
+        val priority: Int,
+        val isX264: Boolean
+    )
 }
