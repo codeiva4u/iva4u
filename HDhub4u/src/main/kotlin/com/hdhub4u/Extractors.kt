@@ -6,18 +6,16 @@ import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
-import com.lagradost.cloudstream3.extractors.VidHidePro
-import com.lagradost.cloudstream3.extractors.VidStack
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.fixUrl
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -280,7 +278,7 @@ class HdStream4u : ExtractorApi() {
 }
 
 // Working VidStack implementation with AES decryption
-open class VidStackExtractor : ExtractorApi() {
+open class VidStack : ExtractorApi() {
     override var name = "Vidstack"
     override var mainUrl = "https://vidstack.io"
     override val requiresReferer = true
@@ -380,7 +378,7 @@ object AesHelper {
 }
 
 // Hubstream uses VidStack API
-class Hubstream : VidStackExtractor() {
+class Hubstream : VidStack() {
     override var mainUrl = "https://hubstream.art"
     override var name = "Hubstream"
 }
