@@ -267,10 +267,9 @@ override suspend fun load(url: String): LoadResponse? {
     }
 
     // Method 2: Use Regex on full body HTML for any missed links
-    // Generic pattern that matches common streaming/download URLs (not hardcoded domains)
-    // This will work even if domains change in the future
+    // Note: Pattern includes # for hubstream.art/#hash URLs
     val bodyHtml = document.body().html()
-    val urlPattern = Regex("""https?://[a-zA-Z0-9.-]*(?:hub|stream|drive|cloud|cdn|hb|4k)[a-zA-Z0-9.-]*\.[a-z]{2,6}[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
+    val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art|hubcloud\.[a-z]+|hblinks\.[a-z]+)[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
 
     // Pattern to find episode context before URLs (EPiSODE X, Episode X, EP X, E X)
     val episodeContextPattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
@@ -401,17 +400,13 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
     if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
         groupedByEpisode.forEach { (episodeNum, episodeLinks) ->
             if (episodeNum > 0) {
-                // Prioritize streaming links over download links
-                // Use generic patterns that work even when domains change
+                // Prioritize streaming links (hdstream4u, hubstream) over download links (gadgetsweb)
+                // This ensures working extractor is tried first
                 val sortedLinks = episodeLinks.sortedByDescending { link ->
-                    val urlLower = link.url.lowercase()
                     when {
-                        // Streaming sources get highest priority
-                        "stream" in urlLower || "player" in urlLower || "watch" in urlLower -> 100
-                        // Cloud/CDN sources
-                        "cloud" in urlLower || "cdn" in urlLower -> 80
-                        // Download sources
-                        "drive" in urlLower || "download" in urlLower -> 60
+                        link.url.contains("hdstream4u", true) -> 100
+                        link.url.contains("hubstream", true) -> 90
+                        link.url.contains("gadgetsweb", true) -> 50
                         else -> 30
                     }
                 }
@@ -430,11 +425,10 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
     // If still no episodes but we have links, try position-based episode assignment
     // Web series often have links in order: EP1 links, EP2 links, etc.
     if (episodes.isEmpty() && links.isNotEmpty()) {
-        // Check if we have streaming links - use generic patterns
-        // Streaming sources usually have 'stream', 'player', or 'watch' in URL
+        // Check if we have streaming links (watch/stream) - these are usually per-episode
+        // Both hubstream.art and hdstream4u.com are streaming sources
         val streamingLinks = links.filter { 
-            val urlLower = it.url.lowercase()
-            "stream" in urlLower || "player" in urlLower || "watch" in urlLower
+            it.url.contains("hubstream", true) || it.url.contains("hdstream4u", true) 
         }
         
         if (streamingLinks.size > 1) {
@@ -459,15 +453,13 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
             )
             Log.d("HDhub4uProvider", "Created 1 episode from single streaming link")
         } else {
-            // No streaming links - try download links
-            val episodeDownloadLinks = links.filter { 
-                val urlLower = it.url.lowercase()
-                ("download" in urlLower || "drive" in urlLower || "cdn" in urlLower) && 
-                it.originalText.contains("episode", true)
+            // No streaming links - try gadgetsweb/download links
+            val downloadLinks = links.filter { 
+                it.url.contains("gadgetsweb", true) && it.originalText.contains("episode", true)
             }
             
-            if (episodeDownloadLinks.isNotEmpty()) {
-                episodeDownloadLinks.forEachIndexed { index, link ->
+            if (downloadLinks.isNotEmpty()) {
+                downloadLinks.forEachIndexed { index, link ->
                     val episodeNum = index + 1
                     episodes.add(
                         newEpisode(link.url) {
@@ -476,7 +468,7 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
                         }
                     )
                 }
-                Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from download links")
+                Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from gadgetsweb links")
             } else {
                 // Fallback: treat all links as one episode (Full Season)
                 val data = links.joinToString(",") { it.url }
@@ -495,15 +487,11 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
 }
 
 private fun isValidDownloadLink(url: String): Boolean {
-    // Generic keywords that identify streaming/download links
-    // These patterns will work even when domains change
-    // Removed redirect domain keywords (gadget, gamerxyt) - now handled by redirect following
-    val validKeywords = listOf(
-        "hub", "drive", "cloud", "stream", "cdn",
-        "hb", "4k", "download", "player", "watch"
+    val validHosts = listOf(
+        "hubdrive", "gadgetsweb", "hdstream4u", "hubstream",
+        "hubcloud", "hubcdn", "gamerxyt", "gamester", "hblinks", "4khdhub"
     )
-    // Check it's a valid URL with these keywords
-    return url.startsWith("http") && validKeywords.any { url.contains(it, ignoreCase = true) }
+    return validHosts.any { url.contains(it, ignoreCase = true) }
 }
 
 private fun extractQuality(text: String): Int {
@@ -567,24 +555,31 @@ override suspend fun loadLinks(
         links.take(3).amap { link ->
             try {
                 when {
-                    // Use generic patterns - redirect following handles domain changes
-                    link.contains("drive", true) && link.contains("hub", true) -> 
+                    link.contains("hubdrive", true) -> 
                         Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("cloud", true) || link.contains("cdn", true) -> 
+                    link.contains("hubcloud", true) ||
+                    link.contains("gamerxyt", true) ||
+                    link.contains("gamester", true) -> 
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("stream", true) && link.contains("4u", true) -> 
+                    link.contains("gadgetsweb", true) -> 
+                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hdstream4u", true) -> 
                         HdStream4u().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("stream", true) -> 
+                    link.contains("hubcdn", true) -> 
+                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    link.contains("hubstream", true) -> 
                         Hubstream().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("hb", true) || link.contains("4k", true) -> 
+                    link.contains("hblinks", true) ||
+                    link.contains("4khdhub", true) -> 
                         Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    // Default: try HubCloud as it handles most redirects
-                    else -> HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                    else -> Log.w(TAG, "No extractor for: $link")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error extracting $link: ${e.message}")
