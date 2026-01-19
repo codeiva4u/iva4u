@@ -30,9 +30,35 @@ import java.text.Normalizer
 class HDhub4uProvider : MainAPI() {
     companion object {
         private const val TAG = "HDhub4uProvider"
+        
+        // Regex patterns for title/content parsing
+        private val SERIES_PATTERN = Regex("""(?i)(Season|S0\d|Episode|E0\d|Complete|Web\s*Series|All\s+Episodes)""")
+        private val SEASON_PATTERN = Regex("""(?i)Season\s*(\d+)""")
+        private val YEAR_PATTERN = Regex("""[\(\[]?(\d{4})[\)\]]?""")
+        private val EPISODE_PATTERN = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
+        private val SIZE_PATTERN = Regex("""(\d+(?:\.\d+)?)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
+        
+        // Title cleaning patterns
+        private val CLEAN_YEAR = Regex("""(?i)\s*[\(\[]?\d{4}[\)\]]?""")
+        private val CLEAN_BRACKETS = Regex("""(?i)\s*\[.*?]""")
+        private val CLEAN_QUALITY = Regex("""(?i)\s*(480p|720p|1080p|2160p|4k|hdrip|webrip|bluray|web-dl|hdtv|hdcam).*""")
+        private val CLEAN_LANG = Regex("""(?i)\s*(hindi|english|dual audio|esub|esubs).*""")
+        private val CLEAN_DOWNLOAD = Regex("""(?i)\s*download\s*(free)?.*""")
+        private val CLEAN_WHITESPACE = Regex("""\s+""")
+        
+        // Search quality patterns
+        private val QUALITY_4K = Regex("""\b(4k|uhd|2160p)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_HDCAM = Regex("""\b(hdcam|hdtc)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_CAMRIP = Regex("""\b(camrip)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_CAM = Regex("""\b(cam)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_WEBRIP = Regex("""\b(webrip|webdl)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_BLURAY = Regex("""\b(bluray)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_1080 = Regex("""\b(1080p)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_720 = Regex("""\b(720p)\b""", RegexOption.IGNORE_CASE)
+        private val QUALITY_DVD = Regex("""\b(dvd)\b""", RegexOption.IGNORE_CASE)
     }
 
-    // Cached domain URL - fetched once per session
+    // Cached domain URL
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
     
@@ -81,7 +107,7 @@ class HDhub4uProvider : MainAPI() {
     )
     
     private val headers = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Cookie" to "xla=s4t"
     )
 
@@ -124,7 +150,7 @@ class HDhub4uProvider : MainAPI() {
             fixUrlNull(src)
         }
 
-        val isSeries = Regex("(?i)(Season|S0\\d|Episode|E0\\d|Complete|All\\s+Episodes)").containsMatchIn(titleText)
+        val isSeries = SERIES_PATTERN.containsMatchIn(titleText)
 
         return if (isSeries) {
             newTvSeriesSearchResponse(title, fixedUrl, TvType.TvSeries) { this.posterUrl = posterUrl }
@@ -167,48 +193,43 @@ class HDhub4uProvider : MainAPI() {
         fetchMainUrl()
         val doc = app.get(url, headers = headers, timeout = 20).document
 
-        // Extract title from page
+        // Extract title
         val rawTitle = doc.selectFirst("h1.page-title span")?.text()
             ?: doc.selectFirst("h1.page-title")?.text()
             ?: doc.selectFirst("h2[data-ved]")?.text()
             ?: "Unknown"
         val title = cleanTitle(rawTitle)
 
-        // Extract poster from og:image or page content
+        // Extract poster
         val poster = doc.selectFirst("meta[property=og:image]")?.attr("content")
             ?: doc.selectFirst(".page-body img.aligncenter")?.attr("src")
 
-        // Extract description from first paragraph
+        // Extract description
         val description = doc.selectFirst(".page-body p:first-child")?.text()
             ?: doc.selectFirst("meta[name=description]")?.attr("content")
 
         // Extract year using regex
-        val yearRegex = Regex("""[\(\[]?(\d{4})[\)\]]?""")
-        val year = yearRegex.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
+        val year = YEAR_PATTERN.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
 
-        // Extract IMDB URL for rating
+        // Extract IMDB URL
         val imdbUrl = doc.selectFirst("a[href*='imdb.com/title']")?.attr("href") ?: ""
 
-        // Extract tags/genres
+        // Extract tags
         val tags = doc.select(".page-meta em, a[rel=tag]").eachText().distinct()
 
         // Determine if series
-        val isSeries = Regex("(?i)(Season|S0\\d|Episode|E0\\d|Complete|Web\\s*Series)").containsMatchIn(rawTitle)
-        val seasonNumber = Regex("(?i)Season\\s*(\\d+)").find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
+        val isSeries = SERIES_PATTERN.containsMatchIn(rawTitle)
+        val seasonNumber = SEASON_PATTERN.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
 
-        // Extract download links using regex patterns
+        // Extract download links using ExtractorPatterns
         val downloadLinks = mutableListOf<DownloadLink>()
         
-        // Pattern for download domains
-        val linkPattern = Regex("""https?://(?:[a-z0-9-]+\.)*(?:hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|hubcdn|hblinks)[a-z0-9.-]*\.[a-z]{2,}[^"'\s<>]*""", RegexOption.IGNORE_CASE)
-        
-        // Extract from all anchor tags
         doc.select("a[href]").forEach { element ->
             val href = element.attr("href")
             val text = element.text().trim()
             
-            if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
-                val quality = extractQuality(text.ifBlank { href })
+            if (ExtractorPatterns.isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
+                val quality = ExtractorPatterns.extractQuality(text.ifBlank { href })
                 val size = parseFileSize(text)
                 downloadLinks.add(DownloadLink(href, quality, size, text))
             }
@@ -216,16 +237,16 @@ class HDhub4uProvider : MainAPI() {
         
         // Also extract from page HTML using regex
         val bodyHtml = doc.body().html()
-        linkPattern.findAll(bodyHtml).forEach { match ->
+        ExtractorPatterns.VALID_LINK.findAll(bodyHtml).forEach { match ->
             val linkUrl = match.value
             if (downloadLinks.none { it.url == linkUrl }) {
-                downloadLinks.add(DownloadLink(linkUrl, extractQuality(linkUrl), 0.0, ""))
+                downloadLinks.add(DownloadLink(linkUrl, ExtractorPatterns.extractQuality(linkUrl), 0.0, ""))
             }
         }
 
         Log.d(TAG, "Found ${downloadLinks.size} download links")
 
-        // Sort links by quality (1080p preferred)
+        // Sort links by quality and priority
         val sortedLinks = downloadLinks.sortedWith(
             compareByDescending<DownloadLink> {
                 when (it.quality) {
@@ -235,7 +256,11 @@ class HDhub4uProvider : MainAPI() {
                     480 -> 50
                     else -> 30
                 }
-            }.thenBy { if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE }
+            }.thenByDescending { 
+                ExtractorPatterns.getServerPriority(it.url) 
+            }.thenBy { 
+                if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE 
+            }
         )
 
         return if (isSeries) {
@@ -272,22 +297,17 @@ class HDhub4uProvider : MainAPI() {
         seasonNumber: Int?
     ): List<Episode> {
         val episodes = mutableListOf<Episode>()
-        val episodePattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
 
         // Group links by episode number
         val groupedByEpisode = links.groupBy { link ->
-            episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            EPISODE_PATTERN.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         }
 
         if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
             groupedByEpisode.forEach { (epNum, epLinks) ->
                 if (epNum > 0) {
                     val sortedLinks = epLinks.sortedByDescending { link ->
-                        when {
-                            Regex("(?i)hdstream4u").containsMatchIn(link.url) -> 100
-                            Regex("(?i)hubstream").containsMatchIn(link.url) -> 90
-                            else -> 50
-                        }
+                        ExtractorPatterns.getServerPriority(link.url)
                     }
                     val data = sortedLinks.joinToString(",") { it.url }
                     episodes.add(newEpisode(data) {
@@ -301,8 +321,10 @@ class HDhub4uProvider : MainAPI() {
 
         // Fallback: use streaming links as episodes
         if (episodes.isEmpty() && links.isNotEmpty()) {
-            val streamingPattern = Regex("(?i)(hubstream|hdstream4u)")
-            val streamingLinks = links.filter { streamingPattern.containsMatchIn(it.url) }
+            val streamingLinks = links.filter {
+                ExtractorPatterns.HUBSTREAM.containsMatchIn(it.url) || 
+                ExtractorPatterns.HDSTREAM4U.containsMatchIn(it.url)
+            }
 
             if (streamingLinks.size > 1) {
                 streamingLinks.forEachIndexed { index, link ->
@@ -313,7 +335,6 @@ class HDhub4uProvider : MainAPI() {
                     })
                 }
             } else {
-                // Treat all links as full season
                 val data = links.joinToString(",") { it.url }
                 episodes.add(newEpisode(data) {
                     this.name = "Full Season"
@@ -340,37 +361,30 @@ class HDhub4uProvider : MainAPI() {
 
         Log.d(TAG, "Processing ${linksList.size} links")
 
-        // Regex patterns for extractor matching
-        val hubdrivePattern = Regex("(?i)hubdrive")
-        val hubcloudPattern = Regex("(?i)(hubcloud|cloud\\.php)")
-        val hubcdnPattern = Regex("(?i)(hubcdn|gadgetsweb)")
-        val hdstream4uPattern = Regex("(?i)(hdstream4u|vidhidepro)")
-        val hubstreamPattern = Regex("(?i)hubstream")
-        val hblinksPattern = Regex("(?i)(hblinks|4khdhub)")
-        val pixeldrainPattern = Regex("(?i)pixeldrain")
-
         for (link in linksList) {
             try {
-                val finalLink = if ("?id=" in link) getRedirectLinks(link) else link
+                val finalLink = if (ExtractorPatterns.hasRedirectId(link)) {
+                    getRedirectLinks(link)
+                } else link
 
-                // Use regex patterns to match custom extractors
-                when {
-                    hubdrivePattern.containsMatchIn(finalLink) ->
+                // Use ExtractorPatterns to match and call appropriate extractor
+                when (ExtractorPatterns.matchExtractor(finalLink)) {
+                    ExtractorType.HUBDRIVE -> 
                         Hubdrive().getUrl(finalLink, "", subtitleCallback, callback)
-                    hubcloudPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.HUBCLOUD -> 
                         HubCloud().getUrl(finalLink, "", subtitleCallback, callback)
-                    hubcdnPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.HUBCDN -> 
                         HUBCDN().getUrl(finalLink, "", subtitleCallback, callback)
-                    hdstream4uPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.HDSTREAM4U -> 
                         HdStream4u().getUrl(finalLink, "", subtitleCallback, callback)
-                    hubstreamPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.HUBSTREAM -> 
                         Hubstream().getUrl(finalLink, "", subtitleCallback, callback)
-                    hblinksPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.HBLINKS -> 
                         Hblinks().getUrl(finalLink, "", subtitleCallback, callback)
-                    pixeldrainPattern.containsMatchIn(finalLink) ->
+                    ExtractorType.PIXELDRAIN -> 
                         PixelDrainDev().getUrl(finalLink, "", subtitleCallback, callback)
-                    else ->
-                        HubCloud().getUrl(finalLink, "", subtitleCallback, callback)
+                    ExtractorType.VIDSTACK -> 
+                        VidStack().getUrl(finalLink, "", subtitleCallback, callback)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to process $link: ${e.message}")
@@ -379,33 +393,9 @@ class HDhub4uProvider : MainAPI() {
         return true
     }
 
-    // Helper functions - ALL using Regex patterns
-    private val validLinkPattern = Regex("""(?i)https?://[^\s]*?(hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|hubcdn|hblinks|4khdhub)[^\s]*""")
-    
-    private fun isValidDownloadLink(url: String): Boolean {
-        return validLinkPattern.containsMatchIn(url)
-    }
-
-    private val qualityPattern = Regex("""(?i)(\d{3,4})p""")
-    private val quality4kPattern = Regex("""(?i)(4k|2160)""")
-    private val quality1080Pattern = Regex("""(?i)1080""")
-    private val quality720Pattern = Regex("""(?i)720""")
-    private val quality480Pattern = Regex("""(?i)480""")
-    
-    private fun extractQuality(text: String): Int {
-        qualityPattern.find(text)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-        return when {
-            quality4kPattern.containsMatchIn(text) -> 2160
-            quality1080Pattern.containsMatchIn(text) -> 1080
-            quality720Pattern.containsMatchIn(text) -> 720
-            quality480Pattern.containsMatchIn(text) -> 480
-            else -> 0
-        }
-    }
-
+    // Helper functions using companion object patterns
     private fun parseFileSize(text: String): Double {
-        val sizeRegex = Regex("""(\d+(?:\.\d+)?)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
-        val match = sizeRegex.find(text) ?: return 0.0
+        val match = SIZE_PATTERN.find(text) ?: return 0.0
         val value = match.groupValues[1].toDoubleOrNull() ?: return 0.0
         val unit = match.groupValues[2].uppercase()
         return if (unit == "GB") value * 1024 else value
@@ -413,20 +403,18 @@ class HDhub4uProvider : MainAPI() {
 
     private fun cleanTitle(title: String): String {
         return title
-            .replace(Regex("""(?i)\s*[\(\[]?\d{4}[\)\]]?"""), "")
-            .replace(Regex("""(?i)\s*\[.*?]"""), "")
-            .replace(Regex("""(?i)\s*(480p|720p|1080p|2160p|4k|hdrip|webrip|bluray|web-dl|hdtv|hdcam).*"""), "")
-            .replace(Regex("""(?i)\s*(hindi|english|dual audio|esub|esubs).*"""), "")
-            .replace(Regex("""(?i)\s*download\s*(free)?.*"""), "")
-            .replace(Regex("""\s+"""), " ")
+            .replace(CLEAN_YEAR, "")
+            .replace(CLEAN_BRACKETS, "")
+            .replace(CLEAN_QUALITY, "")
+            .replace(CLEAN_LANG, "")
+            .replace(CLEAN_DOWNLOAD, "")
+            .replace(CLEAN_WHITESPACE, " ")
             .trim()
     }
 
-    private val redirectPattern = Regex("""\?id=""")
-    
     private suspend fun getRedirectLinks(url: String): String {
         return try {
-            if (redirectPattern.containsMatchIn(url)) {
+            if (ExtractorPatterns.hasRedirectId(url)) {
                 val response = app.get(url, allowRedirects = false)
                 response.headers["location"] ?: response.headers["Location"] ?: url
             } else url
@@ -439,18 +427,18 @@ class HDhub4uProvider : MainAPI() {
     fun getSearchQuality(check: String?): SearchQuality? {
         val s = check ?: return null
         val u = Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase()
-        val patterns = listOf(
-            Regex("\\b(4k|uhd|2160p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.FourK,
-            Regex("\\b(hdcam|hdtc)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HdCam,
-            Regex("\\b(camrip)\\b", RegexOption.IGNORE_CASE) to SearchQuality.CamRip,
-            Regex("\\b(cam)\\b", RegexOption.IGNORE_CASE) to SearchQuality.Cam,
-            Regex("\\b(webrip|webdl)\\b", RegexOption.IGNORE_CASE) to SearchQuality.WebRip,
-            Regex("\\b(bluray)\\b", RegexOption.IGNORE_CASE) to SearchQuality.BlueRay,
-            Regex("\\b(1080p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HD,
-            Regex("\\b(720p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.SD,
-            Regex("\\b(dvd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.DVD,
-        )
-        for ((regex, quality) in patterns) if (regex.containsMatchIn(u)) return quality
-        return null
+        
+        return when {
+            QUALITY_4K.containsMatchIn(u) -> SearchQuality.FourK
+            QUALITY_HDCAM.containsMatchIn(u) -> SearchQuality.HdCam
+            QUALITY_CAMRIP.containsMatchIn(u) -> SearchQuality.CamRip
+            QUALITY_CAM.containsMatchIn(u) -> SearchQuality.Cam
+            QUALITY_WEBRIP.containsMatchIn(u) -> SearchQuality.WebRip
+            QUALITY_BLURAY.containsMatchIn(u) -> SearchQuality.BlueRay
+            QUALITY_1080.containsMatchIn(u) -> SearchQuality.HD
+            QUALITY_720.containsMatchIn(u) -> SearchQuality.SD
+            QUALITY_DVD.containsMatchIn(u) -> SearchQuality.DVD
+            else -> null
+        }
     }
 }
