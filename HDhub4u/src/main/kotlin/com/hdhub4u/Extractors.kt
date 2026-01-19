@@ -64,6 +64,75 @@ suspend fun getLatestUrl(url: String, source: String): String {
     return link
 }
 
+/**
+ * Automatically follows all HTTP redirects (301, 302, 303, 307, 308)
+ * Returns the final URL after all redirects have been followed.
+ * This ensures extractors work even when redirect domains change in the future.
+ * 
+ * @param url - Starting URL to follow
+ * @param maxRedirects - Maximum number of redirects to follow (default 10)
+ * @param headers - Optional headers to include in requests
+ * @param referer - Optional referer header
+ * @return Final URL after all redirects, or original URL if no redirects
+ */
+suspend fun followRedirects(
+    url: String,
+    maxRedirects: Int = 10,
+    headers: Map<String, String>? = null,
+    referer: String? = null
+): String {
+    var currentUrl = url
+    var redirectCount = 0
+    
+    val requestHeaders = headers?.toMutableMap() ?: mutableMapOf()
+    if (referer != null) {
+        requestHeaders["Referer"] = referer
+    }
+    
+    while (redirectCount < maxRedirects) {
+        try {
+            val response = app.get(
+                currentUrl,
+                headers = requestHeaders,
+                allowRedirects = false,
+                timeout = 15
+            )
+            
+            val statusCode = response.code
+            
+            // Check if this is a redirect response (3xx status codes)
+            if (statusCode !in listOf(301, 302, 303, 307, 308)) {
+                // Not a redirect, return current URL
+                return currentUrl
+            }
+            
+            // Get redirect location from headers
+            val location = response.headers["location"]
+                ?: response.headers["Location"]
+                ?: return currentUrl
+            
+            // Handle relative URLs by prepending base URL
+            currentUrl = if (location.startsWith("http")) {
+                location
+            } else if (location.startsWith("/")) {
+                getBaseUrl(currentUrl) + location
+            } else {
+                getBaseUrl(currentUrl) + "/" + location
+            }
+            
+            redirectCount++
+            Log.d("FollowRedirects", "Redirect $redirectCount: $currentUrl")
+            
+        } catch (e: Exception) {
+            Log.w("FollowRedirects", "Error following redirect: ${e.message}")
+            return currentUrl
+        }
+    }
+    
+    Log.w("FollowRedirects", "Max redirects ($maxRedirects) reached for: $url")
+    return currentUrl
+}
+
 // Parse file size string to MB (e.g., "1.8GB" -> 1843, "500MB" -> 500)
 fun parseSizeToMB(sizeStr: String): Double {
     val cleanSize = sizeStr.replace("[", "").replace("]", "").replace("⚡", "").trim()
@@ -400,14 +469,30 @@ open class Hblinks : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        app.get(url).documentLarge.select("h3 a,h5 a,div.entry-content p a").map {
-            val lower = it.absUrl("href").ifBlank { it.attr("href") }
-            val href = lower.lowercase()
+        // Follow redirects to get final URL (handles domain changes)
+        val finalUrl = followRedirects(url)
+        Log.d("Hblinks", "Final URL: $finalUrl")
+        
+        app.get(finalUrl).documentLarge.select("h3 a,h5 a,div.entry-content p a").map {
+            val linkUrl = it.absUrl("href").ifBlank { it.attr("href") }
+            
+            // Follow redirects on each link to handle domain changes
+            val finalLink = if (linkUrl.startsWith("http")) {
+                followRedirects(linkUrl)
+            } else {
+                linkUrl
+            }
+            
+            val linkLower = finalLink.lowercase()
+            
+            // Use generic patterns instead of hardcoded domain names
             when {
-                "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
-                "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value,subtitleCallback, callback)
+                "drive" in linkLower && "hub" in linkLower -> Hubdrive().getUrl(finalLink, name, subtitleCallback, callback)
+                "cloud" in linkLower && "hub" in linkLower -> HubCloud().getUrl(finalLink, name, subtitleCallback, callback)
+                "cdn" in linkLower && "hub" in linkLower -> HUBCDN().getUrl(finalLink, name, subtitleCallback, callback)
+                // Also handle direct streaming/download patterns
+                "stream" in linkLower || "player" in linkLower -> loadSourceNameExtractor(name, finalLink, "", Qualities.Unknown.value, subtitleCallback, callback)
+                else -> loadSourceNameExtractor(name, finalLink, "", Qualities.Unknown.value, subtitleCallback, callback)
             }
         }
     }
@@ -466,26 +551,38 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        // Follow all redirects to get the final URL (handles domain changes)
+        val finalUrl = followRedirects(url)
+        Log.d("Hubdrive", "Final URL after redirects: $finalUrl")
+        
         // Use CloudflareKiller interceptor to bypass Cloudflare 403
-        val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
+        val doc = app.get(finalUrl, timeout = 30000, interceptor = cfKiller).documentLarge
         
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
         
-        // Fallback selectors if primary fails
-        if (href.isBlank() || !href.contains("hubcloud", true)) {
-            href = doc.selectFirst("a.btn[href*=hubcloud]")?.attr("href") ?: ""
+        // Fallback selectors - use generic patterns instead of hardcoded domains
+        if (href.isBlank()) {
+            // Look for any download/streaming button with href
+            href = doc.selectFirst("a.btn[href*=cloud]")?.attr("href") 
+                ?: doc.selectFirst("a.btn[href*=drive]")?.attr("href")
+                ?: doc.selectFirst("a.btn-success[href]")?.attr("href")
+                ?: doc.selectFirst("a.btn-primary[href]")?.attr("href")
+                ?: ""
         }
-        if (href.isBlank() || !href.contains("hubcloud", true)) {
-            href = doc.selectFirst("a[href*=hubcloud.fyi]")?.attr("href") ?: ""
+        
+        // Follow redirects on the href as well to handle domain changes
+        if (href.isNotBlank() && href.startsWith("http")) {
+            href = followRedirects(href)
         }
         
         Log.d("Hubdrive", "Found href: $href")
         
-        if (href.contains("hubcloud", ignoreCase = true)) {
+        if (href.isNotBlank() && href.startsWith("http")) {
+            // Pass to HubCloud for further processing
             HubCloud().getUrl(href, "HubDrive", subtitleCallback, callback)
         } else {
-            Log.d("Hubdrive", "No HubCloud link found for: $url")
+            Log.d("Hubdrive", "No valid link found for: $url")
         }
     }
 }
@@ -510,58 +607,63 @@ class HubCloud : ExtractorApi() {
         } ?: return
         Log.d(tag, "Processing URL: $url")
 
-        // Use original URL directly first (most reliable)
-        // Only use URL replacement if original fails
-        val urlToUse = realUrl
-        Log.d(tag, "Using URL: $urlToUse")
+        // Follow all redirects to get the final URL (handles domain changes automatically)
+        val urlToUse = followRedirects(realUrl)
+        Log.d(tag, "After redirects: $urlToUse")
 
         val href = try {
             when {
-                "hubcloud.php" in urlToUse || "gamerxyt.com" in urlToUse -> urlToUse
+                // PHP gateway URLs (like hubcloud.php) - use directly
+                ".php" in urlToUse -> urlToUse
+                
+                // Drive page URLs - extract download link
                 "/drive/" in urlToUse -> {
-                    // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
                     // Use CloudflareKiller to bypass protection
                     val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
                     
-                    // Primary selectors based on Brave Browser inspection:
-                    // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
+                    // Generic selectors that don't rely on specific domain names
                     val generateBtn = driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn.btn-primary[href*=gamerxyt]")?.attr("href")
+                        ?: driveDoc.selectFirst("a.btn[href*=.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a#download")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn-primary")?.attr("href")
+                        ?: driveDoc.selectFirst("a.btn-primary[href]")?.attr("href")
+                        ?: driveDoc.selectFirst("a.btn-success[href]")?.attr("href")
                     
                     Log.d(tag, "Drive page generate button: $generateBtn")
                     
-                    // If generate button found, use it
+                    // If generate button found, follow its redirects
                     if (!generateBtn.isNullOrBlank() && generateBtn.startsWith("http")) {
-                        generateBtn
+                        followRedirects(generateBtn)
                     } else {
-                        // Fallback: check all buttons for gamerxyt or direct download links
+                        // Fallback: check all buttons for download links
                         val allBtns = driveDoc.select("a.btn")
-                        val gamerxytLink = allBtns.firstOrNull { 
-                            it.attr("href").contains("gamerxyt", true) || 
-                            it.attr("href").contains("hubcloud.php", true)
+                        val downloadLink = allBtns.firstOrNull { 
+                            val h = it.attr("href")
+                            h.contains(".php", true) || h.startsWith("http")
                         }?.attr("href")
                         
-                        if (!gamerxytLink.isNullOrBlank()) {
-                            gamerxytLink
+                        if (!downloadLink.isNullOrBlank()) {
+                            followRedirects(downloadLink)
                         } else {
-                            Log.w(tag, "No gamerxyt link found, trying direct CDN links")
+                            Log.w(tag, "No download link found, trying CDN links")
                             // Last resort: try to find any download CDN links
                             val cdnLink = allBtns.firstOrNull {
                                 val h = it.attr("href")
-                                h.contains("fsl", true) || h.contains("pixel", true) || h.contains("r2.dev", true)
+                                h.contains("fsl", true) || h.contains("pixel", true) || 
+                                h.contains("r2.dev", true) || h.contains("cdn", true)
                             }?.attr("href")
-                            cdnLink ?: ""
+                            if (cdnLink != null) followRedirects(cdnLink) else ""
                         }
                     }
                 }
                 else -> {
                     val rawHref = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document.select("#download").attr("href")
-                    if (rawHref.startsWith("http", ignoreCase = true)) rawHref
-                    else getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
+                    if (rawHref.startsWith("http", ignoreCase = true)) {
+                        followRedirects(rawHref)
+                    } else if (rawHref.isNotBlank()) {
+                        getBaseUrl(urlToUse).trimEnd('/') + "/" + rawHref.trimStart('/')
+                    } else {
+                        ""
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -877,50 +979,56 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // hdstream4u.com /file/ URLs are valid streaming pages - redirect to HdStream4u extractor
-        if ("/file/" in url && url.contains("hdstream4u", ignoreCase = true)) {
-            Log.d("HUBCDN", "Redirecting hdstream4u /file/ URL to HdStream4u extractor: $url")
-            HdStream4u().getUrl(url, referer, subtitleCallback, callback)
+        // Follow redirects to get final URL (handles domain changes)
+        val finalUrl = followRedirects(url)
+        Log.d("HUBCDN", "Final URL: $finalUrl")
+        
+        // Check for streaming page URLs - redirect to appropriate extractor
+        if ("/file/" in finalUrl && "stream" in finalUrl.lowercase()) {
+            Log.d("HUBCDN", "Redirecting stream /file/ URL to HdStream4u extractor: $finalUrl")
+            HdStream4u().getUrl(finalUrl, referer, subtitleCallback, callback)
             return
         }
         
-        val doc = app.get(url).documentLarge
+        val doc = app.get(finalUrl).documentLarge
         val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
-        val encodedUrl = Regex("reurl\\s*=\\s*\"([^\"]+)\"")
+        val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
             .find(scriptText ?: "")
             ?.groupValues?.get(1)
             ?.substringAfter("?r=")
 
         val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
 
-
         if (decodedUrl != null) {
+            // Follow redirects on the decoded URL as well
+            val streamUrl = followRedirects(decodedUrl)
             callback(
                 newExtractorLink(
                     this.name,
                     this.name,
-                    decodedUrl,
+                    streamUrl,
                     INFER_TYPE,
-                )
-                {
-                    this.quality=Qualities.Unknown.value
+                ) {
+                    this.quality = Qualities.Unknown.value
                 }
             )
         } else {
-            // Fallback: Try to find hubcloud link on page for /file/ URLs
-            Log.d("HUBCDN", "var reurl not found, trying fallback for /file/ URL")
+            // Fallback: Try to find any cloud/drive links on page
+            Log.d("HUBCDN", "var reurl not found, trying fallback")
             try {
-                // Try to find any redirect link or hubcloud link
-                val fallbackDoc = app.get(url).document
-                val hubcloudLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
-                    .ifBlank {
-                        fallbackDoc.select("a.btn[href*=drive]").attr("href")
-                    }
+                val fallbackDoc = app.get(finalUrl).document
                 
-                if (hubcloudLink.isNotBlank() && hubcloudLink.contains("hubcloud", true)) {
-                    Log.d("HUBCDN", "Found hubcloud link: $hubcloudLink")
-                    HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
+                // Use generic patterns for finding download links
+                val downloadLink = fallbackDoc.select("a.btn[href*=cloud]").attr("href")
+                    .ifBlank { fallbackDoc.select("a.btn[href*=drive]").attr("href") }
+                    .ifBlank { fallbackDoc.select("a[href*=cloud]").attr("href") }
+                    .ifBlank { fallbackDoc.select("a[href*=drive]").attr("href") }
+                
+                if (downloadLink.isNotBlank() && downloadLink.startsWith("http")) {
+                    val finalLink = followRedirects(downloadLink)
+                    Log.d("HUBCDN", "Found fallback link: $finalLink")
+                    HubCloud().getUrl(finalLink, referer, subtitleCallback, callback)
                 } else {
                     Log.e("HUBCDN", "No fallback link found for: $url")
                 }
