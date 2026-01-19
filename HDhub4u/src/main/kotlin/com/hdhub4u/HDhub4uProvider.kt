@@ -27,12 +27,10 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 import java.text.Normalizer
-
 
 class HDhub4uProvider : MainAPI() {
     companion object {
@@ -560,10 +558,26 @@ override suspend fun search(query: String): List<SearchResponse> {
                 } else {
                     link
                 }
-                if (finalLink.contains("Hubdrive",ignoreCase = true))
-                {
-                    Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
-                } else loadExtractor(finalLink, subtitleCallback, callback)
+                // Use custom extractors only - no built-in loadExtractor
+                val lowerLink = finalLink.lowercase()
+                when {
+                    "hubdrive" in lowerLink -> 
+                        Hubdrive().getUrl(finalLink, "", subtitleCallback, callback)
+                    "hubcloud" in lowerLink || "cloud" in lowerLink ->
+                        HubCloud().getUrl(finalLink, "", subtitleCallback, callback)
+                    "hubcdn" in lowerLink || "gadgetsweb" in lowerLink ->
+                        HUBCDN().getUrl(finalLink, "", subtitleCallback, callback)
+                    "hdstream4u" in lowerLink || "vidhidepro" in lowerLink ->
+                        HdStream4u().getUrl(finalLink, "", subtitleCallback, callback)
+                    "hubstream" in lowerLink ->
+                        Hubstream().getUrl(finalLink, "", subtitleCallback, callback)
+                    "hblinks" in lowerLink || "4khdhub" in lowerLink ->
+                        Hblinks().getUrl(finalLink, "", subtitleCallback, callback)
+                    "pixeldrain" in lowerLink ->
+                        PixelDrainDev().getUrl(finalLink, "", subtitleCallback, callback)
+                    else ->
+                        HubCloud().getUrl(finalLink, "", subtitleCallback, callback)
+                }
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to process $link: ${e.message}")
             }
