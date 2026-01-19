@@ -27,38 +27,44 @@ import org.jsoup.nodes.Element
 
 
 class HDhub4uProvider : MainAPI() {
+    companion object {
+        private const val TAG = "HDhub4uProvider"
+    }
+
     // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
     val cfKiller by lazy { CloudflareKiller() }
 
-    // Cached domain URLs - fetched once per session
+    // Cached domain URL - fetched once per session (async, no blocking)
+    private var cachedMainUrl: String? = null
     private var urlsFetched = false
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
     
-    // Dynamic domain URLs from urls.json
-    companion object {
-        private const val TAG = "HDhub4uProvider"
-        private const val URLS_JSON = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-    }
+    override var mainUrl: String = "https://new2.hdhub4u.fo"
 
-    // Fetch mainUrl from urls.json (async with 10s timeout)
-    private suspend fun fetchDomainUrls() {
-        if (urlsFetched) return
-        urlsFetched = true
+    // Async domain fetch with 10s timeout - no blocking
+    private suspend fun fetchMainUrl(): String {
+        if (cachedMainUrl != null) return cachedMainUrl!!
+        if (urlsFetched) return mainUrl
         
+        urlsFetched = true
         try {
             val result = withTimeoutOrNull(10_000L) {
-                val response = app.get(URLS_JSON, timeout = 10)
-                val json = JSONObject(response.text)
-                mainUrl = json.optString("hdhub4u", mainUrl)
-                Log.d(TAG, "Fetched mainUrl from urls.json: $mainUrl")
-                true
+                val response = app.get(
+                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
+                    timeout = 10
+                )
+                val json = response.text
+                val jsonObject = JSONObject(json)
+                jsonObject.optString("hdhub4u").takeIf { it.isNotBlank() }
             }
-            if (result != true) {
-                Log.w(TAG, "Timeout fetching URLs, using default")
+            if (result != null) {
+                cachedMainUrl = result
+                mainUrl = result
+                Log.d(TAG, "Fetched mainUrl: $result")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch URLs: ${e.message}")
+            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
         }
+        return mainUrl
     }
 
     override var name = "HDHub4U"
@@ -84,8 +90,8 @@ override suspend fun getMainPage(
     page: Int,
     request: MainPageRequest
 ): HomePageResponse {
-    // Fetch all domain URLs (async, cached)
-    fetchDomainUrls()
+    // Fetch latest mainUrl (async, cached)
+    fetchMainUrl()
     
     val url = if (page == 1) {
         "$mainUrl/${request.data}"
@@ -196,8 +202,8 @@ override suspend fun search(query: String): List<SearchResponse> {
 
 override suspend fun load(url: String): LoadResponse? {
     Log.d(TAG, "Loading: $url")
-    // Fetch all domain URLs (async, cached)
-    fetchDomainUrls()
+    // Fetch latest mainUrl (async, cached)
+    fetchMainUrl()
     
     val document = app.get(url, headers = headers, timeout = 20).document
 
@@ -263,7 +269,7 @@ override suspend fun load(url: String): LoadResponse? {
     // Method 2: Use Regex on full body HTML for any missed links
     // Note: Pattern includes # for hubstream.art/#hash URLs
     val bodyHtml = document.body().html()
-    val urlPattern = Regex("""https?://(?:hubdrive\.space|gadgetsweb\.xyz|hdstream4u\.com|hubstream\.art|hubcloud\.[a-z]+|hblinks\.[a-z]+)[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
+    val urlPattern = Regex("""https?://(?:[a-z0-9-]+\.)*(?:hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|hblinks|hubcdn|4khdhub|gamerxyt|gamester|cloud|drive|stream)[a-z0-9.-]*\.[a-z]{2,}[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
 
     // Pattern to find episode context before URLs (EPiSODE X, Episode X, EP X, E X)
     val episodeContextPattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
@@ -481,11 +487,13 @@ private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<Downlo
 }
 
 private fun isValidDownloadLink(url: String): Boolean {
-    val validHosts = listOf(
+    // Pattern-based validation - domain agnostic
+    val validPatterns = listOf(
         "hubdrive", "gadgetsweb", "hdstream4u", "hubstream",
-        "hubcloud", "hubcdn", "gamerxyt", "gamester", "hblinks", "4khdhub"
+        "hubcloud", "hubcdn", "gamerxyt", "gamester", "hblinks", 
+        "4khdhub", "cloud", "drive", "stream", "download"
     )
-    return validHosts.any { url.contains(it, ignoreCase = true) }
+    return validPatterns.any { url.contains(it, ignoreCase = true) } && url.startsWith("http")
 }
 
 private fun extractQuality(text: String): Int {
@@ -514,20 +522,7 @@ private fun parseFileSize(text: String): Double {
     return if (unit == "GB") value * 1024 else value
 }
 
-// Server speed priority (higher = faster/preferred)
-private fun getServerPriority(serverName: String): Int {
-    return when {
-        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
-        serverName.contains("Direct", true) -> 90
-        serverName.contains("FSLv2", true) -> 85
-        serverName.contains("FSL", true) -> 80
-        serverName.contains("10Gbps", true) -> 88
-        serverName.contains("Download File", true) -> 70
-        serverName.contains("Pixel", true) -> 60
-        serverName.contains("Buzz", true) -> 55
-        else -> 50
-    }
-}
+// Note: getServerPriority() is defined in Extractors.kt - using that instead
 
 override suspend fun loadLinks(
     data: String,
@@ -545,33 +540,37 @@ override suspend fun loadLinks(
 
         Log.d(TAG, "Processing ${links.size} links")
 
-        // Process ALL links (sorted by quality: X264 1080p → Smallest Size → Fastest)
-        links.amap { link ->
+        // Take top 3 links (already sorted by quality in load())
+        links.take(3).amap { link ->
             try {
+                val linkLower = link.lowercase()
+                
+                // Pattern-based extractor selection (domain-agnostic)
                 when {
-                    link.contains("hubdrive", true) -> 
+                    "hubdrive" in linkLower -> 
                         Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("hubcloud", true) ||
-                    link.contains("gamerxyt", true) ||
-                    link.contains("gamester", true) -> 
+                    // Cloud patterns - use HubCloud for any cloud/drive URLs
+                    "hubcloud" in linkLower || 
+                    ("cloud" in linkLower && "hubdrive" !in linkLower) ||
+                    linkLower.contains("php?") -> 
                         HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("gadgetsweb", true) -> 
+                    "gadgetsweb" in linkLower || "hubcdn" in linkLower -> 
                         HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("hdstream4u", true) -> 
+                    "hdstream4u" in linkLower -> 
                         HdStream4u().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("hubcdn", true) -> 
-                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    link.contains("hubstream", true) -> 
+                    "hubstream" in linkLower -> 
                         Hubstream().getUrl(link, mainUrl, subtitleCallback, callback)
                     
-                    link.contains("hblinks", true) ||
-                    link.contains("4khdhub", true) -> 
+                    "hblinks" in linkLower || "4khdhub" in linkLower -> 
                         Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                    
+                    // Generic fallback for any unmatched stream/drive URLs
+                    "stream" in linkLower || "drive" in linkLower -> 
+                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
                     
                     else -> Log.w(TAG, "No extractor for: $link")
                 }
@@ -586,13 +585,14 @@ override suspend fun loadLinks(
     return true
 }
 
+// Note: cleanTitle() for detailed parsing is in HubCloud class (Extractors.kt)
+// This simple version is for search result titles only
 private fun cleanTitle(title: String): String {
-    // Regex patterns to clean title
     return title
-        .replace(Regex("""\(\d{4}\)"""), "")  // Remove year
-        .replace(Regex("""\[.*?]"""), "")     // Remove brackets content
+        .replace(Regex("""\(\d{4}\)"""), "")
+        .replace(Regex("""\[.*?]"""), "")
         .replace(Regex("""(?i)(Download|Free|Full|Movie|HD|Watch|WEB-DL|BluRay|HDRip|WEBRip|\d{3,4}p)"""), "")
-        .replace(Regex("""\s+"""), " ")        // Normalize spaces
+        .replace(Regex("""\s+"""), " ")
         .trim()
 }
 }
