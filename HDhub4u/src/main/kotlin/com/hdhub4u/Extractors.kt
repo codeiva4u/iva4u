@@ -503,32 +503,8 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
-                // FSL Server - fsl.gigabytes.icu, hub.fsl-lover.buzz
-                link.contains("fsl.gigabytes", ignoreCase = true) || 
-                link.contains("fsl-lover.buzz", ignoreCase = true) ||
-                (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
-                    callback.invoke(
-                        newExtractorLink(
-                            "$referer [FSL Server]",
-                            "$referer [FSL Server] $labelExtras",
-                            link,
-                        ) { this.quality = serverQuality + 15 }
-                    )
-                }
-
-                // FSLv2 - r2.dev, gdboka.buzz, cdn.fukggl.buzz, carnewz.site
-                link.contains("r2.dev", ignoreCase = true) || 
-                link.contains("gdboka.buzz", ignoreCase = true) ||
-                link.contains("fukggl.buzz", ignoreCase = true) ||
-                link.contains("carnewz.site", ignoreCase = true) -> {
-                    callback.invoke(
-                        newExtractorLink(
-                            "$referer [FSLv2]",
-                            "$referer [FSLv2] $labelExtras",
-                            link,
-                        ) { this.quality = serverQuality + 20 }
-                    )
-                }
+                // FSL/FSLv2 patterns moved to generic CDN block at the end
+                // This keeps specific text-based detection as fallback
 
                 // Old text-based FSL Server detection (fallback)
                 text.contains("FSL Server", ignoreCase = true) -> {
@@ -551,68 +527,54 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
-                // BuzzServer - bloggingvector.shop (URL-based detection)
-                link.contains("bloggingvector", ignoreCase = true) || 
+                // BuzzServer - pattern-based (any buzz-related domain)
+                link.contains("buzz", ignoreCase = true) || 
                 text.contains("BuzzServer", ignoreCase = true) -> {
                     try {
-                        val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                        val dlink = buzzResp.headers["hx-redirect"].orEmpty()
-                        if (dlink.isNotBlank()) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$referer [BuzzServer]",
-                                    "$referer [BuzzServer] $labelExtras",
-                                    dlink,
-                                ) { this.quality = serverQuality }
-                            )
-                        } else {
-                            // Try direct link if no redirect
-                            callback.invoke(
-                                newExtractorLink(
-                                    "$referer [BuzzServer]",
-                                    "$referer [BuzzServer] $labelExtras",
-                                    link,
-                                ) { this.quality = serverQuality }
-                            )
-                        }
+                        // Follow redirect automatically
+                        val buzzResp = app.get("$link/download", referer = link, allowRedirects = true, timeout = 30)
+                        val finalLink = buzzResp.url.ifBlank { link }
+                        callback.invoke(
+                            newExtractorLink(
+                                "$referer [BuzzServer]",
+                                "$referer [BuzzServer] $labelExtras",
+                                finalLink,
+                            ) { this.quality = serverQuality }
+                        )
                     } catch (e: Exception) {
-                        Log.w(tag, "BuzzServer failed: ${e.message}")
+                        // Fallback to direct link
+                        callback.invoke(
+                            newExtractorLink(
+                                "$referer [BuzzServer]",
+                                "$referer [BuzzServer] $labelExtras",
+                                link,
+                            ) { this.quality = serverQuality }
+                        )
                     }
                 }
 
-                // PixelDrain - URL-based detection (pixeldrain.dev, hubcdn.fans)
-                link.contains("pixeldrain", ignoreCase = true) || 
-                link.contains("hubcdn.fans", ignoreCase = true) ||
-                text.contains("pixeldra", ignoreCase = true) || 
+                // PixelDrain - pattern-based detection (any pixel/drain URL)
+                link.contains("pixel", ignoreCase = true) || 
+                link.contains("drain", ignoreCase = true) ||
                 text.contains("pixel", ignoreCase = true) -> {
-                    // Handle different pixeldrain URL formats
-                    val finalURL = when {
-                        link.contains("pixeldrain.dev/u/") || link.contains("pixeldrain.com/u/") -> {
-                            // Format: pixeldrain.dev/u/ID -> pixeldrain.dev/api/file/ID?download
-                            val baseUrlLink = getBaseUrl(link)
-                            "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
+                    // Follow redirects to get final URL
+                    val finalURL = try {
+                        val redirectResp = app.get(link, allowRedirects = true, timeout = 30)
+                        val finalRedirectUrl = redirectResp.url
+                        
+                        // Convert /u/ID to /api/file/ID?download if pixeldrain
+                        if (finalRedirectUrl.contains("/u/") && finalRedirectUrl.contains("pixel", true)) {
+                            val baseUrlLink = getBaseUrl(finalRedirectUrl)
+                            "$baseUrlLink/api/file/${finalRedirectUrl.substringAfterLast("/")}?download"
+                        } else if (finalRedirectUrl.contains("download", true)) {
+                            finalRedirectUrl
+                        } else {
+                            val baseUrlLink = getBaseUrl(finalRedirectUrl)
+                            "$baseUrlLink/api/file/${finalRedirectUrl.substringAfterLast("/")}?download"
                         }
-                        link.contains("pixel.hubcdn.fans") || link.contains("hubcdn.fans") -> {
-                            // hubcdn.fans links redirect to pixeldrain - follow redirect
-                            try {
-                                val redirectResp = app.get(link, allowRedirects = false)
-                                val redirectLoc = redirectResp.headers["location"]
-                                if (!redirectLoc.isNullOrBlank() && redirectLoc.contains("pixeldrain")) {
-                                    val baseUrlLink = getBaseUrl(redirectLoc)
-                                    "$baseUrlLink/api/file/${redirectLoc.substringAfterLast("/")}?download"
-                                } else {
-                                    link // Use original if no redirect
-                                }
-                            } catch (e: Exception) {
-                                Log.w(tag, "hubcdn.fans redirect failed: ${e.message}")
-                                link
-                            }
-                        }
-                        link.contains("download", true) -> link
-                        else -> {
-                            val baseUrlLink = getBaseUrl(link)
-                            "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
-                        }
+                    } catch (e: Exception) {
+                        Log.w(tag, "Pixel redirect failed: ${e.message}")
+                        link
                     }
 
                     callback(
@@ -655,38 +617,46 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("10Gbps", ignoreCase = true) -> {
-                    var currentLink = link
-                    var redirectUrl: String?
-                    var redirectCount = 0
-                    val maxRedirects = 3
-
-                    while (redirectCount < maxRedirects) {
-                        val response = app.get(currentLink, allowRedirects = false)
-                        redirectUrl = response.headers["location"]
-
-                        if (redirectUrl == null) {
-                            Log.e(tag, "10Gbps: No redirect")
-                            return@amap
+                    // Follow redirects automatically
+                    try {
+                        val response = app.get(link, allowRedirects = true, timeout = 30)
+                        val finalLink = if (response.url.contains("link=")) {
+                            response.url.substringAfter("link=")
+                        } else {
+                            response.url
                         }
-
-                        if ("link=" in redirectUrl) {
-                            val finalLink = redirectUrl.substringAfter("link=")
-                            callback.invoke(
-                                newExtractorLink(
-                                    "10Gbps [Download]",
-                                    "10Gbps [Download] $labelExtras",
-                                    finalLink
-                                ) { this.quality = serverQuality }
-                            )
-                            return@amap
-                        }
-
-                        currentLink = redirectUrl
-                        redirectCount++
+                        callback.invoke(
+                            newExtractorLink(
+                                "10Gbps [Download]",
+                                "10Gbps [Download] $labelExtras",
+                                finalLink
+                            ) { this.quality = serverQuality }
+                        )
+                    } catch (e: Exception) {
+                        Log.e(tag, "10Gbps failed: ${e.message}")
                     }
+                }
 
-                    Log.e(tag, "10Gbps: Redirect limit reached ($maxRedirects)")
-                    return@amap
+                // CDN patterns - generic pattern matching for any CDN/download server
+                link.contains("fsl", ignoreCase = true) ||
+                link.contains("cdn", ignoreCase = true) ||
+                link.contains("r2.dev", ignoreCase = true) ||
+                link.contains("gigabytes", ignoreCase = true) -> {
+                    // Determine server type from URL pattern
+                    val serverType = when {
+                        link.contains("fsl", true) && !link.contains("v2", true) -> "FSL Server"
+                        link.contains("v2", true) || link.contains("r2.dev", true) -> "FSLv2"
+                        else -> "CDN"
+                    }
+                    val bonus = if (serverType == "FSLv2") 20 else 15
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            "$referer [$serverType]",
+                            "$referer [$serverType] $labelExtras",
+                            link,
+                        ) { this.quality = serverQuality + bonus }
+                    )
                 }
 
                 else -> {
