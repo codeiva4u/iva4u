@@ -1,19 +1,25 @@
 package com.hdhub4u
 
 import com.lagradost.api.Log
+import com.lagradost.cloudstream3.Actor
+import com.lagradost.cloudstream3.ActorData
+import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbUrl
+import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.SearchQuality
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.addDate
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -21,18 +27,49 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Element
+import java.text.Normalizer
 
 
 class HDhub4uProvider : MainAPI() {
     companion object {
         private const val TAG = "HDhub4uProvider"
+        
+        // TMDB API Configuration
+        const val TMDBAPI = "https://api.themoviedb.org/3"
+        const val TMDBAPIKEY = "1d0d243a7ee844813558da9bbfc80e5c"
+        const val TMDBBASE = "https://image.tmdb.org/t/p/original"
     }
-
-    // CloudflareKiller for bypassing Cloudflare protection on hubdrive/hubcloud
-    val cfKiller by lazy { CloudflareKiller() }
+    
+    // Data classes for TMDB responses
+    data class IMDB(val imdbId: String? = null)
+    
+    data class VideoLocal(
+        val title: String? = null,
+        val season: Int? = null,
+        val episode: Int? = null,
+        val overview: String? = null,
+        val thumbnail: String? = null,
+        val released: String? = null,
+        val rating: Score? = null
+    )
+    
+    data class MetaLocal(
+        val name: String? = null,
+        val description: String? = null,
+        val actorsData: List<ActorData>? = null,
+        val year: String? = null,
+        val background: String? = null,
+        val genres: List<String>? = null,
+        val videos: List<VideoLocal>? = null,
+        val rating: Score? = null,
+        val logo: String? = null
+    )
+    
+    data class ResponseDataLocal(val meta: MetaLocal? = null)
 
     // Cached domain URL - fetched once per session (async, no blocking)
     private var cachedMainUrl: String? = null
@@ -200,399 +237,427 @@ override suspend fun search(query: String): List<SearchResponse> {
     return results
 }
 
-override suspend fun load(url: String): LoadResponse? {
-    Log.d(TAG, "Loading: $url")
-    // Fetch latest mainUrl (async, cached)
-    fetchMainUrl()
-    
-    val document = app.get(url, headers = headers, timeout = 20).document
+    override suspend fun load(url: String): LoadResponse {
+        val doc = app.get(url, cacheTime = 60, headers = headers).documentLarge
+        var title = doc.select(
+            ".page-body h2[data-ved=\"2ahUKEwjL0NrBk4vnAhWlH7cAHRCeAlwQ3B0oATAfegQIFBAM\"], " +
+                    "h2[data-ved=\"2ahUKEwiP0pGdlermAhUFYVAKHV8tAmgQ3B0oATAZegQIDhAM\"]"
+        ).text()
+        val seasontitle = title
+        val seasonNumber = Regex("(?i)\\bSeason\\s*(\\d+)\\b").find(seasontitle)?.groupValues?.get(1)?.toIntOrNull()
 
-    // Extract title using Regex
-    val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1")?.text()?.trim()
-        ?: return null
-    val title = cleanTitle(rawTitle)
+        val image = doc.select("meta[property=og:image]").attr("content")
+        val plot = doc.selectFirst(".kno-rdesc .kno-rdesc")?.text()
+        val tags = doc.select(".page-meta em").eachText().toMutableList()
+        val poster = doc.select("main.page-body img.aligncenter").attr("src")
+        val trailer = doc.selectFirst(".responsive-embed-container > iframe:nth-child(1)")?.attr("src")
+            ?.replace("/embed/", "/watch?v=")
 
-    // Extract poster using Regex patterns
-    val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
-        ?: document.selectFirst(".entry-content img[src*='tmdb'], .entry-content img, .post-content img")?.attr("src")
+        val typeraw = doc.select("h1.page-title span").text()
+        val tvtype = if (typeraw.contains("movie", ignoreCase = true)) TvType.Movie else TvType.TvSeries
+        val isMovie = tvtype == TvType.Movie
 
-    // Extract description
-    val description = document.selectFirst("meta[name=description]")?.attr("content")
-        ?: document.selectFirst("meta[property=og:description]")?.attr("content")
+        var actorData: List<ActorData> = emptyList()
+        var genre: List<String>? = null
+        var year = ""
+        var background: String = image
+        var description: String? = null
 
-    // Extract year using Regex
-    val yearRegex = Regex("""\((\d{4})\)""")
-    val year = yearRegex.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
+        val imdbUrl = doc.select("div span a[href*='imdb.com']").attr("href")
+            .ifEmpty {
+                val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
+                val isTv = tmdbHref.contains("/tv/")
+                val tmdbId = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
 
-    // Extract tags/genres
-    val tags = document.select(".entry-categories a, .post-categories a, .cat-links a, a[rel=tag]").map { it.text() }
-
-    // Extract ALL download links - use body html since content class varies
-    val downloadLinks = mutableListOf<DownloadLink>()
-
-    // Method 1: Use CSS selectors to find all links on page
-    document.select("a[href]").forEach { element ->
-        val href = element.attr("href")
-        var text = element.text().trim()
-        
-        // Always get context from parent/siblings for better episode detection
-        // Even links with text like "WATCH" need prevSibling context ("EPiSODE 1")
-        val parentText = element.parent()?.text()?.trim() ?: ""
-        val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
-        val nextSiblingText = element.nextElementSibling()?.text()?.trim() ?: ""
-        
-        // Combine all context for episode detection
-        // Priority: link text, then sibling context, then parent
-        val episodeContext = when {
-            text.contains("episode", true) || text.contains("ep", true) -> text
-            prevSiblingText.contains("episode", true) -> "$prevSiblingText | $text"
-            parentText.contains("episode", true) -> parentText
-            else -> text.ifBlank { parentText.ifBlank { href } }
-        }
-
-        if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
-            val quality = extractQuality(episodeContext.ifBlank { href })
-            val size = parseFileSize(episodeContext)
-
-            downloadLinks.add(
-                DownloadLink(
-                    url = href,
-                    quality = quality,
-                    sizeMB = size,
-                    originalText = episodeContext
-                )
-            )
-        }
-
-    }
-
-    // Method 2: Use Regex on full body HTML for any missed links
-    // Note: Pattern includes # for hubstream.art/#hash URLs
-    val bodyHtml = document.body().html()
-    val urlPattern = Regex("""https?://(?:[a-z0-9-]+\.)*(?:hubdrive|gadgetsweb|hdstream4u|hubstream|hubcloud|hblinks|hubcdn|4khdhub|gamerxyt|gamester|cloud|drive|stream)[a-z0-9.-]*\.[a-z]{2,}[^"'<\s>]*(?:#[a-zA-Z0-9]+)?""", RegexOption.IGNORE_CASE)
-
-    // Pattern to find episode context before URLs (EPiSODE X, Episode X, EP X, E X)
-    val episodeContextPattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
-
-    urlPattern.findAll(bodyHtml).forEach { match ->
-        val linkUrl = match.value
-        if (downloadLinks.none { it.url == linkUrl }) {
-            val quality = extractQuality(linkUrl)
-            
-            // Try to find episode context from surrounding HTML (100 chars before the URL)
-            val startPos = maxOf(0, match.range.first - 100)
-            val surroundingText = bodyHtml.substring(startPos, match.range.first)
-            val episodeMatch = episodeContextPattern.findAll(surroundingText).lastOrNull()
-            val episodeContext = if (episodeMatch != null) {
-                "EPiSODE ${episodeMatch.groupValues[1]}"
-            } else {
-                ""
-            }
-            
-            downloadLinks.add(
-                DownloadLink(
-                    url = linkUrl,
-                    quality = quality,
-                    sizeMB = 0.0,
-                    originalText = episodeContext
-                )
-            )
-        }
-    }
-
-    Log.d(TAG, "Total links found: ${downloadLinks.size}")
-
-    // Smart sort: 1080p priority → H264 codec → Smallest Size → Fastest Server
-    val sortedLinks = downloadLinks.sortedWith(
-        compareByDescending<DownloadLink> { 
-            // Priority 1: 1080p gets highest score
-            when (it.quality) {
-                1080 -> 100
-                2160 -> 90  // 4K is good but 1080p preferred
-                720 -> 70
-                480 -> 50
-                else -> 30
-            }
-        }.thenByDescending {
-            // Priority 2: H264/x264 preferred over HEVC/x265 (less buffering)
-            val text = it.originalText.lowercase() + it.url.lowercase()
-            when {
-                text.contains("x264") || text.contains("h264") || text.contains("h.264") -> 100
-                text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 10
-                else -> 50 // Unknown codec - middle priority
-            }
-        }.thenBy { 
-            // Priority 3: Smallest file size among same quality
-            if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE 
-        }.thenByDescending { 
-            // Priority 4: Fastest server based on name
-            getServerPriority(it.originalText)
-        }
-    )
-
-    // Create data string (comma separated URLs)
-    val data = sortedLinks.joinToString(",") { it.url }
-
-    Log.d(TAG, "Sorted Links: ${sortedLinks.take(5).map { "${it.originalText} (${it.quality}p, ${it.sizeMB}MB)" }}")
-
-    // Determine if series using Regex
-    val isSeries = Regex("(?i)(Season|S0\\d|Episode|E0\\d|Complete|All\\s+Episodes)").containsMatchIn(rawTitle)
-
-    return if (isSeries) {
-        // Extract episodes for series
-        val episodes = parseEpisodes(document, sortedLinks)
-
-        newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-            this.posterUrl = poster
-            this.year = year
-            this.plot = description
-            this.tags = tags
-        }
-    } else {
-        newMovieLoadResponse(title, url, TvType.Movie, data) {
-            this.posterUrl = poster
-            this.year = year
-            this.plot = description
-            this.tags = tags
-        }
-    }
-}
-
-private data class DownloadLink(
-    val url: String,
-    val quality: Int,
-    val sizeMB: Double,
-    val originalText: String
-)
-
-private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
-    val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
-
-    Log.d("HDhub4uProvider", "=== parseEpisodes START ===")
-    Log.d("HDhub4uProvider", "Total links: ${links.size}")
-    
-    // Debug: Show all hdstream4u links and their originalText
-    val hdstreamLinks = links.filter { it.url.contains("hdstream4u", true) }
-    Log.d("HDhub4uProvider", "HdStream4u links: ${hdstreamLinks.size}")
-    hdstreamLinks.forEachIndexed { index, link ->
-        Log.d("HDhub4uProvider", "  [$index] URL: ${link.url.takeLast(30)}, originalText: '${link.originalText}'")
-    }
-
-    // Pattern for episode numbers - multiple formats
-    val episodePattern = Regex("""(?:EPiSODE|Episode|EP|E)[.\s-]*(\d+)""", RegexOption.IGNORE_CASE)
-
-    // Group links by episode number
-    val groupedByEpisode = links.groupBy { link ->
-        // Try to find episode number in text first
-        var episodeNum = episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
-        
-        // If not found in text, try URL (for hubstream.art links which have unique IDs per episode)
-        if (episodeNum == null || episodeNum == 0) {
-            // For web series, links are often in order - use index as fallback later
-            episodeNum = 0
-        }
-        episodeNum
-    }
-
-    Log.d("HDhub4uProvider", "Episode grouping: ${groupedByEpisode.keys}")
-
-    // Create episodes from grouped links
-    if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
-        groupedByEpisode.forEach { (episodeNum, episodeLinks) ->
-            if (episodeNum > 0) {
-                // Prioritize streaming links (hdstream4u, hubstream) over download links (gadgetsweb)
-                // This ensures working extractor is tried first
-                val sortedLinks = episodeLinks.sortedByDescending { link ->
-                    when {
-                        link.url.contains("hdstream4u", true) -> 100
-                        link.url.contains("hubstream", true) -> 90
-                        link.url.contains("gadgetsweb", true) -> 50
-                        else -> 30
-                    }
+                if (tmdbId.isNotEmpty()) {
+                    val type = if (isTv) "tv" else "movie"
+                    val imdbId = app.get(
+                        "$TMDBAPI/$type/$tmdbId/external_ids?api_key=$TMDBAPIKEY"
+                    ).parsedSafe<IMDB>()?.imdbId
+                    imdbId ?: ""
+                } else {
+                    ""
                 }
-                val data = sortedLinks.joinToString(",") { it.url }
-                Log.d("HDhub4uProvider", "Episode $episodeNum data order: ${sortedLinks.map { it.url.substringAfter("://").take(15) }}")
-                episodes.add(
-                    newEpisode(data) {
-                        this.name = "Episode $episodeNum"
-                        this.episode = episodeNum
-                    }
-                )
+            }
+
+        var tmdbIdResolved = ""
+        run {
+            val tmdbHref = doc.select("div span a[href*='themoviedb.org']").attr("href")
+            if (tmdbHref.isNotBlank()) {
+                tmdbIdResolved = tmdbHref.substringAfterLast("/").substringBefore("-").substringBefore("?")
             }
         }
-    }
 
-    // If still no episodes but we have links, try position-based episode assignment
-    // Web series often have links in order: EP1 links, EP2 links, etc.
-    if (episodes.isEmpty() && links.isNotEmpty()) {
-        // Check if we have streaming links (watch/stream) - these are usually per-episode
-        // Both hubstream.art and hdstream4u.com are streaming sources
-        val streamingLinks = links.filter { 
-            it.url.contains("hubstream", true) || it.url.contains("hdstream4u", true) 
-        }
-        
-        if (streamingLinks.size > 1) {
-            // Multiple streaming links = multiple episodes - assign by position
-            streamingLinks.forEachIndexed { index, link ->
-                val episodeNum = index + 1
-                episodes.add(
-                    newEpisode(link.url) {
-                        this.name = "Episode $episodeNum"
-                        this.episode = episodeNum
-                    }
-                )
-            }
-            Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from streaming links")
-        } else if (streamingLinks.size == 1) {
-            // Single streaming link - create one episode with it
-            episodes.add(
-                newEpisode(streamingLinks[0].url) {
-                    this.name = "Episode 1"
-                    this.episode = 1
-                }
-            )
-            Log.d("HDhub4uProvider", "Created 1 episode from single streaming link")
-        } else {
-            // No streaming links - try gadgetsweb/download links
-            val downloadLinks = links.filter { 
-                it.url.contains("gadgetsweb", true) && it.originalText.contains("episode", true)
-            }
-            
-            if (downloadLinks.isNotEmpty()) {
-                downloadLinks.forEachIndexed { index, link ->
-                    val episodeNum = index + 1
-                    episodes.add(
-                        newEpisode(link.url) {
-                            this.name = "Episode $episodeNum"
-                            this.episode = episodeNum
-                        }
-                    )
-                }
-                Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from gadgetsweb links")
-            } else {
-                // Fallback: treat all links as one episode (Full Season)
-                val data = links.joinToString(",") { it.url }
-                episodes.add(
-                    newEpisode(data) {
-                        this.name = "Full Season"
-                        this.episode = 1
-                    }
-                )
-            }
-        }
-    }
+        if (tmdbIdResolved.isBlank() && imdbUrl.isNotBlank()) {
+            val imdbIdOnly = imdbUrl.substringAfter("title/").substringBefore("/")
 
-    Log.d("HDhub4uProvider", "=== parseEpisodes END === Total episodes: ${episodes.size}")
-    return episodes.sortedBy { it.episode }
-}
-
-private fun isValidDownloadLink(url: String): Boolean {
-    // Pattern-based validation - domain agnostic
-    val validPatterns = listOf(
-        "hubdrive", "gadgetsweb", "hdstream4u", "hubstream",
-        "hubcloud", "hubcdn", "gamerxyt", "gamester", "hblinks", 
-        "4khdhub", "cloud", "drive", "stream", "download"
-    )
-    return validPatterns.any { url.contains(it, ignoreCase = true) } && url.startsWith("http")
-}
-
-private fun extractQuality(text: String): Int {
-    // Regex pattern for quality extraction
-    val qualityRegex = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-    val match = qualityRegex.find(text)
-
-    return match?.groupValues?.get(1)?.toIntOrNull() ?: when {
-        text.contains("4k", ignoreCase = true) || text.contains("2160", ignoreCase = true) -> 2160
-        text.contains("1080", ignoreCase = true) -> 1080
-        text.contains("720", ignoreCase = true) -> 720
-        text.contains("480", ignoreCase = true) -> 480
-        text.contains("360", ignoreCase = true) -> 360
-        else -> 0
-    }
-}
-
-private fun parseFileSize(text: String): Double {
-    // Regex pattern for file size extraction
-    val sizeRegex = Regex("""(\d+(?:\.\d+)?)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
-    val match = sizeRegex.find(text) ?: return 0.0
-
-    val value = match.groupValues[1].toDoubleOrNull() ?: return 0.0
-    val unit = match.groupValues[2].uppercase()
-
-    return if (unit == "GB") value * 1024 else value
-}
-
-// Note: getServerPriority() is defined in Extractors.kt - using that instead
-
-override suspend fun loadLinks(
-    data: String,
-    isCasting: Boolean,
-    subtitleCallback: (SubtitleFile) -> Unit,
-    callback: (ExtractorLink) -> Unit
-): Boolean {
-    Log.d(TAG, "Loading links from: $data")
-
-    try {
-        // Parse comma-separated URLs
-        val links = data.split(",")
-            .map { it.trim() }
-            .filter { it.startsWith("http") }
-
-        Log.d(TAG, "Processing ${links.size} links")
-
-        // Take top 3 links (already sorted by quality in load())
-        links.take(3).amap { link ->
             try {
-                val linkLower = link.lowercase()
-                
-                // Pattern-based extractor selection (domain-agnostic)
-                when {
-                    "hubdrive" in linkLower -> 
-                        Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    // Cloud patterns - use HubCloud for any cloud/drive URLs
-                    "hubcloud" in linkLower || 
-                    ("cloud" in linkLower && "hubdrive" !in linkLower) ||
-                    linkLower.contains("php?") -> 
-                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    "gadgetsweb" in linkLower || "hubcdn" in linkLower -> 
-                        HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    "hdstream4u" in linkLower -> 
-                        HdStream4u().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    "hubstream" in linkLower -> 
-                        Hubstream().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    "hblinks" in linkLower || "4khdhub" in linkLower -> 
-                        Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    // Generic fallback for any unmatched stream/drive URLs
-                    "stream" in linkLower || "drive" in linkLower -> 
-                        HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-                    
-                    else -> Log.w(TAG, "No extractor for: $link")
+                val findJson = JSONObject(
+                    app.get(
+                        "$TMDBAPI/find/$imdbIdOnly" +
+                                "?api_key=$TMDBAPIKEY&external_source=imdb_id"
+                    ).text
+                )
+
+                tmdbIdResolved = if (isMovie) {
+                    findJson
+                        .optJSONArray("movie_results")
+                        ?.optJSONObject(0)
+                        ?.optInt("id")
+                        ?.toString()
+                        .orEmpty()
+                } else {
+                    findJson
+                        .optJSONArray("tv_results")
+                        ?.optJSONObject(0)
+                        ?.optInt("id")
+                        ?.toString()
+                        .orEmpty()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error extracting $link: ${e.message}")
+            } catch (_: Exception) {
+                // ignore resolve errors
             }
         }
-    } catch (e: Exception) {
-        Log.e(TAG, "Error in loadLinks: ${e.message}")
+
+
+        val responseData: ResponseDataLocal? = if (tmdbIdResolved.isBlank()) null else runCatching {
+
+            val type = if (tvtype == TvType.TvSeries) "tv" else "movie"
+            val detailsText = app.get(
+                "$TMDBAPI/$type/$tmdbIdResolved?api_key=$TMDBAPIKEY&append_to_response=credits,external_ids"
+            ).text
+            val detailsJson = if (detailsText.isNotBlank()) JSONObject(detailsText) else JSONObject()
+
+            var metaName = detailsJson.optString("name")
+                .takeIf { it.isNotBlank() }
+                ?: detailsJson.optString("title").takeIf { it.isNotBlank() }
+                ?: title
+
+            if (seasonNumber != null && !metaName.contains("Season $seasonNumber", ignoreCase = true)) {
+                metaName = "$metaName (Season $seasonNumber)"
+            }
+
+            val metaDesc = detailsJson.optString("overview").takeIf { it.isNotBlank() } ?: plot
+
+            val yearRaw = detailsJson.optString("release_date").ifBlank { detailsJson.optString("first_air_date") }
+            val metaYear = yearRaw.takeIf { it.isNotBlank() }?.take(4)
+            val metaRating = detailsJson.optString("vote_average")
+
+            val metaBackground = detailsJson.optString("backdrop_path")
+                .takeIf { it.isNotBlank() }?.let { TMDBBASE + it } ?: image
+
+            val imdbid = detailsJson
+                .optJSONObject("external_ids")
+                ?.optString("imdb_id")
+                ?.takeIf { it.isNotBlank() }
+
+            val logoPath = imdbid?.let {
+                "https://live.metahub.space/logo/medium/$it/img"
+            }
+            val actorDataList = mutableListOf<ActorData>()
+
+            //cast
+            detailsJson.optJSONObject("credits")?.optJSONArray("cast")?.let { castArr ->
+                for (i in 0 until castArr.length()) {
+                    val c = castArr.optJSONObject(i) ?: continue
+                    val name = c.optString("name").takeIf { it.isNotBlank() } ?: c.optString("original_name").orEmpty()
+                    val profile = c.optString("profile_path").takeIf { it.isNotBlank() }?.let { TMDBBASE + it }
+                    val character = c.optString("character").takeIf { it.isNotBlank() }
+                    val actor = Actor(name, profile)
+                    actorDataList += ActorData(actor = actor, roleString = character)
+                }
+            }
+
+            // genres
+            val metaGenres = mutableListOf<String>()
+            detailsJson.optJSONArray("genres")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }?.let(metaGenres::add)
+                }
+            }
+
+            // episodes for TV season -> videos
+            val videos = mutableListOf<VideoLocal>()
+            if (tvtype == TvType.TvSeries && seasonNumber != null) {
+                try {
+                    val seasonText = app.get("$TMDBAPI/tv/$tmdbIdResolved/season/$seasonNumber?api_key=$TMDBAPIKEY").text
+                    if (seasonText.isNotBlank()) {
+                        val seasonJson = JSONObject(seasonText)
+                        seasonJson.optJSONArray("episodes")?.let { epArr ->
+                            for (i in 0 until epArr.length()) {
+                                val ep = epArr.optJSONObject(i) ?: continue
+                                val epNum = ep.optInt("episode_number")
+                                val epName = ep.optString("name")
+                                val epDesc = ep.optString("overview")
+                                val epThumb = ep.optString("still_path").takeIf { it.isNotBlank() }?.let { TMDBBASE + it }
+                                val epAir = ep.optString("air_date")
+                                val epRating = ep.optString("vote_average").let { Score.from10(it.toString()) }
+
+                                videos.add(
+                                    VideoLocal(
+                                        title = epName,
+                                        season = seasonNumber,
+                                        episode = epNum,
+                                        overview = epDesc,
+                                        thumbnail = epThumb,
+                                        released = epAir,
+                                        rating = epRating,
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // ignore season fetch errors
+                }
+            }
+
+            ResponseDataLocal(
+                MetaLocal(
+                    name = metaName,
+                    description = metaDesc,
+                    actorsData = actorDataList.ifEmpty { null },
+                    year = metaYear,
+                    background = metaBackground,
+                    genres = metaGenres.ifEmpty { null },
+                    videos = videos.ifEmpty { null },
+                    rating = Score.from10(metaRating),
+                    logo = logoPath
+                )
+            )
+        }.getOrNull()
+
+        if (responseData != null) {
+            description = responseData.meta?.description ?: plot
+            actorData = responseData.meta?.actorsData ?: emptyList()
+            title = responseData.meta?.name ?: title
+            year = responseData.meta?.year ?: ""
+            background = responseData.meta?.background ?: image
+            responseData.meta?.genres?.let { g ->
+                genre = g
+                for (gn in g) if (!tags.contains(gn)) tags.add(gn)
+            }
+            responseData.meta?.rating
+        }
+
+        if (tvtype == TvType.Movie) {
+            val movieList = mutableListOf<String>()
+            movieList.addAll(
+                doc.select("h3 a:matches(480|720|1080|2160|4K), h4 a:matches(480|720|1080|2160|4K)")
+                    .map { it.attr("href") } + extractLinksATags(doc.select(".page-body > div a"))
+            )
+
+            return newMovieLoadResponse(title, url, TvType.Movie, movieList) {
+                this.backgroundPosterUrl = background
+                try { this.logoUrl = responseData?.meta?.logo } catch(_:Throwable){}
+                this.posterUrl = poster
+                this.year = year.toIntOrNull()
+                this.plot = description ?: plot
+                this.tags = genre ?: tags
+                this.actors = actorData
+                this.score = responseData?.meta?.rating
+                addTrailer(trailer)
+                addImdbUrl(imdbUrl)
+            }
+        } else {
+            val episodesData = mutableListOf<Episode>()
+            val epLinksMap = mutableMapOf<Int, MutableList<String>>()
+            val episodeRegex = Regex("EPiSODE\\s*(\\d+)", RegexOption.IGNORE_CASE)
+
+            doc.select("h3, h4").forEach { element ->
+                val episodeNumberFromTitle = episodeRegex.find(element.text())?.groupValues?.get(1)?.toIntOrNull()
+                val baseLinks = element.select("a[href]").mapNotNull { it -> it.attr("href").takeIf { it.isNotBlank() } }
+
+                val isDirectLinkBlock = element.select("a").any {
+                    it.text().contains(Regex("1080|720|4K|2160", RegexOption.IGNORE_CASE))
+                }
+                val allEpisodeLinks = mutableSetOf<String>()
+
+                if (isDirectLinkBlock) {
+                    baseLinks.forEach { url ->
+                        try {
+                            val resolvedUrl = getRedirectLinks(url.trim())
+                            val episodeDoc = app.get(resolvedUrl).documentLarge
+
+                            episodeDoc.select("h5 a").forEach { linkElement ->
+                                val text = linkElement.text()
+                                val link = linkElement.attr("href").takeIf { it.isNotBlank() } ?: return@forEach
+                                val epNum = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull()
+
+                                if (epNum != null) {
+                                    epLinksMap.getOrPut(epNum) { mutableListOf() }.add(link)
+                                } else {
+                                    Log.w(TAG, "Could not parse episode number from: $text")
+                                }
+                            }
+                        } catch (_: Exception) {
+                            Log.e(TAG, "Error resolving direct link for URL: $url")
+                        }
+                    }
+                } else if (episodeNumberFromTitle != null) {
+                    if (element.tagName() == "h4") {
+                        var nextElement = element.nextElementSibling()
+                        while (nextElement != null && nextElement.tagName() != "hr") {
+                            val siblingLinks = nextElement.select("a[href]").mapNotNull { it -> it.attr("href").takeIf { it.isNotBlank() } }
+                            allEpisodeLinks.addAll(siblingLinks)
+                            nextElement = nextElement.nextElementSibling()
+                        }
+                    }
+
+                    if (baseLinks.isNotEmpty()) {
+                        allEpisodeLinks.addAll(baseLinks)
+                    }
+
+                    if (allEpisodeLinks.isNotEmpty()) {
+                        Log.d(TAG, "Adding links for episode $episodeNumberFromTitle: ${allEpisodeLinks.distinct()}")
+                        epLinksMap.getOrPut(episodeNumberFromTitle) { mutableListOf() }.addAll(allEpisodeLinks.distinct())
+                    }
+                }
+            }
+
+            epLinksMap.forEach { (epNum, links) ->
+                val info = responseData?.meta?.videos?.find { it.season == seasonNumber && it.episode == epNum }
+
+                episodesData.add(
+                    newEpisode(links) {
+                        this.name = info?.title ?: "Episode $epNum"
+                        this.season = seasonNumber
+                        this.episode = epNum
+                        this.posterUrl = info?.thumbnail
+                        this.description = info?.overview
+                        this.score = info?.rating
+                        addDate(info?.released)
+                    }
+                )
+            }
+
+            return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesData) {
+                this.backgroundPosterUrl = background
+                try { this.logoUrl = responseData?.meta?.logo } catch(_:Throwable){}
+                this.posterUrl = poster
+                this.year = year.toIntOrNull()
+                this.plot = description ?: plot
+                this.tags = genre ?: tags
+                this.actors = actorData
+                this.score = responseData?.meta?.rating
+                addTrailer(trailer)
+                addImdbUrl(imdbUrl)
+            }
+        }
     }
 
-    return true
-}
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val linksList: List<String> = data.removePrefix("[").removeSuffix("]").replace("\"", "").split(',', ' ').map { it.trim() }.filter { it.isNotBlank() }
+        for (link in linksList) {
+            try {
+                val finalLink = if ("?id=" in link) {
+                    getRedirectLinks(link)
+                } else {
+                    link
+                }
+                if (finalLink.contains("Hubdrive",ignoreCase = true))
+                {
+                    Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
+                } else loadExtractor(finalLink, subtitleCallback, callback)
+            } catch (e: Exception) {
+                Log.e("Phisher", "Failed to process $link: ${e.message}")
+            }
+        }
+        return true
+    }
 
-// Note: cleanTitle() for detailed parsing is in HubCloud class (Extractors.kt)
-// This simple version is for search result titles only
-private fun cleanTitle(title: String): String {
-    return title
-        .replace(Regex("""\(\d{4}\)"""), "")
-        .replace(Regex("""\[.*?]"""), "")
-        .replace(Regex("""(?i)(Download|Free|Full|Movie|HD|Watch|WEB-DL|BluRay|HDRip|WEBRip|\d{3,4}p)"""), "")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
-}
+
+
+    /**
+     * Determines the search quality based on the presence of specific keywords in the input string.
+     *
+     * @param check The string to check for keywords.
+     * @return The corresponding `SearchQuality` enum value, or `null` if no match is found.
+     */
+    fun getSearchQuality(check: String?): SearchQuality? {
+        val s = check ?: return null
+        val u = Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase()
+        val patterns = listOf(
+            Regex("\\b(4k|ds4k|uhd|2160p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.FourK,
+
+            // CAM / THEATRE SOURCES FIRST
+            Regex("\\b(hdts|hdcam|hdtc)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HdCam,
+            Regex("\\b(camrip|cam[- ]?rip)\\b", RegexOption.IGNORE_CASE) to SearchQuality.CamRip,
+            Regex("\\b(cam)\\b", RegexOption.IGNORE_CASE) to SearchQuality.Cam,
+
+            // WEB / RIP
+            Regex("\\b(web[- ]?dl|webrip|webdl)\\b", RegexOption.IGNORE_CASE) to SearchQuality.WebRip,
+
+            // BLURAY
+            Regex("\\b(bluray|bdrip|blu[- ]?ray)\\b", RegexOption.IGNORE_CASE) to SearchQuality.BlueRay,
+
+            // RESOLUTIONS
+            Regex("\\b(1440p|qhd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.BlueRay,
+            Regex("\\b(1080p|fullhd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HD,
+            Regex("\\b(720p)\\b", RegexOption.IGNORE_CASE) to SearchQuality.SD,
+
+            // GENERIC HD LAST
+            Regex("\\b(hdrip|hdtv)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HD,
+
+            Regex("\\b(dvd)\\b", RegexOption.IGNORE_CASE) to SearchQuality.DVD,
+            Regex("\\b(hq)\\b", RegexOption.IGNORE_CASE) to SearchQuality.HQ,
+            Regex("\\b(rip)\\b", RegexOption.IGNORE_CASE) to SearchQuality.CamRip
+        )
+
+
+        for ((regex, quality) in patterns) if (regex.containsMatchIn(u)) return quality
+        return null
+    }
+    
+    /**
+     * Clean title by removing quality tags, year, and other metadata
+     */
+    private fun cleanTitle(title: String): String {
+        return title
+            .replace(Regex("""(?i)\s*\(?\d{4}\)?"""), "") // Remove year
+            .replace(Regex("""(?i)\s*\[.*?]"""), "") // Remove brackets
+            .replace(Regex("""(?i)\s*(480p|720p|1080p|2160p|4k|hdrip|webrip|bluray|web-dl|hdtv|dvdrip|brrip|hdcam|camrip).*"""), "")
+            .replace(Regex("""(?i)\s*(hindi|english|dual audio|esub|esubs).*"""), "")
+            .replace(Regex("""(?i)\s*download\s*(free)?.*"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+    }
+    
+    /**
+     * Extract links from anchor tags
+     */
+    private fun extractLinksATags(elements: org.jsoup.select.Elements): List<String> {
+        return elements.mapNotNull { element ->
+            val href = element.attr("href")
+            if (href.isNotBlank() && (href.contains("hubdrive", true) || 
+                href.contains("hubcloud", true) || 
+                href.contains("gdflix", true) ||
+                href.contains("hubcdn", true) ||
+                href.contains("gdrive", true))) {
+                href
+            } else null
+        }.distinct()
+    }
+    
+    /**
+     * Follow redirects and get final URL
+     */
+    private suspend fun getRedirectLinks(url: String): String {
+        return try {
+            if (url.contains("?id=")) {
+                val response = app.get(url, allowRedirects = false)
+                response.headers["location"] ?: response.headers["Location"] ?: url
+            } else {
+                url
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Redirect error: ${e.message}")
+            url
+        }
+    }
 }
