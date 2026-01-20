@@ -136,45 +136,80 @@ class HDhub4uProvider : MainAPI() {
     
     // ==================== SEARCH FUNCTION ====================
     override suspend fun search(query: String): List<SearchResponse> {
-        // Website uses /search.html?q= for search (/?s= redirects to this)
-        val document = app.get("$mainUrl/search.html?q=$query").document
+        // HDhub4u uses Typesense API for search (JavaScript-based)
+        // JSoup cannot see dynamic content, so we call API directly
+        val searchApiUrl = "https://search.pingora.fyi/collections/post/documents/search" +
+            "?q=${query.encodeUri()}" +
+            "&query_by=post_title,category,stars,director,imdb_id" +
+            "&query_by_weights=4,2,2,2,4" +
+            "&sort_by=sort_by_date:desc" +
+            "&limit=30" +
+            "&page=1" +
+            "&highlight_fields=none" +
+            "&use_cache=true"
         
-        // Search results are in li.movie-card elements
-        return document.select("li.movie-card, figure").mapNotNull { item ->
-            // Get link from item
-            val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+        return try {
+            val response = app.get(searchApiUrl).text
+            val jsonObject = JSONObject(response)
+            val hits = jsonObject.optJSONArray("hits") ?: return emptyList()
+            
+            (0 until hits.length()).mapNotNull { i ->
+                val hit = hits.optJSONObject(i) ?: return@mapNotNull null
+                val doc = hit.optJSONObject("document") ?: return@mapNotNull null
+                
+                val title = doc.optString("post_title").takeIf { it.isNotBlank() } 
+                    ?: return@mapNotNull null
+                val permalink = doc.optString("permalink").takeIf { it.isNotBlank() } 
+                    ?: return@mapNotNull null
+                val posterUrl = doc.optString("post_thumbnail").takeIf { it.isNotBlank() }
+                
+                // Build full URL
+                val href = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
+                
+                // Determine type from title/URL
+                val isTvShow = title.contains("Season", ignoreCase = true) ||
+                              permalink.contains("season", ignoreCase = true) ||
+                              permalink.contains("series", ignoreCase = true) ||
+                              permalink.contains("episode", ignoreCase = true)
+                
+                if (isTvShow) {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                        this.posterUrl = posterUrl
+                    }
+                } else {
+                    newMovieSearchResponse(title, href, TvType.Movie) {
+                        this.posterUrl = posterUrl
+                    }
+                }
+            }.distinctBy { it.url }
+        } catch (e: Exception) {
+            // Fallback to HTML scraping if API fails
+            searchFallback(query)
+        }
+    }
+    
+    // Fallback search using HTML scraping
+    private suspend fun searchFallback(query: String): List<SearchResponse> {
+        val document = app.get("$mainUrl/?s=$query").document
+        
+        return document.select("figure").mapNotNull { figure ->
+            val link = figure.selectFirst("a[href]") ?: return@mapNotNull null
             var href = link.attr("href")
             
-            // Convert relative URLs to absolute
-            if (href.startsWith("/")) {
-                href = mainUrl + href
-            }
-            
-            // Filter: only content pages
-            if (href.isBlank() ||
-                href.contains("/category/") ||
-                href.contains("/page/") ||
-                href.contains("/?s=") ||
-                href.contains("/disclaimer") ||
-                href.contains("/how-to")
-            ) {
+            if (href.startsWith("/")) href = mainUrl + href
+            if (href.isBlank() || href.contains("/category/") || href.contains("/page/")) {
                 return@mapNotNull null
             }
             
-            // Get title from img alt, title, or link text
-            val img = item.selectFirst("img")
+            val img = figure.selectFirst("img")
             val title = img?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
                 ?: img?.attr("title")?.trim()?.takeIf { it.isNotBlank() }
-                ?: link.text()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
             
             if (title.length < 3) return@mapNotNull null
             
-            // Get poster URL from img src
             val posterUrl = img?.getImageAttr()
-            
             val isTvShow = href.contains("season", ignoreCase = true) ||
-                          href.contains("series", ignoreCase = true) ||
                           title.contains("Season", ignoreCase = true)
             
             if (isTvShow) {
@@ -187,6 +222,11 @@ class HDhub4uProvider : MainAPI() {
                 }
             }
         }.distinctBy { it.url }
+    }
+    
+    // URL encoding helper
+    private fun String.encodeUri(): String {
+        return java.net.URLEncoder.encode(this, "UTF-8")
     }
     
     // ==================== UTILITY FUNCTIONS ====================
