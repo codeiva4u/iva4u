@@ -23,7 +23,8 @@ fun getIndexQuality(str: String?): Int {
         ?: Qualities.Unknown.value
 }
 
-// ==================== HUBDRIVE EXTRACTOR (Actual Hoster with redirect chain) ====================
+// ==================== HUBDRIVE EXTRACTOR ====================
+// Follows any redirect chain automatically using allowRedirects
 
 class HubDrive : ExtractorApi() {
     override val name = "HubDrive"
@@ -38,25 +39,21 @@ class HubDrive : ExtractorApi() {
     ) {
         val tag = "HubDrive"
         try {
-            // Step 1: Follow redirects to get HubDrive page
+            // Step 1: Follow ALL redirects automatically to reach final page
             val response = app.get(url, allowRedirects = true)
-            val html = response.text
+            val document = response.document
             
-            // Step 2: Find HubCloud link in page (hubcloud.xxx/drive/ID pattern)
-            val hubcloudRegex = Regex("""https?://hubcloud\.[a-z]+/drive/([a-zA-Z0-9]+)""")
-            val hubcloudMatch = hubcloudRegex.find(html)
-            
-            if (hubcloudMatch != null) {
-                // Pass to HubCloud extractor to continue the chain
-                HubCloud().getUrl(hubcloudMatch.value, url, subtitleCallback, callback)
-                return
-            }
-            
-            // Alternative: Find gamerxyt link directly
-            val gamerxytRegex = Regex("""https?://gamerxyt\.com/hubcloud\.php[^"'\s]+""")
-            gamerxytRegex.find(html)?.let {
-                // Follow gamerxyt to get final links
-                extractFinalLinks(it.value, callback)
+            // Step 2: Find #download button and follow it
+            val downloadHref = document.select("#download").attr("href")
+            if (downloadHref.isNotBlank()) {
+                val downloadUrl = if (downloadHref.startsWith("http")) downloadHref
+                else getBaseUrl(response.url).trimEnd('/') + "/" + downloadHref.trimStart('/')
+                
+                // Follow to final download page (with all redirects)
+                extractFinalLinks(downloadUrl, callback)
+            } else {
+                // Try to extract links from current page
+                extractFinalLinks(response.url, callback, response.text)
             }
             
         } catch (e: Exception) {
@@ -64,90 +61,97 @@ class HubDrive : ExtractorApi() {
         }
     }
     
-    private suspend fun extractFinalLinks(gamerxytUrl: String, callback: (ExtractorLink) -> Unit) {
+    private suspend fun extractFinalLinks(url: String, callback: (ExtractorLink) -> Unit, existingHtml: String? = null) {
         try {
-            val response = app.get(gamerxytUrl, allowRedirects = true)
-            val document = response.document
+            val html = existingHtml ?: app.get(url, allowRedirects = true).text
+            val document = app.get(url, allowRedirects = true).document
             val size = document.selectFirst("i#size")?.text().orEmpty()
             val header = document.selectFirst("div.card-header")?.text().orEmpty()
             val quality = getIndexQuality(header)
             val labelExtras = if (size.isNotEmpty()) "[$size]" else ""
             
-            // Extract all download server links
-            document.select("div.card-body h2 a.btn").forEach { element ->
+            // Extract all download server links from buttons
+            document.select("div.card-body h2 a.btn, a.btn").amap { element ->
                 val link = element.attr("href")
                 val text = element.text()
                 
+                if (link.isBlank()) return@amap
+                
+                // Check link content for server type (not domain names)
                 when {
-                    text.contains("FSLv2", ignoreCase = true) || link.contains("cdn.fsl-buckets") -> {
-                        callback(
-                            newExtractorLink(
-                                "FSLv2 CDN",
-                                "FSLv2 CDN $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                    text.contains("FSLv2", ignoreCase = true) -> {
+                        callback(newExtractorLink("FSLv2", "FSLv2 $labelExtras", link) { this.quality = quality })
                     }
-                    text.contains("FSL Server", ignoreCase = true) || link.contains("fsl.gdboka") -> {
-                        callback(
-                            newExtractorLink(
-                                "FSL Server",
-                                "FSL Server $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                    text.contains("FSL Server", ignoreCase = true) -> {
+                        callback(newExtractorLink("FSL Server", "FSL Server $labelExtras", link) { this.quality = quality })
                     }
-                    text.contains("10Gbps", ignoreCase = true) || link.contains("pixel.hubcdn") -> {
-                        // Follow pixel.hubcdn to get Google server link
-                        extractPixelLink(link, quality, labelExtras, callback)
+                    text.contains("10Gbps", ignoreCase = true) -> {
+                        // Follow redirect chain to get final link
+                        followRedirectChain(link, quality, labelExtras, callback)
                     }
-                    text.contains("pixeldra", ignoreCase = true) -> {
-                        val baseUrl = getBaseUrl(link)
-                        val finalURL = if (link.contains("download", true)) link
-                        else "$baseUrl/api/file/${link.substringAfterLast("/")}"
-                        callback(
-                            newExtractorLink(
-                                "PixelDrain",
-                                "PixelDrain $labelExtras",
-                                finalURL
-                            ) { this.quality = quality }
-                        )
+                    text.contains("pixeldra", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
+                        callback(newExtractorLink("PixelDrain", "PixelDrain $labelExtras", link) { this.quality = quality })
                     }
-                    text.contains("Download File", ignoreCase = true) -> {
-                        callback(
-                            newExtractorLink(
-                                "HubDrive",
-                                "HubDrive $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                    text.contains("Download", ignoreCase = true) -> {
+                        callback(newExtractorLink("Direct", "Direct $labelExtras", link) { this.quality = quality })
                     }
+                    text.contains("BuzzServer", ignoreCase = true) -> {
+                        val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
+                        val dlink = buzzResp.headers["hx-redirect"].orEmpty()
+                        if (dlink.isNotBlank()) {
+                            callback(newExtractorLink("BuzzServer", "BuzzServer $labelExtras", dlink) { this.quality = quality })
+                        }
+                    }
+                }
+            }
+            
+            // Also find direct video links in page HTML
+            findDirectVideoLinks(html, callback)
+            
+        } catch (_: Exception) { }
+    }
+    
+    private suspend fun followRedirectChain(startUrl: String, quality: Int, labelExtras: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            // Follow redirect chain until we get final page
+            val response = app.get(startUrl, allowRedirects = true)
+            val html = response.text
+            
+            // Find Google User Content link (final playable)
+            Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").find(html)?.let {
+                callback(newExtractorLink("Google Server", "Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
+            }
+            
+            // Find any download link in anchor tags
+            response.document.select("a[href*=download], a:contains(Download)").amap { a ->
+                val href = a.attr("href")
+                if (href.isNotBlank() && !href.contains("how-to")) {
+                    callback(newExtractorLink("10Gbps", "10Gbps Server $labelExtras", href) { this.quality = quality })
                 }
             }
         } catch (_: Exception) { }
     }
     
-    private suspend fun extractPixelLink(pixelUrl: String, quality: Int, labelExtras: String, callback: (ExtractorLink) -> Unit) {
-        try {
-            val response = app.get(pixelUrl, allowRedirects = true)
-            val html = response.text
-            
-            // Find Google User Content link
-            val googleRegex = Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""")
-            googleRegex.find(html)?.let {
-                callback(
-                    newExtractorLink(
-                        "Google Server",
-                        "Google Server (10Gbps) $labelExtras",
-                        it.value
-                    ) { this.quality = quality }
-                )
-            }
-        } catch (_: Exception) { }
+    private suspend fun findDirectVideoLinks(html: String, callback: (ExtractorLink) -> Unit) {
+        // Find FSL CDN links
+        for (match in Regex("""https?://cdn\.[^"'\s]+\.work[^"'\s]+\.(mkv|mp4)[^"'\s]*""").findAll(html)) {
+            callback(newExtractorLink("FSL CDN", "FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
+        }
+        
+        // Find Google server links
+        for (match in Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").findAll(html)) {
+            callback(newExtractorLink("Google Server", "Google Server", match.value) { this.quality = Qualities.Unknown.value })
+        }
+        
+        // Find direct video file URLs
+        for (match in Regex("""https?://[^"'\s]+\.(mkv|mp4)\?[^"'\s]+""").findAll(html)) {
+            callback(newExtractorLink("Direct", "Direct Download", match.value) { this.quality = Qualities.Unknown.value })
+        }
     }
 }
 
-// ==================== HUBCLOUD EXTRACTOR (Actual Hoster with redirect chain) ====================
+// ==================== HUBCLOUD EXTRACTOR ====================
+// Follows any redirect chain automatically using allowRedirects
 
 class HubCloud : ExtractorApi() {
     override val name = "HubCloud"
@@ -162,141 +166,102 @@ class HubCloud : ExtractorApi() {
     ) {
         val tag = "HubCloud"
         try {
-            val baseUrl = getBaseUrl(url)
+            // Step 1: Follow ALL redirects automatically
+            val response = app.get(url, allowRedirects = true)
+            val document = response.document
             
-            // Step 1: Get the download page
-            val gamerxytUrl = if ("hubcloud.php" in url || "gamerxyt" in url) {
-                url
+            // Step 2: Find #download button if exists
+            val downloadHref = document.select("#download").attr("href")
+            val finalUrl = if (downloadHref.isNotBlank()) {
+                if (downloadHref.startsWith("http")) downloadHref
+                else getBaseUrl(response.url).trimEnd('/') + "/" + downloadHref.trimStart('/')
             } else {
-                // Find #download button link
-                val rawHref = app.get(url, allowRedirects = true).document.select("#download").attr("href")
-                if (rawHref.startsWith("http")) rawHref
-                else baseUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                response.url
             }
             
-            if (gamerxytUrl.isBlank()) return
-            
-            // Step 2: Get gamerxyt page with all download options
-            val response = app.get(gamerxytUrl, allowRedirects = true)
-            val document = response.document
-            val size = document.selectFirst("i#size")?.text().orEmpty()
-            val header = document.selectFirst("div.card-header")?.text().orEmpty()
+            // Step 3: Get final page with all download options
+            val finalResponse = app.get(finalUrl, allowRedirects = true)
+            val finalDoc = finalResponse.document
+            val size = finalDoc.selectFirst("i#size")?.text().orEmpty()
+            val header = finalDoc.selectFirst("div.card-header")?.text().orEmpty()
             val quality = getIndexQuality(header)
             val labelExtras = if (size.isNotEmpty()) "[$size]" else ""
             
-            // Step 3: Extract all download server links
-            document.select("div.card-body h2 a.btn").amap { element ->
+            // Step 4: Extract all download server links (by button text, not domain)
+            finalDoc.select("div.card-body h2 a.btn, a.btn").amap { element ->
                 val link = element.attr("href")
                 val text = element.text()
                 
+                if (link.isBlank()) return@amap
+                
                 when {
-                    text.contains("FSLv2", ignoreCase = true) || link.contains("cdn.fsl-buckets") -> {
-                        callback(
-                            newExtractorLink(
-                                "FSLv2 CDN",
-                                "FSLv2 CDN $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                    text.contains("FSLv2", ignoreCase = true) -> {
+                        callback(newExtractorLink("FSLv2", "FSLv2 $labelExtras", link) { this.quality = quality })
                     }
-                    text.contains("FSL Server", ignoreCase = true) || link.contains("fsl.gdboka") -> {
-                        callback(
-                            newExtractorLink(
-                                "FSL Server",
-                                "FSL Server $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                    text.contains("FSL Server", ignoreCase = true) -> {
+                        callback(newExtractorLink("FSL Server", "FSL Server $labelExtras", link) { this.quality = quality })
                     }
-                    text.contains("10Gbps", ignoreCase = true) || link.contains("pixel.hubcdn") -> {
-                        // Follow redirect chain to get Google server link
-                        extractPixelLink(link, quality, labelExtras, callback)
+                    text.contains("10Gbps", ignoreCase = true) -> {
+                        followRedirectChain(link, quality, labelExtras, callback)
                     }
-                    text.contains("pixeldra", ignoreCase = true) -> {
-                        val pixelBase = getBaseUrl(link)
-                        val finalURL = if (link.contains("download", true)) link
-                        else "$pixelBase/api/file/${link.substringAfterLast("/")}"
-                        callback(
-                            newExtractorLink(
-                                "PixelDrain",
-                                "PixelDrain $labelExtras",
-                                finalURL
-                            ) { this.quality = quality }
-                        )
+                    text.contains("pixeldra", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
+                        callback(newExtractorLink("PixelDrain", "PixelDrain $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("Download File", ignoreCase = true) -> {
-                        callback(
-                            newExtractorLink(
-                                "HubCloud",
-                                "HubCloud $labelExtras",
-                                link
-                            ) { this.quality = quality }
-                        )
+                        callback(newExtractorLink("Direct", "Direct $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("BuzzServer", ignoreCase = true) -> {
                         val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
                         val dlink = buzzResp.headers["hx-redirect"].orEmpty()
                         if (dlink.isNotBlank()) {
-                            callback(
-                                newExtractorLink(
-                                    "BuzzServer",
-                                    "BuzzServer $labelExtras",
-                                    dlink
-                                ) { this.quality = quality }
-                            )
+                            callback(newExtractorLink("BuzzServer", "BuzzServer $labelExtras", dlink) { this.quality = quality })
                         }
                     }
                 }
             }
+            
+            // Also find direct video links in HTML
+            findDirectVideoLinks(finalResponse.text, callback)
+            
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")
         }
     }
     
-    private suspend fun extractPixelLink(pixelUrl: String, quality: Int, labelExtras: String, callback: (ExtractorLink) -> Unit) {
+    private suspend fun followRedirectChain(startUrl: String, quality: Int, labelExtras: String, callback: (ExtractorLink) -> Unit) {
         try {
-            // Follow redirect chain for 10Gbps server
-            var currentLink = pixelUrl
-            var redirectCount = 0
+            val response = app.get(startUrl, allowRedirects = true)
+            val html = response.text
             
-            while (redirectCount < 5) {
-                val response = app.get(currentLink, allowRedirects = false)
-                val redirectUrl = response.headers["location"]
-                
-                if (redirectUrl == null) {
-                    // No more redirects, extract from page
-                    val html = app.get(currentLink, allowRedirects = true).text
-                    
-                    // Find Google User Content link
-                    val googleRegex = Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""")
-                    googleRegex.find(html)?.let {
-                        callback(
-                            newExtractorLink(
-                                "Google Server",
-                                "Google Server (10Gbps) $labelExtras",
-                                it.value
-                            ) { this.quality = quality }
-                        )
-                    }
-                    break
+            // Find Google server link
+            Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").find(html)?.let {
+                callback(newExtractorLink("Google Server", "Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
+            }
+            
+            // Find download links
+            for (a in response.document.select("a[href*=download], a:contains(Download)")) {
+                val href = a.attr("href")
+                if (href.isNotBlank() && !href.contains("how-to")) {
+                    callback(newExtractorLink("10Gbps", "10Gbps Server $labelExtras", href) { this.quality = quality })
                 }
-                
-                // Check if redirect has final link parameter
-                if ("link=" in redirectUrl) {
-                    val finalLink = redirectUrl.substringAfter("link=")
-                    callback(
-                        newExtractorLink(
-                            "10Gbps Server",
-                            "10Gbps Server $labelExtras",
-                            finalLink
-                        ) { this.quality = quality }
-                    )
-                    break
-                }
-                
-                currentLink = redirectUrl
-                redirectCount++
             }
         } catch (_: Exception) { }
+    }
+    
+    private suspend fun findDirectVideoLinks(html: String, callback: (ExtractorLink) -> Unit) {
+        // FSL CDN
+        for (match in Regex("""https?://cdn\.[^"'\s]+\.work[^"'\s]+\.(mkv|mp4)[^"'\s]*""").findAll(html)) {
+            callback(newExtractorLink("FSL CDN", "FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
+        }
+        
+        // Google server
+        for (match in Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").findAll(html)) {
+            callback(newExtractorLink("Google Server", "Google Server", match.value) { this.quality = Qualities.Unknown.value })
+        }
+        
+        // Direct video files
+        for (match in Regex("""https?://[^"'\s]+\.(mkv|mp4)\?[^"'\s]+""").findAll(html)) {
+            callback(newExtractorLink("Direct", "Direct Download", match.value) { this.quality = Qualities.Unknown.value })
+        }
     }
 }

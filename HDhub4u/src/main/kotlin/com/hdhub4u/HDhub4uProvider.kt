@@ -323,30 +323,36 @@ class HDhub4uProvider : MainAPI() {
         val document = app.get(data).document
         var linksFound = false
         
-        // Find all download links and route to appropriate extractor
+        // Find all download links and route to extractors
         document.select("a[href]").forEach { link ->
             val href = link.attr("href")
             
-            // Skip non-download links
+            // Skip internal/non-download links
             if (href.isBlank() || 
                 href.contains("/category/") ||
                 href.contains("/page/") ||
                 href.contains("how-to-download") ||
-                href.contains("hdhub4u.fo") ||
-                href == data) {
+                href.startsWith("#") ||
+                href == data ||
+                !href.startsWith("http")) {
                 return@forEach
             }
             
-            // Route to HubDrive or HubCloud extractors
-            // These extractors internally handle all redirect chains
+            // Skip links pointing to same site (HDhub4u)
+            if (href.contains("hdhub4u", ignoreCase = true)) {
+                return@forEach
+            }
+            
+            // Route to appropriate extractor based on actual hoster name only
+            // Extractors handle all redirects internally with allowRedirects = true
             when {
                 href.contains("hubdrive", ignoreCase = true) -> {
                     HubDrive().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
-                href.contains("hubcloud", ignoreCase = true) || 
-                href.contains("gamerxyt", ignoreCase = true) ||
-                href.contains("gadgetsweb", ignoreCase = true) -> {
+                else -> {
+                    // Any other external link - use HubCloud extractor
+                    // It follows redirects automatically to any destination
                     HubCloud().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
