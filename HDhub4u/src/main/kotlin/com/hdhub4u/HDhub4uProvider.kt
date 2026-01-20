@@ -407,15 +407,19 @@ class HDhub4uProvider : MainAPI() {
                 try {
                     // Route to appropriate extractor based on URL
                     when {
-                        // GadgetsWeb mediator - decode and route to HubCloud
+                        // GadgetsWeb mediator - follow redirect to get hblinks URL
                         href.contains("gadgetsweb", ignoreCase = true) -> {
-                            val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
-                            if (encodedId != null) {
-                                val decodedUrl = decodeGadgetsWebUrl(encodedId)
-                                if (decodedUrl != null) {
-                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
+                            try {
+                                // Follow the redirect chain to get final URL
+                                val response = app.get(href, allowRedirects = true)
+                                val finalUrl = response.url
+                                // Check if redirected to hblinks or hubcloud
+                                if (finalUrl.contains("hblinks") || finalUrl.contains("hubcloud")) {
+                                    HubCloud().getUrl(finalUrl, data, subtitleCallback, callback)
                                     linksFound = true
                                 }
+                            } catch (_: Exception) {
+                                // If redirect fails, continue with other links
                             }
                         }
                         
