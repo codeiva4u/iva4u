@@ -403,7 +403,7 @@ class HDhub4uProvider : MainAPI() {
                         
                         // HubDrive links
                         href.contains("hubdrive", ignoreCase = true) -> {
-                            HubDrive().getUrl(href, data, subtitleCallback, callback)
+                            Hubdrive().getUrl(href, data, subtitleCallback, callback)
                             linksFound = true
                         }
                         

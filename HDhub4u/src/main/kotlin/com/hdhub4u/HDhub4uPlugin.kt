@@ -10,10 +10,14 @@ class HDhub4uPlugin: BasePlugin() {
         // Register main provider
         registerMainAPI(HDhub4uProvider())
         
-        // Register all extractors for download/streaming hosters
-        registerExtractorAPI(HubDrive())
+        // Register all extractors
+        registerExtractorAPI(VidStack())
+        registerExtractorAPI(Hblinks())
+        registerExtractorAPI(Hubcdnn())
+        registerExtractorAPI(Hubdrive())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(HdStream4u())
+        registerExtractorAPI(HUBCDN())
         registerExtractorAPI(HubStream())
+        registerExtractorAPI(HdStream4u())
     }
 }
