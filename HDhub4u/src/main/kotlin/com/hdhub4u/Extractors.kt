@@ -23,6 +23,33 @@ fun getIndexQuality(str: String?): Int {
         ?: Qualities.Unknown.value
 }
 
+// ROT13 decoder for GadgetsWeb bypass
+fun String.rot13(): String {
+    return this.map { char ->
+        when (char) {
+            in 'A'..'Z' -> ((char - 'A' + 13) % 26 + 'A'.code).toChar()
+            in 'a'..'z' -> ((char - 'a' + 13) % 26 + 'a'.code).toChar()
+            else -> char
+        }
+    }.joinToString("")
+}
+
+// GadgetsWeb URL decoder - decodes the encrypted ID parameter
+// Format: Base64 encoded string that when decoded and ROT13'd gives another Base64 of final URL
+fun decodeGadgetsWebUrl(encodedId: String): String? {
+    return try {
+        // Step 1: Base64 decode
+        val firstDecode = String(android.util.Base64.decode(encodedId, android.util.Base64.DEFAULT))
+        // Step 2: Apply ROT13
+        val rot13Applied = firstDecode.rot13()
+        // Step 3: Base64 decode again to get final URL
+        val finalUrl = String(android.util.Base64.decode(rot13Applied, android.util.Base64.DEFAULT))
+        if (finalUrl.startsWith("http")) finalUrl else null
+    } catch (_: Exception) {
+        null
+    }
+}
+
 // ==================== HUBDRIVE EXTRACTOR ====================
 // Follows any redirect chain automatically using allowRedirects
 

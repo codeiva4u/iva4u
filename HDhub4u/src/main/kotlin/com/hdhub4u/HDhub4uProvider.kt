@@ -387,19 +387,48 @@ class HDhub4uProvider : MainAPI() {
             }
             
             // Route to appropriate extractor based on hoster
-            // Skip hubstream.art - those are trailer/watch online links, not downloads
             when {
+                // Skip hubstream.art - those are trailer/watch online links
                 href.contains("hubstream", ignoreCase = true) -> {
-                    // Skip - these are trailers/streaming, not actual movie downloads
+                    // Skip - trailers/streaming, not actual movie downloads
                 }
+                
+                // HubDrive links
                 href.contains("hubdrive", ignoreCase = true) -> {
                     HubDrive().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
-                href.contains("hubcloud", ignoreCase = true) ||
-                href.contains("hubcdn", ignoreCase = true) ||
+                
+                // GadgetsWeb - BYPASS mediator page by decoding URL directly
                 href.contains("gadgetsweb", ignoreCase = true) -> {
-                    // hubcdn.fans and gadgetsweb.xyz links go to HubCloud extractor
+                    // Extract the encoded ID from URL
+                    val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
+                    if (encodedId != null) {
+                        // Decode the URL directly (bypasses countdown/mediator)
+                        val decodedUrl = decodeGadgetsWebUrl(encodedId)
+                        if (decodedUrl != null) {
+                            // Route decoded URL to appropriate extractor
+                            when {
+                                decodedUrl.contains("hubcloud", ignoreCase = true) ||
+                                decodedUrl.contains("hubcdn", ignoreCase = true) -> {
+                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
+                                }
+                                decodedUrl.contains("hubdrive", ignoreCase = true) -> {
+                                    HubDrive().getUrl(decodedUrl, data, subtitleCallback, callback)
+                                }
+                                else -> {
+                                    // Fallback - try HubCloud for unknown hosts
+                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
+                                }
+                            }
+                            linksFound = true
+                        }
+                    }
+                }
+                
+                // HubCloud and HubCDN links
+                href.contains("hubcloud", ignoreCase = true) ||
+                href.contains("hubcdn", ignoreCase = true) -> {
                     HubCloud().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
