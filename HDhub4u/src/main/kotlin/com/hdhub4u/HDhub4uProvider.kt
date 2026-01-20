@@ -82,8 +82,10 @@ class HDhub4uProvider : MainAPI() {
         
         val document = app.get(url).document
         
-        // Extract movie/show links from page
-        val home = document.select("a[href*=\"$mainUrl\"]").mapNotNull { link ->
+        // Select figure elements which contain movie cards (img + link)
+        val home = document.select("figure").mapNotNull { figure ->
+            // Get link from figure
+            val link = figure.selectFirst("a[href*=\"$mainUrl\"]") ?: return@mapNotNull null
             val href = link.attr("href")
             
             // Filter: only content pages, not category/static pages
@@ -101,11 +103,15 @@ class HDhub4uProvider : MainAPI() {
                 return@mapNotNull null
             }
             
-            val title = link.text().trim()
+            // Get title from img alt or title attribute
+            val img = figure.selectFirst("img")
+            val title = img?.attr("alt")?.trim()
+                ?: img?.attr("title")?.trim()
+                ?: return@mapNotNull null
+            
             if (title.isBlank() || title.length < 5) return@mapNotNull null
             
-            // Find poster image
-            val img = link.selectFirst("img")
+            // Get poster URL from img src
             val posterUrl = img?.getImageAttr()
             
             // Determine type from URL/title
@@ -132,7 +138,9 @@ class HDhub4uProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query").document
         
-        return document.select("a[href*=\"$mainUrl\"]").mapNotNull { link ->
+        return document.select("figure").mapNotNull { figure ->
+            // Get link from figure
+            val link = figure.selectFirst("a[href*=\"$mainUrl\"]") ?: return@mapNotNull null
             val href = link.attr("href")
             
             // Filter: only content pages
@@ -148,13 +156,18 @@ class HDhub4uProvider : MainAPI() {
                 return@mapNotNull null
             }
             
-            val title = link.text().trim()
+            // Get title from img alt or title attribute
+            val img = figure.selectFirst("img")
+            val title = img?.attr("alt")?.trim()
+                ?: img?.attr("title")?.trim()
+                ?: return@mapNotNull null
+            
             if (title.isBlank() || title.length < 5) return@mapNotNull null
             
-            // Check for duplicate by matching query in title
-            if (!title.contains(query, ignoreCase = true)) return@mapNotNull null
+            // Check for query match in title (loose match)
+            if (!title.contains(query.split(" ").first(), ignoreCase = true)) return@mapNotNull null
             
-            val img = link.selectFirst("img")
+            // Get poster URL from img src
             val posterUrl = img?.getImageAttr()
             
             val isTvShow = href.contains("season", ignoreCase = true) ||
