@@ -367,12 +367,12 @@ class HDhub4uProvider : MainAPI() {
         val document = app.get(data).document
         var linksFound = false
         
-        // Find all download links - using amap for async
+        // Find all download/streaming links - using amap for async processing
         document.select("a[href]").amap { link ->
             val href = link.attr("href")
             val text = link.text()
             
-            // Skip invalid/internal/trailer links
+            // Skip invalid/internal links
             if (href.isBlank() || 
                 href.startsWith("#") ||
                 href == data ||
@@ -380,60 +380,75 @@ class HDhub4uProvider : MainAPI() {
                 href.contains("hdhub4u", ignoreCase = true) ||
                 href.contains("/category/") ||
                 href.contains("/page/") ||
-                href.contains("how-to-download") ||
-                href.contains("hubstream", ignoreCase = true)) {
+                href.contains("how-to-download")) {
                 return@amap
             }
             
-            // Check if link indicates download/quality
-            val isDownloadLink = text.contains("download", ignoreCase = true) ||
-                                text.contains("1080p", ignoreCase = true) ||
-                                text.contains("720p", ignoreCase = true) ||
-                                text.contains("480p", ignoreCase = true) ||
-                                text.contains("x264", ignoreCase = true) ||
-                                text.contains("HEVC", ignoreCase = true) ||
-                                text.contains("MB]", ignoreCase = true) ||
-                                text.contains("GB]", ignoreCase = true) ||
-                                href.contains("hubdrive", ignoreCase = true) ||
-                                href.contains("hubcloud", ignoreCase = true) ||
-                                href.contains("hubcdn", ignoreCase = true) ||
-                                href.contains("gadgetsweb", ignoreCase = true)
+            // Check if link indicates download/streaming content
+            val isMediaLink = text.contains("download", ignoreCase = true) ||
+                              text.contains("1080p", ignoreCase = true) ||
+                              text.contains("720p", ignoreCase = true) ||
+                              text.contains("480p", ignoreCase = true) ||
+                              text.contains("4K", ignoreCase = true) ||
+                              text.contains("x264", ignoreCase = true) ||
+                              text.contains("HEVC", ignoreCase = true) ||
+                              text.contains("MB]", ignoreCase = true) ||
+                              text.contains("GB]", ignoreCase = true) ||
+                              text.contains("WATCH", ignoreCase = true) ||
+                              text.contains("PLAYER", ignoreCase = true) ||
+                              href.contains("hubdrive", ignoreCase = true) ||
+                              href.contains("hubcloud", ignoreCase = true) ||
+                              href.contains("hubcdn", ignoreCase = true) ||
+                              href.contains("gadgetsweb", ignoreCase = true) ||
+                              href.contains("hdstream4u", ignoreCase = true) ||
+                              href.contains("hubstream", ignoreCase = true)
             
-            if (isDownloadLink) {
-            
-            try {
-                // Route to appropriate extractor
-                when {
-                    // GadgetsWeb mediator - bypass and decode
-                    href.contains("gadgetsweb", ignoreCase = true) -> {
-                        val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
-                        if (encodedId != null) {
-                            val decodedUrl = decodeGadgetsWebUrl(encodedId)
-                            if (decodedUrl != null) {
-                                HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
-                                linksFound = true
+            if (isMediaLink) {
+                try {
+                    // Route to appropriate extractor based on URL
+                    when {
+                        // GadgetsWeb mediator - decode and route to HubCloud
+                        href.contains("gadgetsweb", ignoreCase = true) -> {
+                            val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
+                            if (encodedId != null) {
+                                val decodedUrl = decodeGadgetsWebUrl(encodedId)
+                                if (decodedUrl != null) {
+                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
+                                    linksFound = true
+                                }
                             }
                         }
+                        
+                        // HubDrive links
+                        href.contains("hubdrive", ignoreCase = true) -> {
+                            HubDrive().getUrl(href, data, subtitleCallback, callback)
+                            linksFound = true
+                        }
+                        
+                        // HubCloud/HubCDN links
+                        href.contains("hubcloud", ignoreCase = true) ||
+                        href.contains("hubcdn", ignoreCase = true) -> {
+                            HubCloud().getUrl(href, data, subtitleCallback, callback)
+                            linksFound = true
+                        }
+                        
+                        // HdStream4u streaming links
+                        href.contains("hdstream4u", ignoreCase = true) -> {
+                            HdStream4u().getUrl(href, data, subtitleCallback, callback)
+                            linksFound = true
+                        }
+                        
+                        // HubStream streaming links (PLAYER-2)
+                        href.contains("hubstream", ignoreCase = true) -> {
+                            HubStream().getUrl(href, data, subtitleCallback, callback)
+                            linksFound = true
+                        }
                     }
-                    
-                    // HubDrive links
-                    href.contains("hubdrive", ignoreCase = true) -> {
-                        HubDrive().getUrl(href, data, subtitleCallback, callback)
-                        linksFound = true
-                    }
-                    
-                    // HubCloud/HubCDN links
-                    href.contains("hubcloud", ignoreCase = true) ||
-                    href.contains("hubcdn", ignoreCase = true) -> {
-                        HubCloud().getUrl(href, data, subtitleCallback, callback)
-                        linksFound = true
-                    }
+                } catch (e: Exception) {
+                    // Continue with other links if one fails
                 }
-            } catch (e: Exception) {
-                // Continue with other links if one fails
             }
-            } // end if(isDownloadLink)
-        } // end amap
+        }
         
         return linksFound
     }
