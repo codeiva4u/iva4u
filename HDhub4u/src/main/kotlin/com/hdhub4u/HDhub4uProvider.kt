@@ -357,6 +357,7 @@ class HDhub4uProvider : MainAPI() {
     }
     
     // ==================== LOAD LINKS FUNCTION ====================
+    // Simple version - routes all links to UniversalExtractor which auto-follows redirects
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -366,73 +367,57 @@ class HDhub4uProvider : MainAPI() {
         val document = app.get(data).document
         var linksFound = false
         
-        // Find all download links and route to extractors
+        // Find all external links that could be download/stream links
         document.select("a[href]").forEach { link ->
             val href = link.attr("href")
+            val text = link.text()
             
-            // Skip internal/non-download links
+            // Skip invalid/internal links
             if (href.isBlank() || 
+                href.startsWith("#") ||
+                href == data ||
+                !href.startsWith("http") ||
+                href.contains("hdhub4u", ignoreCase = true) ||
                 href.contains("/category/") ||
                 href.contains("/page/") ||
                 href.contains("how-to-download") ||
-                href.startsWith("#") ||
-                href == data ||
-                !href.startsWith("http")) {
+                href.contains("hubstream", ignoreCase = true)) { // Skip trailer links
                 return@forEach
             }
             
-            // Skip links pointing to same site (HDhub4u)
-            if (href.contains("hdhub4u", ignoreCase = true)) {
-                return@forEach
-            }
+            // Check if link text indicates download/quality
+            val isDownloadLink = text.contains("download", ignoreCase = true) ||
+                                text.contains("1080p", ignoreCase = true) ||
+                                text.contains("720p", ignoreCase = true) ||
+                                text.contains("480p", ignoreCase = true) ||
+                                text.contains("x264", ignoreCase = true) ||
+                                text.contains("HEVC", ignoreCase = true) ||
+                                text.contains("MB", ignoreCase = true) ||
+                                text.contains("GB", ignoreCase = true) ||
+                                href.contains("hubdrive", ignoreCase = true) ||
+                                href.contains("hubcloud", ignoreCase = true) ||
+                                href.contains("hubcdn", ignoreCase = true) ||
+                                href.contains("gadgetsweb", ignoreCase = true)
             
-            // Route to appropriate extractor based on hoster
-            when {
-                // Skip hubstream.art - those are trailer/watch online links
-                href.contains("hubstream", ignoreCase = true) -> {
-                    // Skip - trailers/streaming, not actual movie downloads
-                }
-                
-                // HubDrive links
-                href.contains("hubdrive", ignoreCase = true) -> {
-                    HubDrive().getUrl(href, data, subtitleCallback, callback)
-                    linksFound = true
-                }
-                
-                // GadgetsWeb - BYPASS mediator page by decoding URL directly
-                href.contains("gadgetsweb", ignoreCase = true) -> {
-                    // Extract the encoded ID from URL
-                    val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
-                    if (encodedId != null) {
-                        // Decode the URL directly (bypasses countdown/mediator)
-                        val decodedUrl = decodeGadgetsWebUrl(encodedId)
-                        if (decodedUrl != null) {
-                            // Route decoded URL to appropriate extractor
-                            when {
-                                decodedUrl.contains("hubcloud", ignoreCase = true) ||
-                                decodedUrl.contains("hubcdn", ignoreCase = true) -> {
-                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
-                                }
-                                decodedUrl.contains("hubdrive", ignoreCase = true) -> {
-                                    HubDrive().getUrl(decodedUrl, data, subtitleCallback, callback)
-                                }
-                                else -> {
-                                    // Fallback - try HubCloud for unknown hosts
-                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
-                                }
-                            }
-                            linksFound = true
-                        }
+            if (!isDownloadLink) return@forEach
+            
+            // Handle GadgetsWeb mediator - bypass by decoding URL
+            if (href.contains("gadgetsweb", ignoreCase = true)) {
+                val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
+                if (encodedId != null) {
+                    val decodedUrl = decodeGadgetsWebUrl(encodedId)
+                    if (decodedUrl != null) {
+                        // Route decoded URL to universal extractor
+                        UniversalExtractor().getUrl(decodedUrl, data, subtitleCallback, callback)
+                        linksFound = true
                     }
                 }
-                
-                // HubCloud and HubCDN links
-                href.contains("hubcloud", ignoreCase = true) ||
-                href.contains("hubcdn", ignoreCase = true) -> {
-                    HubCloud().getUrl(href, data, subtitleCallback, callback)
-                    linksFound = true
-                }
+                return@forEach
             }
+            
+            // Route all other links to UniversalExtractor (auto-follows redirects)
+            UniversalExtractor().getUrl(href, data, subtitleCallback, callback)
+            linksFound = true
         }
         
         return linksFound
