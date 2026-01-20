@@ -138,15 +138,19 @@ class HDhub4uProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/?s=$query").document
         
-        return document.select("figure").mapNotNull { figure ->
-            // Get link from figure
-            val link = figure.selectFirst("a[href*=\"$mainUrl\"]") ?: return@mapNotNull null
-            val href = link.attr("href")
+        // Search results are in li.movie-card elements
+        return document.select("li.movie-card, figure").mapNotNull { item ->
+            // Get link from item
+            val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+            var href = link.attr("href")
+            
+            // Convert relative URLs to absolute
+            if (href.startsWith("/")) {
+                href = mainUrl + href
+            }
             
             // Filter: only content pages
             if (href.isBlank() ||
-                href == mainUrl ||
-                href == "$mainUrl/" ||
                 href.contains("/category/") ||
                 href.contains("/page/") ||
                 href.contains("/?s=") ||
@@ -156,16 +160,14 @@ class HDhub4uProvider : MainAPI() {
                 return@mapNotNull null
             }
             
-            // Get title from img alt or title attribute
-            val img = figure.selectFirst("img")
-            val title = img?.attr("alt")?.trim()
-                ?: img?.attr("title")?.trim()
+            // Get title from img alt, title, or link text
+            val img = item.selectFirst("img")
+            val title = img?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
+                ?: img?.attr("title")?.trim()?.takeIf { it.isNotBlank() }
+                ?: link.text()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
             
-            if (title.isBlank() || title.length < 5) return@mapNotNull null
-            
-            // Check for query match in title (loose match)
-            if (!title.contains(query.split(" ").first(), ignoreCase = true)) return@mapNotNull null
+            if (title.length < 3) return@mapNotNull null
             
             // Get poster URL from img src
             val posterUrl = img?.getImageAttr()

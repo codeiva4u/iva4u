@@ -80,26 +80,26 @@ class HubDrive : ExtractorApi() {
                 // Check link content for server type (not domain names)
                 when {
                     text.contains("FSLv2", ignoreCase = true) -> {
-                        callback(newExtractorLink("FSLv2", "FSLv2 $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubDrive", "HubDrive - FSLv2 $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("FSL Server", ignoreCase = true) -> {
-                        callback(newExtractorLink("FSL Server", "FSL Server $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubDrive", "HubDrive - FSL Server $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("10Gbps", ignoreCase = true) -> {
                         // Follow redirect chain to get final link
                         followRedirectChain(link, quality, labelExtras, callback)
                     }
                     text.contains("pixeldra", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
-                        callback(newExtractorLink("PixelDrain", "PixelDrain $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubDrive", "HubDrive - PixelDrain $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("Download", ignoreCase = true) -> {
-                        callback(newExtractorLink("Direct", "Direct $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubDrive", "HubDrive - Direct $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("BuzzServer", ignoreCase = true) -> {
                         val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
                         val dlink = buzzResp.headers["hx-redirect"].orEmpty()
                         if (dlink.isNotBlank()) {
-                            callback(newExtractorLink("BuzzServer", "BuzzServer $labelExtras", dlink) { this.quality = quality })
+                            callback(newExtractorLink("HubDrive", "HubDrive - BuzzServer $labelExtras", dlink) { this.quality = quality })
                         }
                     }
                 }
@@ -119,14 +119,14 @@ class HubDrive : ExtractorApi() {
             
             // Find Google User Content link (final playable)
             Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").find(html)?.let {
-                callback(newExtractorLink("Google Server", "Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
+                callback(newExtractorLink("HubDrive", "HubDrive - Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
             }
             
             // Find any download link in anchor tags
             response.document.select("a[href*=download], a:contains(Download)").amap { a ->
                 val href = a.attr("href")
                 if (href.isNotBlank() && !href.contains("how-to")) {
-                    callback(newExtractorLink("10Gbps", "10Gbps Server $labelExtras", href) { this.quality = quality })
+                    callback(newExtractorLink("HubDrive", "HubDrive - 10Gbps $labelExtras", href) { this.quality = quality })
                 }
             }
         } catch (_: Exception) { }
@@ -135,17 +135,17 @@ class HubDrive : ExtractorApi() {
     private suspend fun findDirectVideoLinks(html: String, callback: (ExtractorLink) -> Unit) {
         // Find FSL CDN links
         for (match in Regex("""https?://cdn\.[^"'\s]+\.work[^"'\s]+\.(mkv|mp4)[^"'\s]*""").findAll(html)) {
-            callback(newExtractorLink("FSL CDN", "FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubDrive", "HubDrive - FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
         }
         
         // Find Google server links
         for (match in Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").findAll(html)) {
-            callback(newExtractorLink("Google Server", "Google Server", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubDrive", "HubDrive - Google Server", match.value) { this.quality = Qualities.Unknown.value })
         }
         
         // Find direct video file URLs
         for (match in Regex("""https?://[^"'\s]+\.(mkv|mp4)\?[^"'\s]+""").findAll(html)) {
-            callback(newExtractorLink("Direct", "Direct Download", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubDrive", "HubDrive - Direct", match.value) { this.quality = Qualities.Unknown.value })
         }
     }
 }
@@ -196,25 +196,25 @@ class HubCloud : ExtractorApi() {
                 
                 when {
                     text.contains("FSLv2", ignoreCase = true) -> {
-                        callback(newExtractorLink("FSLv2", "FSLv2 $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubCloud", "HubCloud - FSLv2 $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("FSL Server", ignoreCase = true) -> {
-                        callback(newExtractorLink("FSL Server", "FSL Server $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubCloud", "HubCloud - FSL Server $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("10Gbps", ignoreCase = true) -> {
                         followRedirectChain(link, quality, labelExtras, callback)
                     }
                     text.contains("pixeldra", ignoreCase = true) || text.contains("Pixel", ignoreCase = true) -> {
-                        callback(newExtractorLink("PixelDrain", "PixelDrain $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubCloud", "HubCloud - PixelDrain $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("Download File", ignoreCase = true) -> {
-                        callback(newExtractorLink("Direct", "Direct $labelExtras", link) { this.quality = quality })
+                        callback(newExtractorLink("HubCloud", "HubCloud - Direct $labelExtras", link) { this.quality = quality })
                     }
                     text.contains("BuzzServer", ignoreCase = true) -> {
                         val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
                         val dlink = buzzResp.headers["hx-redirect"].orEmpty()
                         if (dlink.isNotBlank()) {
-                            callback(newExtractorLink("BuzzServer", "BuzzServer $labelExtras", dlink) { this.quality = quality })
+                            callback(newExtractorLink("HubCloud", "HubCloud - BuzzServer $labelExtras", dlink) { this.quality = quality })
                         }
                     }
                 }
@@ -235,14 +235,14 @@ class HubCloud : ExtractorApi() {
             
             // Find Google server link
             Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").find(html)?.let {
-                callback(newExtractorLink("Google Server", "Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
+                callback(newExtractorLink("HubCloud", "HubCloud - Google Server (10Gbps) $labelExtras", it.value) { this.quality = quality })
             }
             
             // Find download links
             for (a in response.document.select("a[href*=download], a:contains(Download)")) {
                 val href = a.attr("href")
                 if (href.isNotBlank() && !href.contains("how-to")) {
-                    callback(newExtractorLink("10Gbps", "10Gbps Server $labelExtras", href) { this.quality = quality })
+                    callback(newExtractorLink("HubCloud", "HubCloud - 10Gbps $labelExtras", href) { this.quality = quality })
                 }
             }
         } catch (_: Exception) { }
@@ -251,17 +251,17 @@ class HubCloud : ExtractorApi() {
     private suspend fun findDirectVideoLinks(html: String, callback: (ExtractorLink) -> Unit) {
         // FSL CDN
         for (match in Regex("""https?://cdn\.[^"'\s]+\.work[^"'\s]+\.(mkv|mp4)[^"'\s]*""").findAll(html)) {
-            callback(newExtractorLink("FSL CDN", "FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubCloud", "HubCloud - FSL CDN", match.value) { this.quality = Qualities.Unknown.value })
         }
         
         // Google server
         for (match in Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s]+""").findAll(html)) {
-            callback(newExtractorLink("Google Server", "Google Server", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubCloud", "HubCloud - Google Server", match.value) { this.quality = Qualities.Unknown.value })
         }
         
         // Direct video files
         for (match in Regex("""https?://[^"'\s]+\.(mkv|mp4)\?[^"'\s]+""").findAll(html)) {
-            callback(newExtractorLink("Direct", "Direct Download", match.value) { this.quality = Qualities.Unknown.value })
+            callback(newExtractorLink("HubCloud", "HubCloud - Direct", match.value) { this.quality = Qualities.Unknown.value })
         }
     }
 }
