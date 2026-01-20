@@ -136,7 +136,8 @@ class HDhub4uProvider : MainAPI() {
     
     // ==================== SEARCH FUNCTION ====================
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query").document
+        // Website uses /search.html?q= for search (/?s= redirects to this)
+        val document = app.get("$mainUrl/search.html?q=$query").document
         
         // Search results are in li.movie-card elements
         return document.select("li.movie-card, figure").mapNotNull { item ->
@@ -345,16 +346,20 @@ class HDhub4uProvider : MainAPI() {
                 return@forEach
             }
             
-            // Route to appropriate extractor based on actual hoster name only
-            // Extractors handle all redirects internally with allowRedirects = true
+            // Route to appropriate extractor based on hoster
+            // Skip hubstream.art - those are trailer/watch online links, not downloads
             when {
+                href.contains("hubstream", ignoreCase = true) -> {
+                    // Skip - these are trailers/streaming, not actual movie downloads
+                }
                 href.contains("hubdrive", ignoreCase = true) -> {
                     HubDrive().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
-                else -> {
-                    // Any other external link - use HubCloud extractor
-                    // It follows redirects automatically to any destination
+                href.contains("hubcloud", ignoreCase = true) ||
+                href.contains("hubcdn", ignoreCase = true) ||
+                href.contains("gadgetsweb", ignoreCase = true) -> {
+                    // hubcdn.fans and gadgetsweb.xyz links go to HubCloud extractor
                     HubCloud().getUrl(href, data, subtitleCallback, callback)
                     linksFound = true
                 }
