@@ -396,20 +396,9 @@ class HDhub4uProvider : MainAPI() {
                 try {
                     // Route to appropriate extractor based on URL
                     when {
-                        // GadgetsWeb mediator - follow redirect to get hblinks URL
+                        // Skip gadgetsweb (JS countdown page - cannot bypass)
                         href.contains("gadgetsweb", ignoreCase = true) -> {
-                            try {
-                                // Follow the redirect chain to get final URL
-                                val response = app.get(href, allowRedirects = true)
-                                val finalUrl = response.url
-                                // Check if redirected to hblinks or hubcloud
-                                if (finalUrl.contains("hblinks") || finalUrl.contains("hubcloud")) {
-                                    HubCloud().getUrl(finalUrl, data, subtitleCallback, callback)
-                                    linksFound = true
-                                }
-                            } catch (_: Exception) {
-                                // If redirect fails, continue with other links
-                            }
+                            // Cannot bypass JS countdown, skip to use hubdrive links instead
                         }
                         
                         // HubDrive links
