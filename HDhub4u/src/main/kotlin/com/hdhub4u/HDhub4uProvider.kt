@@ -137,92 +137,81 @@ class HDhub4uProvider : MainAPI() {
     
     // ==================== SEARCH FUNCTION ====================
     override suspend fun search(query: String): List<SearchResponse> {
-        // HDhub4u uses Typesense API for search (JavaScript-based)
-        // JSoup cannot see dynamic content, so we call API directly
-        val searchApiUrl = "https://search.pingora.fyi/collections/post/documents/search" +
-            "?q=${query.encodeUri()}" +
-            "&query_by=post_title,category,stars,director,imdb_id" +
-            "&query_by_weights=4,2,2,2,4" +
-            "&sort_by=sort_by_date:desc" +
-            "&limit=30" +
-            "&page=1" +
-            "&highlight_fields=none" +
-            "&use_cache=true"
+        // Direct HTML scraping - no API dependency
+        val searchUrl = "$mainUrl/?s=${query.encodeUri()}"
+        val document = app.get(searchUrl).document
         
-        return try {
-            val response = app.get(searchApiUrl).text
-            val jsonObject = JSONObject(response)
-            val hits = jsonObject.optJSONArray("hits") ?: return emptyList()
+        val results = mutableListOf<SearchResponse>()
+        
+        // Try multiple selectors for search results
+        val selectors = listOf(
+            "article",           // Standard WordPress article
+            "figure",            // Figure elements with images
+            ".post",             // Post class
+            ".entry",            // Entry class
+            "div.item",          // Item divs
+            "div.result"         // Result divs
+        )
+        
+        for (selector in selectors) {
+            val elements = document.select(selector)
+            if (elements.isEmpty()) continue
             
-            (0 until hits.length()).mapNotNull { i ->
-                val hit = hits.optJSONObject(i) ?: return@mapNotNull null
-                val doc = hit.optJSONObject("document") ?: return@mapNotNull null
-                
-                val title = doc.optString("post_title").takeIf { it.isNotBlank() } 
-                    ?: return@mapNotNull null
-                val permalink = doc.optString("permalink").takeIf { it.isNotBlank() } 
-                    ?: return@mapNotNull null
-                val posterUrl = doc.optString("post_thumbnail").takeIf { it.isNotBlank() }
-                
-                // Build full URL
-                val href = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
-                
-                // Determine type from title/URL
-                val isTvShow = title.contains("Season", ignoreCase = true) ||
-                              permalink.contains("season", ignoreCase = true) ||
-                              permalink.contains("series", ignoreCase = true) ||
-                              permalink.contains("episode", ignoreCase = true)
-                
-                if (isTvShow) {
-                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                        this.posterUrl = posterUrl
+            elements.forEach { element ->
+                try {
+                    // Find link
+                    val link = element.selectFirst("a[href]") ?: return@forEach
+                    var href = link.attr("href")
+                    
+                    // Skip invalid links
+                    if (href.isBlank() || 
+                        href.contains("/category/") || 
+                        href.contains("/page/") ||
+                        href.contains("/author/") ||
+                        href.contains("/tag/") ||
+                        !href.contains(mainUrl.substringAfter("://").substringBefore("/"))) {
+                        return@forEach
                     }
-                } else {
-                    newMovieSearchResponse(title, href, TvType.Movie) {
-                        this.posterUrl = posterUrl
+                    
+                    if (href.startsWith("/")) href = mainUrl + href
+                    
+                    // Find title
+                    val title = element.selectFirst("h2, h3, .title, .entry-title")?.text()?.trim()
+                        ?: element.selectFirst("a[title]")?.attr("title")?.trim()
+                        ?: element.selectFirst("img")?.attr("alt")?.trim()
+                        ?: return@forEach
+                    
+                    if (title.length < 3 || title.contains("How To", ignoreCase = true)) return@forEach
+                    
+                    // Find poster
+                    val img = element.selectFirst("img")
+                    val posterUrl = img?.attr("data-src")?.takeIf { it.startsWith("http") }
+                        ?: img?.attr("data-lazy-src")?.takeIf { it.startsWith("http") }
+                        ?: img?.attr("src")?.takeIf { it.startsWith("http") }
+                    
+                    // Determine type
+                    val isTvShow = href.contains("season", ignoreCase = true) ||
+                                  title.contains("Season", ignoreCase = true) ||
+                                  href.contains("series", ignoreCase = true)
+                    
+                    val response = if (isTvShow) {
+                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                            this.posterUrl = posterUrl
+                        }
+                    } else {
+                        newMovieSearchResponse(title, href, TvType.Movie) {
+                            this.posterUrl = posterUrl
+                        }
                     }
-                }
-            }.distinctBy { it.url }
-        } catch (e: Exception) {
-            // Fallback to HTML scraping if API fails
-            searchFallback(query)
+                    results.add(response)
+                } catch (_: Exception) {}
+            }
+            
+            // If we found results with this selector, stop trying others
+            if (results.isNotEmpty()) break
         }
-    }
-    
-    // Fallback search using HTML scraping
-    private suspend fun searchFallback(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query").document
         
-        return document.select("figure").mapNotNull { figure ->
-            val link = figure.selectFirst("a[href]") ?: return@mapNotNull null
-            var href = link.attr("href")
-            
-            if (href.startsWith("/")) href = mainUrl + href
-            if (href.isBlank() || href.contains("/category/") || href.contains("/page/")) {
-                return@mapNotNull null
-            }
-            
-            val img = figure.selectFirst("img")
-            val title = img?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
-                ?: img?.attr("title")?.trim()?.takeIf { it.isNotBlank() }
-                ?: return@mapNotNull null
-            
-            if (title.length < 3) return@mapNotNull null
-            
-            val posterUrl = img?.getImageAttr()
-            val isTvShow = href.contains("season", ignoreCase = true) ||
-                          title.contains("Season", ignoreCase = true)
-            
-            if (isTvShow) {
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                }
-            } else {
-                newMovieSearchResponse(title, href, TvType.Movie) {
-                    this.posterUrl = posterUrl
-                }
-            }
-        }.distinctBy { it.url }
+        return results.distinctBy { it.url }
     }
     
     // URL encoding helper
