@@ -313,15 +313,46 @@ class HDhub4uProvider : MainAPI() {
         }
     }
     
-    // ==================== LOAD LINKS FUNCTION (Placeholder -  Extractors) ====================
+    // ==================== LOAD LINKS FUNCTION ====================
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Extractors will be implemented later
-        // This function will call extractor classes when they are added
-        return false
+        val document = app.get(data).document
+        var linksFound = false
+        
+        // Find all download links and route to appropriate extractor
+        document.select("a[href]").forEach { link ->
+            val href = link.attr("href")
+            
+            // Skip non-download links
+            if (href.isBlank() || 
+                href.contains("/category/") ||
+                href.contains("/page/") ||
+                href.contains("how-to-download") ||
+                href.contains("hdhub4u.fo") ||
+                href == data) {
+                return@forEach
+            }
+            
+            // Route to HubDrive or HubCloud extractors
+            // These extractors internally handle all redirect chains
+            when {
+                href.contains("hubdrive", ignoreCase = true) -> {
+                    HubDrive().getUrl(href, data, subtitleCallback, callback)
+                    linksFound = true
+                }
+                href.contains("hubcloud", ignoreCase = true) || 
+                href.contains("gamerxyt", ignoreCase = true) ||
+                href.contains("gadgetsweb", ignoreCase = true) -> {
+                    HubCloud().getUrl(href, data, subtitleCallback, callback)
+                    linksFound = true
+                }
+            }
+        }
+        
+        return linksFound
     }
 }
