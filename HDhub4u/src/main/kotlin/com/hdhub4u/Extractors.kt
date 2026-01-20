@@ -2,6 +2,7 @@ package com.hdhub4u
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -22,12 +23,6 @@ fun getIndexQuality(str: String?): Int {
         ?: Qualities.Unknown.value
 }
 
-// Extract file size from text like "[1.5GB]" or "[460MB]"
-fun extractFileSize(text: String): String {
-    return Regex("""\[(\d+(?:\.\d+)?(?:MB|GB))\]""", RegexOption.IGNORE_CASE)
-        .find(text)?.groupValues?.getOrNull(1) ?: ""
-}
-
 // ROT13 decoder for GadgetsWeb bypass
 fun String.rot13(): String {
     return this.map { char ->
@@ -39,8 +34,7 @@ fun String.rot13(): String {
     }.joinToString("")
 }
 
-// GadgetsWeb URL decoder - decodes the encrypted ID parameter
-// Pattern: Base64 -> ROT13 -> Base64 = Final URL
+// GadgetsWeb URL decoder: Base64 -> ROT13 -> Base64 = Final URL
 fun decodeGadgetsWebUrl(encodedId: String): String? {
     return try {
         val firstDecode = String(android.util.Base64.decode(encodedId, android.util.Base64.DEFAULT))
@@ -52,13 +46,12 @@ fun decodeGadgetsWebUrl(encodedId: String): String? {
     }
 }
 
-// ==================== UNIVERSAL LINK EXTRACTOR ====================
-// Follows ALL redirect chains automatically - NO hardcoded domains
-// Just uses allowRedirects = true to reach final download page
+// ==================== HUBDRIVE EXTRACTOR ====================
+// Flow: hubdrive.space -> find [HubCloud Server] button -> follow to HubCloud
 
-class UniversalExtractor : ExtractorApi() {
-    override val name = "Universal"
-    override val mainUrl = ""
+class HubDrive : ExtractorApi() {
+    override val name = "HubDrive"
+    override val mainUrl = "https://hubdrive.space"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -68,182 +61,253 @@ class UniversalExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Step 1: Follow ALL redirects automatically to final page
-            val response = app.get(url, allowRedirects = true, timeout = 30)
-            val finalUrl = response.url
-            val html = response.text
+            // Step 1: Get HubDrive page
+            val response = app.get(url, allowRedirects = true)
             val document = response.document
             
-            // Extract quality and size from page
-            val header = document.selectFirst("div.card-header, h1, .title")?.text().orEmpty()
-            val sizeText = document.selectFirst("i#size, .size, .file-size")?.text().orEmpty()
-            val quality = getIndexQuality(header)
-            val sizeLabel = if (sizeText.isNotEmpty()) "[$sizeText]" else ""
-            
-            // Step 2: Find #download button if exists and follow it
-            val downloadBtn = document.selectFirst("#download, a#download, a:contains(Download)")
-            if (downloadBtn != null) {
-                val downloadHref = downloadBtn.attr("href")
-                if (downloadHref.isNotBlank() && downloadHref != "#") {
-                    val downloadUrl = if (downloadHref.startsWith("http")) downloadHref
-                    else getBaseUrl(finalUrl).trimEnd('/') + "/" + downloadHref.trimStart('/')
-                    
-                    // Follow the download link
-                    extractFinalLinks(downloadUrl, quality, sizeLabel, callback)
-                    return
+            // Step 2: Find HubCloud/download buttons
+            document.select("a.btn").amap { button ->
+                val href = button.attr("href")
+                val text = button.text()
+                
+                if (href.isBlank()) return@amap
+                
+                // Route to HubCloud extractor
+                if (text.contains("HubCloud", ignoreCase = true) ||
+                    href.contains("hubcloud", ignoreCase = true)) {
+                    HubCloud().getUrl(href, url, subtitleCallback, callback)
                 }
             }
             
-            // Step 3: Extract links directly from current page
-            extractFinalLinks(finalUrl, quality, sizeLabel, callback, html)
+        } catch (e: Exception) {
+            Log.e("HubDrive", "Error: ${e.message}")
+        }
+    }
+}
+
+// ==================== HUBCLOUD EXTRACTOR ====================
+// Flow: hubcloud.foo/drive/... -> #download button -> gamerxyt.com -> Final servers
+
+class HubCloud : ExtractorApi() {
+    override val name = "HubCloud"
+    override val mainUrl = "https://hubcloud.foo"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            // Step 1: Get HubCloud page (follow any redirects)
+            val response = app.get(url, allowRedirects = true, timeout = 30)
+            val document = response.document
+            
+            // Get file info
+            val size = document.selectFirst("i#size, #size")?.text()?.trim() ?: ""
+            val header = document.selectFirst("div.card-header, h1")?.text()?.trim() ?: ""
+            val quality = getIndexQuality(header)
+            val sizeLabel = if (size.isNotEmpty()) "[$size]" else ""
+            
+            // Step 2: Find #download button
+            val downloadBtn = document.selectFirst("#download, a#download")
+            val downloadHref = downloadBtn?.attr("href") ?: ""
+            
+            if (downloadHref.isNotBlank() && downloadHref.startsWith("http")) {
+                // Step 3: Follow to final page (gamerxyt.com/hubcloud.php or similar)
+                extractFinalServers(downloadHref, quality, sizeLabel, callback)
+            } else {
+                // Try to find servers on current page
+                extractServersFromPage(document, quality, sizeLabel, callback)
+            }
             
         } catch (e: Exception) {
-            Log.e("Universal", "Error: ${e.message}")
+            Log.e("HubCloud", "Error: ${e.message}")
         }
     }
     
-    private suspend fun extractFinalLinks(
+    private suspend fun extractFinalServers(
         url: String,
         quality: Int,
         sizeLabel: String,
-        callback: (ExtractorLink) -> Unit,
-        existingHtml: String? = null
+        callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = if (existingHtml != null) null else app.get(url, allowRedirects = true, timeout = 30)
-            val html = existingHtml ?: response?.text ?: return
-            val document = response?.document ?: app.get(url).document
+            // Follow redirects to final server page
+            val response = app.get(url, allowRedirects = true, timeout = 30)
+            extractServersFromPage(response.document, quality, sizeLabel, callback)
             
-            // Find all button links on the page
-            document.select("a.btn, a[href]:has(button), div.card-body a[href]").forEach { element ->
-                val link = element.attr("href")
-                val text = element.text()
-                
-                if (link.isBlank() || link == "#" || link.contains("how-to")) return@forEach
-                
-                // Skip internal links
-                if (link.contains("hdhub4u", ignoreCase = true)) return@forEach
-                
-                val serverName = when {
-                    text.contains("FSL", ignoreCase = true) -> "FSL Server"
-                    text.contains("10Gbps", ignoreCase = true) -> "10Gbps Server"
-                    text.contains("Pixel", ignoreCase = true) -> "PixelDrain"
-                    text.contains("Buzz", ignoreCase = true) -> "BuzzServer"
-                    text.contains("Download", ignoreCase = true) -> "Direct"
-                    else -> "Server"
-                }
-                
-                // Special handling for BuzzServer
-                if (text.contains("Buzz", ignoreCase = true)) {
-                    try {
-                        val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                        val dlink = buzzResp.headers["hx-redirect"] ?: buzzResp.headers["Location"]
-                        if (!dlink.isNullOrBlank()) {
-                            callback(newExtractorLink("HDhub4u", "HDhub4u - $serverName $sizeLabel", dlink) { 
-                                this.quality = quality 
-                            })
-                            return@forEach
-                        }
-                    } catch (_: Exception) { }
-                }
-                
-                // For 10Gbps links, follow to get final Google server link
-                if (text.contains("10Gbps", ignoreCase = true)) {
-                    try {
-                        val redirectResp = app.get(link, allowRedirects = true, timeout = 30)
-                        val redirectHtml = redirectResp.text
-                        
-                        // Find Google server or CDN link
-                        val directLink = findDirectVideoUrl(redirectHtml)
-                        if (directLink != null) {
-                            callback(newExtractorLink("HDhub4u", "HDhub4u - 10Gbps $sizeLabel", directLink) { 
-                                this.quality = quality 
-                            })
-                            return@forEach
-                        }
-                        
-                        // Find download button on redirect page
-                        redirectResp.document.select("a:contains(Download), a[href*=download]").firstOrNull()?.let { a ->
-                            val href = a.attr("href")
-                            if (href.isNotBlank() && !href.contains("how-to")) {
-                                callback(newExtractorLink("HDhub4u", "HDhub4u - 10Gbps $sizeLabel", href) { 
-                                    this.quality = quality 
-                                })
-                            }
-                        }
-                    } catch (_: Exception) { }
-                    return@forEach
-                }
-                
-                // Add link directly for other servers
-                callback(newExtractorLink("HDhub4u", "HDhub4u - $serverName $sizeLabel", link) { 
-                    this.quality = quality 
-                })
-            }
-            
-            // Also search for direct video links in HTML
-            findDirectVideoUrl(html)?.let { directUrl ->
-                callback(newExtractorLink("HDhub4u", "HDhub4u - Direct $sizeLabel", directUrl) { 
-                    this.quality = quality 
-                })
-            }
+            // Also search HTML for direct video URLs
+            findDirectVideoLinks(response.text, quality, sizeLabel, callback)
             
         } catch (_: Exception) { }
     }
     
-    // Find direct video URL in HTML using regex - no domain hardcoding
-    private fun findDirectVideoUrl(html: String): String? {
-        // Priority 1: Google User Content (fastest)
-        Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s<>]+""").find(html)?.let {
-            return it.value.replace("&amp;", "&")
-        }
-        
-        // Priority 2: CDN download links with video extensions
-        Regex("""https?://[^"'\s<>]+\.(mkv|mp4)\?[^"'\s<>]+""").find(html)?.let {
-            return it.value.replace("&amp;", "&")
-        }
-        
-        // Priority 3: Any CDN link pattern
-        Regex("""https?://cdn[^"'\s<>]+\.(mkv|mp4)[^"'\s<>]*""").find(html)?.let {
-            return it.value.replace("&amp;", "&")
-        }
-        
-        return null
-    }
-}
-
-// ==================== HUBDRIVE EXTRACTOR (Simplified) ====================
-
-class HubDrive : ExtractorApi() {
-    override val name = "HubDrive"
-    override val mainUrl = ""  // No hardcoded URL
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
+    private suspend fun extractServersFromPage(
+        document: org.jsoup.nodes.Document,
+        quality: Int,
+        sizeLabel: String,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Delegate to Universal Extractor
-        UniversalExtractor().getUrl(url, referer, subtitleCallback, callback)
+        // Find all download buttons with server names
+        document.select("a.btn[href^=http]").amap { button ->
+            val href = button.attr("href")
+            val text = button.text()
+            
+            if (href.isBlank() || href.contains("google.com/search")) return@amap
+            
+            when {
+                text.contains("FSLv2", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[FSLv2]",
+                            "$name[FSLv2] $sizeLabel",
+                            href
+                        ) {
+                            this.quality = quality
+                        }
+                    )
+                }
+                text.contains("FSL", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[FSL]",
+                            "$name[FSL] $sizeLabel",
+                            href
+                        ) {
+                            this.quality = quality
+                        }
+                    )
+                }
+                text.contains("10Gbps", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[10Gbps]",
+                            "$name[10Gbps] $sizeLabel",
+                            href
+                        ) {
+                            this.quality = quality
+                        }
+                    )
+                }
+                text.contains("Pixel", ignoreCase = true) -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[PixelDrain]",
+                            "$name[PixelDrain] $sizeLabel",
+                            href
+                        ) {
+                            this.quality = quality
+                        }
+                    )
+                }
+                text.contains("Buzz", ignoreCase = true) -> {
+                    try {
+                        val dlink = app.get("$href/download", referer = href, allowRedirects = false)
+                            .headers["hx-redirect"] ?: ""
+                        if (dlink.isNotEmpty()) {
+                            callback.invoke(
+                                newExtractorLink(
+                                    "$name[BuzzServer]",
+                                    "$name[BuzzServer] $sizeLabel",
+                                    getBaseUrl(href) + dlink
+                                ) {
+                                    this.quality = quality
+                                }
+                            )
+                        }
+                    } catch (_: Exception) { }
+                }
+                text.contains("Download", ignoreCase = true) && !text.contains("IDM") -> {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[Direct]",
+                            "$name[Direct] $sizeLabel",
+                            href
+                        ) {
+                            this.quality = quality
+                        }
+                    )
+                }
+            }
+        }
     }
-}
-
-// ==================== HUBCLOUD EXTRACTOR (Simplified) ====================
-
-class HubCloud : ExtractorApi() {
-    override val name = "HubCloud"
-    override val mainUrl = ""  // No hardcoded URL
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
+    
+    private suspend fun findDirectVideoLinks(
+        html: String,
+        quality: Int,
+        sizeLabel: String,
         callback: (ExtractorLink) -> Unit
     ) {
-        // Delegate to Universal Extractor
-        UniversalExtractor().getUrl(url, referer, subtitleCallback, callback)
+        // Pattern 1: CDN links with video extension and token
+        Regex("""https?://cdn\.[^"'\s<>]+\.(mkv|mp4)\?[^"'\s<>]+""").findAll(html).forEach { match ->
+            val url = match.value.replace("&amp;", "&")
+            callback.invoke(
+                newExtractorLink(
+                    "$name[CDN]",
+                    "$name[CDN] $sizeLabel",
+                    url
+                ) {
+                    this.quality = quality
+                }
+            )
+        }
+        
+        // Pattern 2: FSL server links
+        Regex("""https?://fsl\.[^"'\s<>]+\?token=\d+""").findAll(html).forEach { match ->
+            val url = match.value.replace("&amp;", "&")
+            callback.invoke(
+                newExtractorLink(
+                    "$name[FSL]",
+                    "$name[FSL] $sizeLabel",
+                    url
+                ) {
+                    this.quality = quality
+                }
+            )
+        }
+        
+        // Pattern 3: Google server links
+        Regex("""https?://video-downloads\.googleusercontent\.com[^"'\s<>]+""").findAll(html).forEach { match ->
+            val url = match.value.replace("&amp;", "&")
+            callback.invoke(
+                newExtractorLink(
+                    "$name[Google]",
+                    "$name[Google Server] $sizeLabel",
+                    url
+                ) {
+                    this.quality = quality
+                }
+            )
+        }
+        
+        // Pattern 4: GPDL/HubCDN links
+        Regex("""https?://gpdl\.[^"'\s<>]+\?id=[^"'\s<>]+""").findAll(html).forEach { match ->
+            val url = match.value.replace("&amp;", "&")
+            callback.invoke(
+                newExtractorLink(
+                    "$name[10Gbps]",
+                    "$name[10Gbps] $sizeLabel",
+                    url
+                ) {
+                    this.quality = quality
+                }
+            )
+        }
+        
+        // Pattern 5: PixelDrain links
+        Regex("""https?://pixeldrain\.[^"'\s<>]+/u/[^"'\s<>]+""").findAll(html).forEach { match ->
+            val url = match.value.replace("&amp;", "&")
+            callback.invoke(
+                newExtractorLink(
+                    "$name[PixelDrain]",
+                    "$name[PixelDrain] $sizeLabel",
+                    url
+                ) {
+                    this.quality = quality
+                }
+            )
+        }
     }
 }

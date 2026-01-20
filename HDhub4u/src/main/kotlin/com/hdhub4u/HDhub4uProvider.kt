@@ -357,7 +357,7 @@ class HDhub4uProvider : MainAPI() {
     }
     
     // ==================== LOAD LINKS FUNCTION ====================
-    // Simple version - routes all links to UniversalExtractor which auto-follows redirects
+    // Routes links to HubDrive and HubCloud extractors
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -367,12 +367,12 @@ class HDhub4uProvider : MainAPI() {
         val document = app.get(data).document
         var linksFound = false
         
-        // Find all external links that could be download/stream links
+        // Find all download links
         document.select("a[href]").forEach { link ->
             val href = link.attr("href")
             val text = link.text()
             
-            // Skip invalid/internal links
+            // Skip invalid/internal/trailer links
             if (href.isBlank() || 
                 href.startsWith("#") ||
                 href == data ||
@@ -381,19 +381,19 @@ class HDhub4uProvider : MainAPI() {
                 href.contains("/category/") ||
                 href.contains("/page/") ||
                 href.contains("how-to-download") ||
-                href.contains("hubstream", ignoreCase = true)) { // Skip trailer links
+                href.contains("hubstream", ignoreCase = true)) {
                 return@forEach
             }
             
-            // Check if link text indicates download/quality
+            // Check if link indicates download/quality
             val isDownloadLink = text.contains("download", ignoreCase = true) ||
                                 text.contains("1080p", ignoreCase = true) ||
                                 text.contains("720p", ignoreCase = true) ||
                                 text.contains("480p", ignoreCase = true) ||
                                 text.contains("x264", ignoreCase = true) ||
                                 text.contains("HEVC", ignoreCase = true) ||
-                                text.contains("MB", ignoreCase = true) ||
-                                text.contains("GB", ignoreCase = true) ||
+                                text.contains("MB]", ignoreCase = true) ||
+                                text.contains("GB]", ignoreCase = true) ||
                                 href.contains("hubdrive", ignoreCase = true) ||
                                 href.contains("hubcloud", ignoreCase = true) ||
                                 href.contains("hubcdn", ignoreCase = true) ||
@@ -401,23 +401,39 @@ class HDhub4uProvider : MainAPI() {
             
             if (!isDownloadLink) return@forEach
             
-            // Handle GadgetsWeb mediator - bypass by decoding URL
-            if (href.contains("gadgetsweb", ignoreCase = true)) {
-                val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
-                if (encodedId != null) {
-                    val decodedUrl = decodeGadgetsWebUrl(encodedId)
-                    if (decodedUrl != null) {
-                        // Route decoded URL to universal extractor
-                        UniversalExtractor().getUrl(decodedUrl, data, subtitleCallback, callback)
-                        linksFound = true
+            // Route to appropriate extractor
+            when {
+                // GadgetsWeb mediator - bypass and decode
+                href.contains("gadgetsweb", ignoreCase = true) -> {
+                    val encodedId = Regex("""[?&]id=([^&]+)""").find(href)?.groupValues?.get(1)
+                    if (encodedId != null) {
+                        val decodedUrl = decodeGadgetsWebUrl(encodedId)
+                        if (decodedUrl != null) {
+                            // Route decoded URL to appropriate extractor
+                            when {
+                                decodedUrl.contains("hubdrive", ignoreCase = true) ->
+                                    HubDrive().getUrl(decodedUrl, data, subtitleCallback, callback)
+                                else ->
+                                    HubCloud().getUrl(decodedUrl, data, subtitleCallback, callback)
+                            }
+                            linksFound = true
+                        }
                     }
                 }
-                return@forEach
+                
+                // HubDrive links
+                href.contains("hubdrive", ignoreCase = true) -> {
+                    HubDrive().getUrl(href, data, subtitleCallback, callback)
+                    linksFound = true
+                }
+                
+                // HubCloud/HubCDN links
+                href.contains("hubcloud", ignoreCase = true) ||
+                href.contains("hubcdn", ignoreCase = true) -> {
+                    HubCloud().getUrl(href, data, subtitleCallback, callback)
+                    linksFound = true
+                }
             }
-            
-            // Route all other links to UniversalExtractor (auto-follows redirects)
-            UniversalExtractor().getUrl(href, data, subtitleCallback, callback)
-            linksFound = true
         }
         
         return linksFound
