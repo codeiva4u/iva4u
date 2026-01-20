@@ -173,13 +173,15 @@ open class HubCloud : ExtractorApi() {
                 val btnLink = btn.attr("href")
                 val text = btn.text()
 
-                if (btnLink.isBlank() || btnLink.contains("logout") || btnLink.contains("javascript")) return@amap
+                if (btnLink.isBlank() || btnLink.contains("logout") || btnLink.contains("javascript") || !btnLink.startsWith("http")) return@amap
+                
+                Log.d("HubCloud", "Found button: $text -> $btnLink")
 
                 when {
-                    // FSL Servers - direct links
-                    text.contains("FSL", ignoreCase = true) -> {
+                    // FSL Servers - direct links (most reliable)
+                    text.contains("FSL", ignoreCase = true) || btnLink.contains("gigabytes.icu") || btnLink.contains("polgen.buzz") -> {
                         val serverName = when {
-                            text.contains("FSLv2") -> "[FSLv2 Server]"
+                            text.contains("FSLv2") || btnLink.contains("gigabytes.icu") -> "[FSLv2 Server]"
                             else -> "[FSL Server]"
                         }
                         callback.invoke(
