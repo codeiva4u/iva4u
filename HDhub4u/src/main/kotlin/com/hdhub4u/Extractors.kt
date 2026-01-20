@@ -13,18 +13,25 @@ import java.net.URI
 
 // ==================== UTILITY FUNCTIONS ====================
 
+val VIDEO_HEADERS = mapOf(
+    "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
+    "Accept" to "*/*",
+    "Accept-Encoding" to "identity",
+    "Connection" to "keep-alive",
+    "Range" to "bytes=0-",
+    "Icy-MetaData" to "1"
+)
+
 fun getBaseUrl(url: String): String {
-    return try {
-        URI(url).let { "${it.scheme}://${it.host}" }
-    } catch (_: Exception) { "" }
+    return URI(url).let { "${it.scheme}://${it.host}" }
 }
 
 fun getIndexQuality(str: String?): Int {
-    return Regex("""(\d{3,4})[pP]""").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
         ?: Qualities.Unknown.value
 }
 
-// ROT13 decoder for GadgetsWeb bypass
+// ROT13 decoder
 fun String.rot13(): String {
     return this.map { char ->
         when (char) {
@@ -35,19 +42,17 @@ fun String.rot13(): String {
     }.joinToString("")
 }
 
-// GadgetsWeb URL decoder: Base64 -> ROT13 -> Base64 = Final URL
+// GadgetsWeb URL decoder: Base64 -> ROT13 -> Base64
 fun decodeGadgetsWebUrl(encodedId: String): String? {
     return try {
         val firstDecode = String(android.util.Base64.decode(encodedId, android.util.Base64.DEFAULT))
         val rot13Applied = firstDecode.rot13()
         val finalUrl = String(android.util.Base64.decode(rot13Applied, android.util.Base64.DEFAULT))
         if (finalUrl.startsWith("http")) finalUrl else null
-    } catch (_: Exception) {
-        null
-    }
+    } catch (_: Exception) { null }
 }
 
-// Cached URLs for session-level caching
+// Cached URLs JSON
 private var cachedUrlsJson: JSONObject? = null
 
 suspend fun getLatestUrl(url: String, source: String): String {
@@ -78,15 +83,15 @@ class HubDrive : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = app.get(url, allowRedirects = true)
-            val document = response.document
+            val doc = app.get(url, allowRedirects = true).document
             
-            // Find HubCloud button
-            document.select("a.btn").amap { button ->
+            // Find HubCloud button and route to HubCloud extractor
+            doc.select("a.btn").amap { button ->
                 val href = button.attr("href")
                 val text = button.text()
                 
-                if (href.isNotBlank() && (text.contains("HubCloud", ignoreCase = true) ||
+                if (href.isNotBlank() && (
+                    text.contains("HubCloud", ignoreCase = true) ||
                     href.contains("hubcloud", ignoreCase = true))) {
                     HubCloud().getUrl(href, url, subtitleCallback, callback)
                 }
@@ -98,11 +103,11 @@ class HubDrive : ExtractorApi() {
 }
 
 // ==================== HUBCLOUD EXTRACTOR ====================
-// Based on MoviesDrive implementation - proven to work
+// EXACT COPY FROM MOVIESDRIVE - PROVEN TO WORK
 
-class HubCloud : ExtractorApi() {
-    override val name = "HubCloud"
-    override val mainUrl = "https://hubcloud.*"
+open class HubCloud : ExtractorApi() {
+    override val name: String = "Hub-Cloud"
+    override val mainUrl: String = "https://hubcloud.*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -111,137 +116,143 @@ class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        try {
-            val latestUrl = getLatestUrl(url, "hubcloud")
-            val baseUrl = getBaseUrl(url)
-            val newUrl = url.replace(baseUrl, latestUrl)
-            
-            val doc = app.get(newUrl).document
-            
-            // Extract link from script tag OR #download button
-            var link = if (newUrl.contains("drive")) {
-                val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-                Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-            } else {
-                doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+        val latestUrl = getLatestUrl(url, "hubcloud")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        val doc = app.get(newUrl).document
+        var link = if (newUrl.contains("drive")) {
+            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
+        } else {
+            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+        }
+
+        if (!link.startsWith("https://")) {
+            link = latestUrl + link
+        }
+
+        val document = app.get(link).document
+        val div = document.selectFirst("div.card-body")
+        val header = document.select("div.card-header").text()
+        val size = document.select("i#size").text()
+        val baseQuality = getIndexQuality(header)
+
+        div?.select("h2 a.btn")?.amap {
+            val btnLink = it.attr("href")
+            val text = it.text()
+
+            if (text.contains("[FSL Server]"))
+            {
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[FSL Server]",
+                        "$name[FSL Server] $header[$size]",
+                        btnLink,
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
             }
-            
-            // If script method didn't work, try #download button
-            if (link.isBlank()) {
-                link = doc.selectFirst("#download, a#download")?.attr("href") ?: ""
+            else if (text.contains("[FSLv2 Server]"))
+            {
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[FSLv2 Server]",
+                        "$name[FSLv2 Server] $header[$size]",
+                        btnLink,
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
             }
-            
-            if (link.isBlank()) return
-            
-            if (!link.startsWith("https://")) {
-                link = latestUrl + link
+            else if (text.contains("[Mega Server]"))
+            {
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[Mega Server]",
+                        "$name[Mega Server] $header[$size]",
+                        btnLink,
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
             }
-            
-            // Get the final page with download buttons
-            val document = app.get(link, allowRedirects = true).document
-            val div = document.selectFirst("div.card-body")
-            val header = document.select("div.card-header").text()
-            val size = document.select("i#size").text()
-            val quality = getIndexQuality(header)
-            val sizeLabel = if (size.isNotEmpty()) "[$size]" else ""
-            
-            // Extract all download buttons
-            div?.select("h2 a.btn, a.btn")?.amap { btn ->
-                val btnLink = btn.attr("href")
-                val text = btn.text()
-                
-                if (btnLink.isBlank() || btnLink.contains("google.com/search")) return@amap
-                
-                when {
-                    text.contains("[FSL Server]") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[FSL]",
-                                "$name[FSL] $header $sizeLabel",
-                                btnLink
-                            ) { this.quality = quality }
-                        )
+            else if (text.contains("Download File")) {
+                callback.invoke(
+                    newExtractorLink(
+                        name,
+                        "$name $header[$size]",
+                        btnLink,
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
                     }
-                    text.contains("[FSLv2 Server]") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[FSLv2]",
-                                "$name[FSLv2] $header $sizeLabel",
-                                btnLink
-                            ) { this.quality = quality }
-                        )
-                    }
-                    text.contains("[Mega Server]") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[Mega]",
-                                "$name[Mega] $header $sizeLabel",
-                                btnLink
-                            ) { this.quality = quality }
-                        )
-                    }
-                    text.contains("Download File") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name $header $sizeLabel",
-                                btnLink
-                            ) { this.quality = quality }
-                        )
-                    }
-                    text.contains("BuzzServer") -> {
-                        try {
-                            val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false)
-                                .headers["hx-redirect"] ?: ""
-                            if (dlink.isNotEmpty()) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "$name[BuzzServer]",
-                                        "$name[BuzzServer] $header $sizeLabel",
-                                        getBaseUrl(btnLink) + dlink
-                                    ) { this.quality = quality }
-                                )
-                            }
-                        } catch (_: Exception) { }
-                    }
-                    btnLink.contains("pixeldra") -> {
-                        val pixelBaseUrl = getBaseUrl(btnLink)
-                        val finalURL = if (btnLink.contains("download", true)) btnLink
-                        else "$pixelBaseUrl/api/file/${btnLink.substringAfterLast("/")}"
-                        callback.invoke(
-                            newExtractorLink(
-                                "Pixeldrain",
-                                "Pixeldrain $header $sizeLabel",
-                                finalURL
-                            ) { this.quality = quality }
-                        )
-                    }
-                    text.contains("Download [Server : 10Gbps]") -> {
-                        val dlink = app.get(btnLink, allowRedirects = false).headers["location"] ?: ""
-                        callback.invoke(
-                            newExtractorLink(
-                                "$name[10Gbps]",
-                                "$name[10Gbps] $header $sizeLabel",
-                                dlink.substringAfter("link=")
-                            ) { this.quality = quality }
-                        )
-                    }
-                    else -> {
-                        // Fallback: if it's a video link, add it
-                        if (!btnLink.contains(".zip") && (btnLink.contains(".mkv") || btnLink.contains(".mp4"))) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    name,
-                                    "$name $header $sizeLabel",
-                                    btnLink
-                                ) { this.quality = quality }
-                            )
+                )
+            }
+            else if (text.contains("BuzzServer")) {
+                val dlink = app.get("$btnLink/download", referer = btnLink, allowRedirects = false).headers["hx-redirect"] ?: ""
+                val buzzBaseUrl = getBaseUrl(btnLink)
+                if (dlink.isNotEmpty()) {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[BuzzServer]",
+                            "$name[BuzzServer] $header[$size]",
+                            buzzBaseUrl + dlink,
+                        ) {
+                            this.quality = baseQuality
+                            this.headers = VIDEO_HEADERS
                         }
-                    }
+                    )
                 }
             }
-        } catch (e: Exception) {
-            Log.e("HubCloud", "Error: ${e.message}")
+
+            else if (btnLink.contains("pixeldra")) {
+                val pixelBaseUrl = getBaseUrl(btnLink)
+                val finalURL = if (btnLink.contains("download", true)) btnLink
+                else "$pixelBaseUrl/api/file/${btnLink.substringAfterLast("/")}?download"
+
+                callback.invoke(
+                    newExtractorLink(
+                        "Pixeldrain",
+                        "Pixeldrain $header[$size]",
+                        finalURL,
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
+            }
+            else if (text.contains("Download [Server : 10Gbps]")) {
+                val dlink = app.get(btnLink, allowRedirects = false).headers["location"] ?: ""
+                callback.invoke(
+                    newExtractorLink(
+                        "$name[Download]",
+                        "$name[Download] $header[$size]",
+                        dlink.substringAfter("link="),
+                    ) {
+                        this.quality = baseQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
+            }
+            else
+            {
+                if (!btnLink.contains(".zip") && (btnLink.contains(".mkv") || btnLink.contains(".mp4"))) {
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name $header[$size]",
+                            btnLink,
+                        ) {
+                            this.quality = baseQuality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+            }
         }
     }
 }
