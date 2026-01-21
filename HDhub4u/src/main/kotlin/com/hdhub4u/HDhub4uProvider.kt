@@ -115,37 +115,42 @@ class HDhub4uProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val domain = fetchDynamicDomain()
         mainUrl = domain
-        val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
+        
+        // Website uses search.html?q= pattern (JavaScript-based search)
+        val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
         
         return try {
             val doc = app.get(searchUrl).document
-            val results = doc.select("li.thumb").mapNotNull { it.toSearchResult() }
-
-            results.ifEmpty {
-                doc.select(".search-result, .post, article").mapNotNull { element ->
-                    val link =
-                        element.selectFirst("a[href]")?.attr("href") ?: return@mapNotNull null
-                    val img = element.selectFirst("img")
-                    val title = img?.attr("alt")
-                        ?: element.selectFirst("h2, h3, .title, p")?.text()?.trim()
-                        ?: return@mapNotNull null
-
-                    val poster = img?.attr("src") ?: img?.attr("data-src")
-                    val isTvShow = tvShowRegex.containsMatchIn(link) || title.contains(
-                        "Season",
-                        ignoreCase = true
-                    )
-
-                    if (isTvShow) {
-                        newTvSeriesSearchResponse(cleanTitle(title), link, TvType.TvSeries) {
-                            this.posterUrl = poster
-                        }
-                    } else {
-                        newMovieSearchResponse(cleanTitle(title), link, TvType.Movie) {
-                            this.posterUrl = poster
-                        }
+            
+            // Primary selector: .movie-card (used by search results)
+            val results = doc.select("li.movie-card, .movie-card").mapNotNull { element ->
+                val linkElement = element.selectFirst("a[href]") ?: return@mapNotNull null
+                val href = linkElement.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val fullHref = if (href.startsWith("http")) href else "$mainUrl$href"
+                
+                val img = element.selectFirst("img")
+                val poster = img?.attr("src") ?: img?.attr("data-src")
+                
+                val title = img?.attr("alt")?.trim()
+                    ?: element.selectFirst(".title, h3, h2, p")?.text()?.trim()
+                    ?: return@mapNotNull null
+                
+                val isTvShow = tvShowRegex.containsMatchIn(fullHref) || title.contains("Season", ignoreCase = true)
+                
+                if (isTvShow) {
+                    newTvSeriesSearchResponse(cleanTitle(title), fullHref, TvType.TvSeries) {
+                        this.posterUrl = poster
+                    }
+                } else {
+                    newMovieSearchResponse(cleanTitle(title), fullHref, TvType.Movie) {
+                        this.posterUrl = poster
                     }
                 }
+            }
+            
+            // Fallback: try li.thumb selector (homepage style)
+            results.ifEmpty {
+                doc.select("li.thumb").mapNotNull { it.toSearchResult() }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Search failed: ${e.message}")
