@@ -7,14 +7,12 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 @CloudstreamPlugin
 class HDhub4uPlugin: BasePlugin() {
     override fun load() {
-        // Register main provider
         registerMainAPI(HDhub4uProvider())
-        
-        // Register extractors (only those used on HDhub4u)
+        registerExtractorAPI(Hblinks())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(Hubdrive())
-        registerExtractorAPI(HUBCDN())
         registerExtractorAPI(Hubcdnn())
+        registerExtractorAPI(Hubdrive())
+        registerExtractorAPI(Hubstream())
+        registerExtractorAPI(HUBCDN())
     }
 }
-
