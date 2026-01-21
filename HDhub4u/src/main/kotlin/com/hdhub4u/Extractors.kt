@@ -55,10 +55,6 @@ class Hubcdnn : ExtractorApi() {
     }
 }
 
-class PixelDrainDev : PixelDrain(){
-    override var mainUrl = "https://pixeldrain.dev"
-}
-
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
     override val mainUrl = "https://hubdrive.space"
