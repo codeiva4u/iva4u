@@ -687,7 +687,7 @@ class HubCloud : ExtractorApi() {
 }
 
 /**
- * HUBCDN Extractor - hubcdn.fans instant downloads
+ * HUBCDN Extractor - hubcdn.fans instant downloads + gadgetsweb.xyz redirect
  */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
@@ -705,6 +705,69 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
+                // gadgetsweb.xyz/?id=BASE64 - Redirect mediator
+                url.contains("gadgetsweb.xyz") && url.contains("?id=") -> {
+                    Log.d(tag, "Gadgetsweb mediator detected")
+                    
+                    var hblinksUrl: String? = null
+                    
+                    // Method 1: Try to decode base64 id parameter to find hblinks URL
+                    val encodedId = url.substringAfter("?id=").substringBefore("&")
+                    try {
+                        val decoded = base64Decode(encodedId)
+                        Log.d(tag, "Decoded id: $decoded")
+                        val hblinkMatch = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                            .find(decoded)
+                        hblinksUrl = hblinkMatch?.value
+                    } catch (e: Exception) {
+                        Log.w(tag, "Base64 decode failed: ${e.message}")
+                    }
+                    
+                    // Method 2: Load page and find hblinks URL
+                    if (hblinksUrl == null) {
+                        try {
+                            val doc = app.get(url, timeout = 30).document
+                            
+                            // Look for hblinks in scripts
+                            doc.select("script").forEach { script ->
+                                val scriptText = script.data()
+                                val match = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                                    .find(scriptText)
+                                if (match != null) {
+                                    hblinksUrl = match.value
+                                }
+                            }
+                            
+                            // Look for verify_btn link
+                            if (hblinksUrl == null) {
+                                val verifyBtn = doc.selectFirst("a#verify_btn, a.get-link, a[href*=hblinks], a[href*=4khdhub]")
+                                hblinksUrl = verifyBtn?.attr("href")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(tag, "Page load failed: ${e.message}")
+                        }
+                    }
+                    
+                    // Method 3: Try homelander page
+                    if (hblinksUrl == null) {
+                        try {
+                            val homelanderUrl = "https://gadgetsweb.xyz/homelander/"
+                            val homelanderDoc = app.get(homelanderUrl, timeout = 30).document
+                            val verifyBtn = homelanderDoc.selectFirst("a#verify_btn")
+                            hblinksUrl = verifyBtn?.attr("href")
+                        } catch (e: Exception) {
+                            Log.e(tag, "Homelander failed: ${e.message}")
+                        }
+                    }
+                    
+                    if (!hblinksUrl.isNullOrBlank()) {
+                        Log.d(tag, "Found hblinks URL: $hblinksUrl")
+                        Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
+                    } else {
+                        Log.e(tag, "Could not extract hblinks URL from gadgetsweb")
+                    }
+                }
+                
                 // Format: hubcdn.fans/file/XXX (Instant download)
                 url.contains("hubcdn.fans/file/") -> {
                     Log.d(tag, "hubcdn.fans instant download")
