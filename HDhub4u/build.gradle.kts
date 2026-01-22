@@ -12,3 +12,7 @@ cloudstream {
     )
     iconUrl = "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png"
 }
+
+android {
+    namespace = "com.hdhub4u"
+}

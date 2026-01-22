@@ -1,6 +1,5 @@
 package com.phisher98
 
-
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.Actor
@@ -57,7 +56,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
         }
-        
+
         // Cloudflare bypass interceptor
         private val cfKiller by lazy { CloudflareKiller() }
     }
@@ -95,7 +94,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$mainUrl/${request.data}" + "page/$page/"
         }
-        
+
         // multimovies.golf always has Cloudflare, so use CloudflareKiller directly
         val document = app.get(url, interceptor = cfKiller).document
 
@@ -146,7 +145,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse? {
         // Updated selectors for new website structure (Jan 2026)
         // HTML: article.item > .image > a > .data > h3.title
-        
+
         val title = when {
             selectFirst("h3.title") != null -> selectFirst("h3.title")!!.text().trim()
             selectFirst(".data h3") != null -> selectFirst(".data h3")!!.text().trim()
@@ -155,9 +154,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             selectFirst("h3") != null -> selectFirst("h3")!!.text().trim()
             else -> selectFirst("a")?.text()?.trim() ?: ""
         }
-        
+
         if (title.isBlank()) return null
-        
+
         // Updated href extraction - .image a contains the link
         val href = when {
             selectFirst(".image a") != null -> fixUrl(selectFirst(".image a")!!.attr("href"))
@@ -166,9 +165,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             selectFirst("h3 a") != null -> fixUrl(selectFirst("h3 a")!!.attr("href"))
             else -> fixUrl(selectFirst("a")?.attr("href") ?: "")
         }
-        
+
         if (href.isBlank() || href == mainUrl) return null
-        
+
         // Poster from .image img
         val posterUrl = when {
             selectFirst(".image img") != null -> fixUrlNull(selectFirst(".image img")?.getImageAttr())
@@ -176,9 +175,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             selectFirst("img") != null -> fixUrlNull(selectFirst("img")?.getImageAttr())
             else -> null
         }
-        
+
         val isMovie = href.contains("/movies/")
-        
+
         return if (isMovie) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
@@ -198,13 +197,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             val titleElement = article.selectFirst("div.details > div.title > a") ?: return@mapNotNull null
             val title = titleElement.text().trim()
             val href = fixUrl(titleElement.attr("href"))
-            
+
             val imageDiv = article.selectFirst("div.image > div.thumbnail > a")
             val posterUrl = fixUrlNull(imageDiv?.selectFirst("img")?.getImageAttr())
-            
+
             val typeText = imageDiv?.selectFirst("span.movies, span.tvshows")?.text()
-            val isMovie = typeText?.contains("Movie", ignoreCase = true) == true || 
-                          !href.contains("tvshows", ignoreCase = true)
+            val isMovie = typeText?.contains("Movie", ignoreCase = true) == true ||
+                    !href.contains("tvshows", ignoreCase = true)
 
             if (isMovie) {
                 newMovieSearchResponse(title, href, TvType.Movie) {
@@ -226,104 +225,104 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val url: String
     )
 
-        override suspend fun load(url: String): LoadResponse? {
-            // multimovies.golf always has Cloudflare
-            val doc = app.get(url, interceptor = cfKiller).document
-            val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
-            var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
-            if (poster.isNullOrBlank()) {
-                poster = fixUrlNull(doc.selectFirst("meta[property=og:image]")?.attr("content"))
+    override suspend fun load(url: String): LoadResponse? {
+        // multimovies.golf always has Cloudflare
+        val doc = app.get(url, interceptor = cfKiller).document
+        val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
+        var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
+        if (poster.isNullOrBlank()) {
+            poster = fixUrlNull(doc.selectFirst("meta[property=og:image]")?.attr("content"))
+        }
+        if (poster.isNullOrBlank()) {
+            poster = fixUrlNull(doc.selectFirst("meta[name=twitter:image]")?.attr("content"))
+        }
+        val tags = doc.select("div.sgeneros > a").map { it.text() }
+        val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toIntOrNull()
+        val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
+        val type = if (url.contains("/tvshows/")) TvType.TvSeries else TvType.Movie
+        val trailer = doc.selectFirst("iframe.rptss")?.attr("src")
+        val rating = doc.select("span.dt_rating_vgs").text()
+        val duration =
+            doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
+                ?.toIntOrNull()
+        val actors =
+            doc.select("div.person").map {
+                ActorData(
+                    Actor(
+                        it.select("div.data > div.name > a").text(),
+                        it.selectFirst("div.img > a > img")?.getImageAttr()
+                    ),
+                    roleString = it.select("div.data > div.caracter").text(),
+                )
             }
-            if (poster.isNullOrBlank()) {
-                poster = fixUrlNull(doc.selectFirst("meta[name=twitter:image]")?.attr("content"))
-            }
-            val tags = doc.select("div.sgeneros > a").map { it.text() }
-            val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toIntOrNull()
-            val description = doc.selectFirst("#info div.wp-content p")?.text()?.trim()
-            val type = if (url.contains("/tvshows/")) TvType.TvSeries else TvType.Movie
-            val trailer = doc.selectFirst("iframe.rptss")?.attr("src")
-            val rating = doc.select("span.dt_rating_vgs").text()
-            val duration =
-                doc.selectFirst("span.runtime")?.text()?.removeSuffix(" Min.")?.trim()
-                    ?.toIntOrNull()
-            val actors =
-                doc.select("div.person").map {
-                    ActorData(
-                        Actor(
-                            it.select("div.data > div.name > a").text(),
-                            it.selectFirst("div.img > a > img")?.getImageAttr()
-                        ),
-                        roleString = it.select("div.data > div.caracter").text(),
-                    )
-                }
-            val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
-                it.toSearchResult()
-            }
+        val recommendations = doc.select("#dtw_content_related-2 article").mapNotNull {
+            it.toSearchResult()
+        }
 
-            return if (type == TvType.TvSeries) {
-                val episodes = if (doc.select("#seasons ul.episodios > li").isNotEmpty()) {
-                    doc.select("#seasons ul.episodios > li").mapNotNull {
-                        val name = it.select("div.episodiotitle > a").text()
-                        val href = it.select("div.episodiotitle > a").attr("href")
-                        val posterUrl = it.select("div.imagen > img").attr("src")
-                        
-                        // Robust Regex for 100% matching of Season/Episode formats
-                        // Handles: "1 - 1", "1-1", "S1 E1", "Season 1 Episode 1", "19 - 72"
-                        val numerandoText = it.select("div.numerando").text().trim()
-                        val match = Regex("""(?i)(?:s(?:eason)?\s*)?(\d+)(?:\s*[-–]\s*|\s*e(?:pisode)?\s*)(\d+)""").find(numerandoText)
-                        
-                        val season = match?.groupValues?.get(1)?.toIntOrNull()
-                        val episode = match?.groupValues?.get(2)?.toIntOrNull()
-                        
-                        newEpisode(href) {
-                            this.name = name
-                            this.posterUrl = posterUrl
-                            this.season = season
-                            this.episode = episode
-                        }
+        return if (type == TvType.TvSeries) {
+            val episodes = if (doc.select("#seasons ul.episodios > li").isNotEmpty()) {
+                doc.select("#seasons ul.episodios > li").mapNotNull {
+                    val name = it.select("div.episodiotitle > a").text()
+                    val href = it.select("div.episodiotitle > a").attr("href")
+                    val posterUrl = it.select("div.imagen > img").attr("src")
+
+                    // Robust Regex for 100% matching of Season/Episode formats
+                    // Handles: "1 - 1", "1-1", "S1 E1", "Season 1 Episode 1", "19 - 72"
+                    val numerandoText = it.select("div.numerando").text().trim()
+                    val match = Regex("""(?i)(?:s(?:eason)?\s*)?(\d+)(?:\s*[-–]\s*|\s*e(?:pisode)?\s*)(\d+)""").find(numerandoText)
+
+                    val season = match?.groupValues?.get(1)?.toIntOrNull()
+                    val episode = match?.groupValues?.get(2)?.toIntOrNull()
+
+                    newEpisode(href) {
+                        this.name = name
+                        this.posterUrl = posterUrl
+                        this.season = season
+                        this.episode = episode
                     }
-                } else {
-                    // Fallback: create episodes from player options (like Movierulzhd)
-                    doc.select("ul#playeroptionsul > li")
-                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-                        .mapIndexed { index, it ->
-                            val name = it.selectFirst("span.title")?.text()
-                            val type = it.attr("data-type")
-                            val post = it.attr("data-post")
-                            val nume = it.attr("data-nume")
-                            
-                            newEpisode(LinkData(name, type, post, nume, url).toJson()) {
-                                this.name = name
-                                this.episode = index + 1
-                                this.season = 1
-                            }
-                        }
-                }
-                newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-                    this.posterUrl = poster
-                    this.year = year
-                    this.plot = description
-                    this.tags = tags
-                    this.score = Score.from10(rating)
-                    this.duration = duration
-                    this.actors = actors
-                    this.recommendations = recommendations
-                    addTrailer(trailer)
                 }
             } else {
-                newMovieLoadResponse(title, url, TvType.Movie, url) {
-                    this.posterUrl = poster
-                    this.year = year
-                    this.plot = description
-                    this.tags = tags
-                    this.score = Score.from10(rating)
-                    this.duration = duration
-                    this.actors = actors
-                    this.recommendations = recommendations
-                    addTrailer(trailer)
-                }
+                // Fallback: create episodes from player options (like Movierulzhd)
+                doc.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                    .mapIndexed { index, it ->
+                        val name = it.selectFirst("span.title")?.text()
+                        val type = it.attr("data-type")
+                        val post = it.attr("data-post")
+                        val nume = it.attr("data-nume")
+
+                        newEpisode(LinkData(name, type, post, nume, url).toJson()) {
+                            this.name = name
+                            this.episode = index + 1
+                            this.season = 1
+                        }
+                    }
+            }
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                this.posterUrl = poster
+                this.year = year
+                this.plot = description
+                this.tags = tags
+                this.score = Score.from10(rating)
+                this.duration = duration
+                this.actors = actors
+                this.recommendations = recommendations
+                addTrailer(trailer)
+            }
+        } else {
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
+                this.posterUrl = poster
+                this.year = year
+                this.plot = description
+                this.tags = tags
+                this.score = Score.from10(rating)
+                this.duration = duration
+                this.actors = actors
+                this.recommendations = recommendations
+                addTrailer(trailer)
             }
         }
+    }
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -355,23 +354,23 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     ).parsed<ResponseHash>().embed_url
                     val link = source.substringAfter("\"").substringBefore("\"").trim()
                     Log.d("MultiMovies", "Extracted embed URL: $link")
-                    
+
                     when {
                         link.contains("youtube") -> return@amap
-                        
+
                         // Direct routing for known hosters
                         link.contains("multimoviesshg.com", ignoreCase = true) -> {
                             Log.d("MultiMovies", "Using Multiprocessing for: $link")
                             Multiprocessing().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
-                        link.contains("streamhg", ignoreCase = true) || 
-                        link.contains("vidhide", ignoreCase = true) || 
-                        link.contains("earnvid", ignoreCase = true) -> {
+                        link.contains("streamhg", ignoreCase = true) ||
+                                link.contains("vidhide", ignoreCase = true) ||
+                                link.contains("earnvid", ignoreCase = true) -> {
                             Log.d("MultiMovies", "Using VidHidePro for: $link")
                             VidHidePro().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
                         link.contains("vidstack", ignoreCase = true) ||
-                        link.contains("server1.uns", ignoreCase = true) -> {
+                                link.contains("server1.uns", ignoreCase = true) -> {
                             Log.d("MultiMovies", "Using VidStack for: $link")
                             VidStack().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
@@ -380,8 +379,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                             Streamcasthub().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
                         link.contains("gdmirrorbot", ignoreCase = true) ||
-                        link.contains("techinmind", ignoreCase = true) ||
-                        link.contains("iqsmartgames", ignoreCase = true) -> {
+                                link.contains("techinmind", ignoreCase = true) ||
+                                link.contains("iqsmartgames", ignoreCase = true) -> {
                             Log.d("MultiMovies", "Using GDMirror for: $link")
                             GDMirror().getUrl(link, mainUrl, subtitleCallback, callback)
                         }
@@ -404,7 +403,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
         return true
     }
-    
+
     private suspend fun loadExtractorByDomain(
         url: String,
         referer: String,
@@ -412,22 +411,22 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ) {
         when {
-            url.contains("multimoviesshg.com", ignoreCase = true) -> 
+            url.contains("multimoviesshg.com", ignoreCase = true) ->
                 Multiprocessing().getUrl(url, referer, subtitleCallback, callback)
-            url.contains("vidhide", ignoreCase = true) || 
-            url.contains("streamhg", ignoreCase = true) -> 
+            url.contains("vidhide", ignoreCase = true) ||
+                    url.contains("streamhg", ignoreCase = true) ->
                 VidHidePro().getUrl(url, referer, subtitleCallback, callback)
-            url.contains("vidstack", ignoreCase = true) -> 
+            url.contains("vidstack", ignoreCase = true) ->
                 VidStack().getUrl(url, referer, subtitleCallback, callback)
-            else -> 
+            else ->
                 GDMirror().getUrl(url, referer, subtitleCallback, callback)
         }
     }
 
     data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("key") val key: String? = null,
-        @JsonProperty("type") val type: String? = null,
+        @param:JsonProperty("embed_url") val embed_url: String,
+        @param:JsonProperty("key") val key: String? = null,
+        @param:JsonProperty("type") val type: String? = null,
     )
 
 

@@ -1,6 +1,5 @@
 package com.phisher98
 
-
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.HomePageResponse
@@ -119,7 +118,7 @@ open class Movierulzhd : MainAPI() {
         val title = this.selectFirst("h3 > a")?.text() ?: return null
         val href = getProperLink(fixUrl(this.selectFirst("h3 > a")!!.attr("href")))
         var posterUrl = this.select("div.poster img").last()?.getImageAttr()
-       
+
         if (posterUrl != null) {
             if (posterUrl.contains(".gif")) {
                 posterUrl = fixUrlNull(this.select("div.poster img").attr("data-wpfc-original-src"))
@@ -172,10 +171,10 @@ open class Movierulzhd : MainAPI() {
         val description = document.select("div.wp-content > p").text().trim()
         val trailer = document.selectFirst("div.embed iframe")?.attr("src")
         val ratingText = document.selectFirst("span.dt_rating_vgs")?.text()
-        val score = try { 
+        val score = try {
             ratingText?.toDoubleOrNull()?.let { Score.from10(it) }
         } catch (_: Exception) {
-            null 
+            null
         }
         val actors = document.select("div.persons > div[itemprop=actor]").map {
             Actor(
@@ -214,38 +213,38 @@ open class Movierulzhd : MainAPI() {
                     }
                 }
             } else {
-            val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
-				if (check) {
-				    document.select("ul#playeroptionsul > li")
-				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-				        .drop(1).mapIndexed { index, it ->
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
-                        {
-                            this.name=name
-                            this.episode = index + 1
-                            this.season = 1
+                val check = document.select("ul#playeroptionsul > li").toString().contains("Super")
+                if (check) {
+                    document.select("ul#playeroptionsul > li")
+                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                        .drop(1).mapIndexed { index, it ->
+                            val name = it.selectFirst("span.title")?.text()
+                            val type = it.attr("data-type")
+                            val post = it.attr("data-post")
+                            val nume = it.attr("data-nume")
+                            newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
+                            {
+                                this.name=name
+                                this.episode = index + 1
+                                this.season = 1
+                            }
                         }
-				    }
-				} else {
-				    document.select("ul#playeroptionsul > li")
-				        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-				        .mapIndexed { index, it ->
-				        val name = it.selectFirst("span.title")?.text()
-				        val type = it.attr("data-type")
-				        val post = it.attr("data-post")
-				        val nume = it.attr("data-nume")
-                        newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
-                        {
-                            this.name=name
-                            this.episode = index + 1
-                            this.season = 1
+                } else {
+                    document.select("ul#playeroptionsul > li")
+                        .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+                        .mapIndexed { index, it ->
+                            val name = it.selectFirst("span.title")?.text()
+                            val type = it.attr("data-type")
+                            val post = it.attr("data-post")
+                            val nume = it.attr("data-nume")
+                            newEpisode(LinkData(name, type, post, nume, directUrl).toJson())
+                            {
+                                this.name=name
+                                this.episode = index + 1
+                                this.season = 1
+                            }
                         }
-				    }
-				}
+                }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = posterUrl
@@ -288,8 +287,8 @@ open class Movierulzhd : MainAPI() {
     )
 
     data class ResponseHash(
-        @JsonProperty("embed_url") val embed_url: String,
-        @JsonProperty("type") val type: String? = null,
+        @param:JsonProperty("embed_url") val embed_url: String,
+        @param:JsonProperty("type") val type: String? = null,
     )
 
     private fun Element.getImageAttr(): String? {
@@ -307,14 +306,14 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        
+
         // Check if data is a URL or LinkData JSON
         val isUrl = data.startsWith("http")
-        
+
         if (isUrl) {
             // For movies, data is direct URL
             val document = app.get(data).document
-            
+
             // Extract player options
             document.select("ul#playeroptionsul > li")
                 .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
@@ -322,7 +321,7 @@ open class Movierulzhd : MainAPI() {
                     val type = element.attr("data-type")
                     val post = element.attr("data-post")
                     val nume = element.attr("data-nume")
-                    
+
                     // Get iframe URL from player API
                     val iframeUrl = getIframeUrl(type, post, nume)
                     if (!iframeUrl.isNullOrEmpty()) {
@@ -341,10 +340,10 @@ open class Movierulzhd : MainAPI() {
                 e.printStackTrace()
             }
         }
-        
+
         return true
     }
-    
+
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
         return try {
             // Call player API
@@ -354,7 +353,7 @@ open class Movierulzhd : MainAPI() {
                 .addEncoded("nume", nume)
                 .addEncoded("type", type)
                 .build()
-            
+
             val response = app.post(
                 "$mainUrl/wp-admin/admin-ajax.php",
                 requestBody = requestBody,
@@ -363,14 +362,14 @@ open class Movierulzhd : MainAPI() {
                     "Referer" to mainUrl
                 )
             ).parsedSafe<ResponseHash>()
-            
+
             response?.embed_url
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
     }
-    
+
     private suspend fun loadExtractorLink(
         url: String,
         referer: String,
@@ -383,12 +382,12 @@ open class Movierulzhd : MainAPI() {
             //"cherry2.upns.online",  // Backup domain
             //"cherry.upns.net"       // Alternative domain
         )
-        
+
         if (cherryDomains.any { url.contains(it, ignoreCase = true) }) {
             CherryExtractor().getUrl(url, referer, subtitleCallback, callback)
             return
         }
-        
+
         // Use built-in CloudStream extractors for all other video hosters
         // loadExtractor(url, referer, subtitleCallback, callback)
     }

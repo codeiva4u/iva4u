@@ -6,22 +6,17 @@ import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
-import com.lagradost.cloudstream3.extractors.VidHidePro
-import com.lagradost.cloudstream3.extractors.VidStack
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.fixUrl
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 // Helper function to load source with extractor name
 suspend fun loadSourceNameExtractor(
@@ -56,7 +51,7 @@ suspend fun getLatestUrl(url: String, source: String): String {
             return getBaseUrl(url)
         }
     }
-    
+
     val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
         return getBaseUrl(url)
@@ -96,7 +91,7 @@ fun getServerPriority(serverName: String): Int {
 // Adjust quality to prioritize 1080p with smallest size and fastest server
 fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): Int {
     var adjustedQuality = quality
-    
+
     // 1080p gets size bonus (smaller = higher bonus)
     if (quality == 1080) {
         val sizeMB = parseSizeToMB(sizeStr)
@@ -109,281 +104,14 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): 
         }
         adjustedQuality += sizeBonus
     }
-    
+
     // Add server speed bonus
     adjustedQuality += getServerPriority(serverName)
-    
+
     return adjustedQuality
 }
 
-class HdStream4u : ExtractorApi() {
-    override val name = "HdStream4u"
-    override val mainUrl = "https://hdstream4u.com"
-    override val requiresReferer = true
-    
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        Log.d("HdStream4u", "Processing: $url")
-        
-        try {
-            val document = app.get(url, referer = referer ?: mainUrl).document
-            val html = document.html()
-            
-            // Method 1: Find packed JavaScript (eval/function(p,a,c,k,e,d))
-            val packedRegex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?\.split\('\|'\)\)\)""", RegexOption.DOT_MATCHES_ALL)
-            val packedMatch = packedRegex.find(html)
-            
-            if (packedMatch != null) {
-                val unpacked = unpackJs(packedMatch.value)
-                Log.d("HdStream4u", "Unpacked JS length: ${unpacked.length}")
-                
-                // Extract HLS URLs from unpacked JS
-                // Pattern: var links={"hls4":"/stream/...", "hls2":"https://..."}
-                val hlsRegex = Regex("""["']hls[234]["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']""")
-                val hlsMatches = hlsRegex.findAll(unpacked)
-                
-                hlsMatches.forEachIndexed { index, match ->
-                    var hlsUrl = match.groupValues[1]
-                    
-                    // Fix relative URLs
-                    if (hlsUrl.startsWith("/")) {
-                        hlsUrl = "https://hdstream4u.com$hlsUrl"
-                    }
-                    
-                    Log.d("HdStream4u", "Found HLS $index: $hlsUrl")
-                    
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = if (index == 0) "$name [Primary]" else "$name [CDN $index]",
-                            url = hlsUrl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                }
-                
-                // Also extract quality labels if available
-                val qualityRegex = Regex("""qualityLabels['"]\s*:\s*\{([^}]+)\}""")
-                val qualityMatch = qualityRegex.find(unpacked)
-                if (qualityMatch != null) {
-                    Log.d("HdStream4u", "Quality labels: ${qualityMatch.groupValues[1]}")
-                }
-            }
-            
-            // Method 2: Fallback - Look for direct m3u8 URLs in page
-            if (packedMatch == null) {
-                val m3u8Regex = Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""")
-                val m3u8Matches = m3u8Regex.findAll(html)
-                
-                m3u8Matches.forEachIndexed { index, match ->
-                    val hlsUrl = match.value
-                    Log.d("HdStream4u", "Direct M3U8 $index: $hlsUrl")
-                    
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = "$name [Stream $index]",
-                            url = hlsUrl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = url
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                }
-            }
-            
-            // Method 3: Extract from JWPlayer sources array (handles setup({sources:[{file:"..."}]}))
-            val jwSourcesRegex = Regex(""""file"\s*:\s*"([^"]+\.m3u8[^"]*)"""")
-            val jwMatches = jwSourcesRegex.findAll(html)
-            
-            jwMatches.forEachIndexed { index, match ->
-                var hlsUrl = match.groupValues[1].replace("\\/", "/")
-                
-                // Fix relative URLs
-                if (hlsUrl.startsWith("/")) {
-                    hlsUrl = "https://hdstream4u.com$hlsUrl"
-                }
-                
-                Log.d("HdStream4u", "JWPlayer source $index: $hlsUrl")
-                
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name [JW $index]",
-                        url = hlsUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = url
-                        this.quality = Qualities.P1080.value
-                    }
-                )
-            }
-            
-        } catch (e: Exception) {
-            Log.e("HdStream4u", "Error: ${e.message}")
-        }
-    }
-    
-    // JavaScript unpacker for eval(function(p,a,c,k,e,d){...})
-    private fun unpackJs(packed: String): String {
-        try {
-            // Extract the packed data
-            val dataRegex = Regex("""}\('([^']+)',(\d+),(\d+),'([^']+)'\.split\('\|'\)\)""")
-            val match = dataRegex.find(packed) ?: return ""
-            
-            val p = match.groupValues[1]
-            val a = match.groupValues[2].toInt()
-            val c = match.groupValues[3].toInt()
-            val kWords = match.groupValues[4].split("|")
-            
-            // Build replacement map
-            val result = StringBuilder(p)
-            
-            // Replace encoded values with words from dictionary
-            for (i in (c - 1) downTo 0) {
-                val encoded = encodeBase(i, a)
-                val word = if (i < kWords.size && kWords[i].isNotEmpty()) kWords[i] else encoded
-                
-                // Replace all occurrences of encoded value with word
-                val regex = Regex("\\b$encoded\\b")
-                val newResult = result.toString().replace(regex, word)
-                result.clear()
-                result.append(newResult)
-            }
-            
-            return result.toString()
-        } catch (e: Exception) {
-            Log.e("HdStream4u", "Unpack error: ${e.message}")
-            return ""
-        }
-    }
-    
-    // Convert number to base (supports up to base 62)
-    private fun encodeBase(num: Int, base: Int): String {
-        if (num < base) {
-            return when {
-                num < 10 -> num.toString()
-                num < 36 -> ('a' + (num - 10)).toString()
-                else -> ('A' + (num - 36)).toString()
-            }
-        }
-        return encodeBase(num / base, base) + encodeBase(num % base, base)
-    }
-}
 
-// Working VidStack implementation with AES decryption
-open class VidStackExtractor : ExtractorApi() {
-    override var name = "Vidstack"
-    override var mainUrl = "https://vidstack.io"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0")
-        val hash = url.substringAfterLast("#").substringAfter("/")
-        val baseurl = getVidstackBaseUrl(url)
-
-        Log.d("VidStack", "Processing: $url, hash: $hash, baseurl: $baseurl")
-
-        val encoded = app.get("$baseurl/api/v1/video?id=$hash", headers = headers).text.trim()
-
-        val key = "kiemtienmua911ca"
-        val ivList = listOf("1234567890oiuytr", "0123456789abcdef")
-
-        val decryptedText = ivList.firstNotNullOfOrNull { iv ->
-            try {
-                AesHelper.decryptAES(encoded, key, iv)
-            } catch (_: Exception) {
-                null
-            }
-        } ?: throw Exception("Failed to decrypt with all IVs")
-
-        Log.d("VidStack", "Decrypted: ${decryptedText.take(200)}")
-
-        val m3u8 = Regex("\"source\":\"(.*?)\"").find(decryptedText)
-            ?.groupValues?.get(1)
-            ?.replace("\\/", "/") ?: ""
-        
-        // Extract subtitles
-        val subtitlePattern = Regex("\"([^\"]+)\":\\s*\"([^\"]+)\"")
-        val subtitleSection = Regex("\"subtitle\":\\{(.*?)\\}").find(decryptedText)?.groupValues?.get(1)
-
-        subtitleSection?.let { section ->
-            subtitlePattern.findAll(section).forEach { match ->
-                val lang = match.groupValues[1]
-                val rawPath = match.groupValues[2].split("#")[0]
-                if (rawPath.isNotEmpty()) {
-                    val path = rawPath.replace("\\/", "/")
-                    val subUrl = "$mainUrl$path"
-                    subtitleCallback(newSubtitleFile(lang, fixUrl(subUrl)))
-                }
-            }
-        }
-
-        if (m3u8.isNotBlank()) {
-            Log.d("VidStack", "Found M3U8: $m3u8")
-            callback.invoke(
-                newExtractorLink(
-                    source = this.name,
-                    name = this.name,
-                    url = m3u8.replace("https", "http"),
-                    type = ExtractorLinkType.M3U8
-                ) {
-                    this.referer = url
-                    this.headers = mapOf("referer" to url, "Origin" to url.substringAfterLast("/"))
-                    this.quality = Qualities.Unknown.value
-                }
-            )
-        }
-    }
-
-    private fun getVidstackBaseUrl(url: String): String {
-        return try {
-            URI(url).let { "${it.scheme}://${it.host}" }
-        } catch (e: Exception) {
-            Log.e("Vidstack", "getBaseUrl fallback: ${e.message}")
-            mainUrl
-        }
-    }
-}
-
-// AES Helper for decryption
-object AesHelper {
-    private const val TRANSFORMATION = "AES/CBC/PKCS5PADDING"
-
-    fun decryptAES(inputHex: String, key: String, iv: String): String {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
-        val ivSpec = IvParameterSpec(iv.toByteArray(Charsets.UTF_8))
-
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
-        val decryptedBytes = cipher.doFinal(inputHex.hexToByteArray())
-        return String(decryptedBytes, Charsets.UTF_8)
-    }
-
-    private fun String.hexToByteArray(): ByteArray {
-        check(length % 2 == 0) { "Hex string must have an even length" }
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    }
-}
-
-// Hubstream uses VidStack API
-class Hubstream : VidStackExtractor() {
-    override var mainUrl = "https://hubstream.art"
-    override var name = "Hubstream"
-}
 
 class Hubstreamdad : Hblinks() {
     override var mainUrl = "https://hblinks.*"
@@ -401,7 +129,9 @@ open class Hblinks : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         app.get(url).documentLarge.select("h3 a,h5 a,div.entry-content p a").map {
-            val lower = it.absUrl("href").ifBlank { it.attr("href") }
+            val absHref = it.absUrl("href")
+            val attrHref = it.attr("href")
+            val lower = if (absHref.isNotBlank()) absHref else attrHref
             val href = lower.lowercase()
             when {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
@@ -468,10 +198,10 @@ class Hubdrive : ExtractorApi() {
     ) {
         // Use CloudflareKiller interceptor to bypass Cloudflare 403
         val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
-        
+
         // Primary selector from Brave inspection
         var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
-        
+
         // Fallback selectors if primary fails
         if (href.isBlank() || !href.contains("hubcloud", true)) {
             href = doc.selectFirst("a.btn[href*=hubcloud]")?.attr("href") ?: ""
@@ -479,9 +209,9 @@ class Hubdrive : ExtractorApi() {
         if (href.isBlank() || !href.contains("hubcloud", true)) {
             href = doc.selectFirst("a[href*=hubcloud.fyi]")?.attr("href") ?: ""
         }
-        
+
         Log.d("Hubdrive", "Found href: $href")
-        
+
         if (href.contains("hubcloud", ignoreCase = true)) {
             HubCloud().getUrl(href, "HubDrive", subtitleCallback, callback)
         } else {
@@ -505,9 +235,15 @@ class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "HubCloud"
-        val realUrl = url.takeIf {
-            try { URI(it).toURL(); true } catch (e: Exception) { Log.e(tag, "Invalid URL: ${e.message}"); false }
-        } ?: return
+        val isValidUrl = try { 
+            URI(url).toURL()
+            true 
+        } catch (e: Exception) { 
+            Log.e(tag, "Invalid URL: ${e.message}")
+            false 
+        }
+        if (!isValidUrl) return
+        val realUrl = url
         Log.d(tag, "Processing URL: $url")
 
         // Use original URL directly first (most reliable)
@@ -522,29 +258,29 @@ class HubCloud : ExtractorApi() {
                     // hubcloud.fyi/drive/ URLs - find gamerxyt.com hubcloud.php link
                     // Use CloudflareKiller to bypass protection
                     val driveDoc = app.get(urlToUse, interceptor = cfKiller, timeout = 30).document
-                    
+
                     // Primary selectors based on Brave Browser inspection:
                     // Button class: "btn btn-primary h6 p-2" links to gamerxyt.com/hubcloud.php
-                    val generateBtn = driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
+                    val generateBtn: String? = driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn.btn-primary[href*=gamerxyt]")?.attr("href")
                         ?: driveDoc.selectFirst("a#download")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn-primary")?.attr("href")
-                    
+
                     Log.d(tag, "Drive page generate button: $generateBtn")
-                    
+
                     // If generate button found, use it
                     if (!generateBtn.isNullOrBlank() && generateBtn.startsWith("http")) {
                         generateBtn
                     } else {
                         // Fallback: check all buttons for gamerxyt or direct download links
                         val allBtns = driveDoc.select("a.btn")
-                        val gamerxytLink = allBtns.firstOrNull { 
-                            it.attr("href").contains("gamerxyt", true) || 
-                            it.attr("href").contains("hubcloud.php", true)
+                        val gamerxytLink = allBtns.firstOrNull {
+                            it.attr("href").contains("gamerxyt", true) ||
+                                    it.attr("href").contains("hubcloud.php", true)
                         }?.attr("href")
-                        
+
                         if (!gamerxytLink.isNullOrBlank()) {
                             gamerxytLink
                         } else {
@@ -578,8 +314,10 @@ class HubCloud : ExtractorApi() {
 
         // Use CloudflareKiller for gamerxyt.com final download page
         val document = app.get(href, interceptor = cfKiller).document
-        val size = document.selectFirst("i#size")?.text().orEmpty()
-        val header = document.selectFirst("div.card-header")?.text().orEmpty()
+        val sizeText = document.selectFirst("i#size")?.text()
+        val size = sizeText ?: ""
+        val headerText = document.selectFirst("div.card-header")?.text()
+        val header = headerText ?: ""
 
         val headerDetails = cleanTitle(header)
 
@@ -610,9 +348,9 @@ class HubCloud : ExtractorApi() {
                 }
 
                 // FSL Server - fsl.gigabytes.icu, hub.fsl-lover.buzz
-                link.contains("fsl.gigabytes", ignoreCase = true) || 
-                link.contains("fsl-lover.buzz", ignoreCase = true) ||
-                (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
+                link.contains("fsl.gigabytes", ignoreCase = true) ||
+                        link.contains("fsl-lover.buzz", ignoreCase = true) ||
+                        (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
                     callback.invoke(
                         newExtractorLink(
                             "$referer [FSL Server]",
@@ -623,10 +361,10 @@ class HubCloud : ExtractorApi() {
                 }
 
                 // FSLv2 - r2.dev, gdboka.buzz, cdn.fukggl.buzz, carnewz.site
-                link.contains("r2.dev", ignoreCase = true) || 
-                link.contains("gdboka.buzz", ignoreCase = true) ||
-                link.contains("fukggl.buzz", ignoreCase = true) ||
-                link.contains("carnewz.site", ignoreCase = true) -> {
+                link.contains("r2.dev", ignoreCase = true) ||
+                        link.contains("gdboka.buzz", ignoreCase = true) ||
+                        link.contains("fukggl.buzz", ignoreCase = true) ||
+                        link.contains("carnewz.site", ignoreCase = true) -> {
                     callback.invoke(
                         newExtractorLink(
                             "$referer [FSLv2]",
@@ -658,11 +396,12 @@ class HubCloud : ExtractorApi() {
                 }
 
                 // BuzzServer - bloggingvector.shop (URL-based detection)
-                link.contains("bloggingvector", ignoreCase = true) || 
-                text.contains("BuzzServer", ignoreCase = true) -> {
+                link.contains("bloggingvector", ignoreCase = true) ||
+                        text.contains("BuzzServer", ignoreCase = true) -> {
                     try {
                         val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                        val dlink = buzzResp.headers["hx-redirect"].orEmpty()
+                        val dlinkHeader = buzzResp.headers["hx-redirect"]
+                        val dlink = dlinkHeader ?: ""
                         if (dlink.isNotBlank()) {
                             callback.invoke(
                                 newExtractorLink(
@@ -687,10 +426,10 @@ class HubCloud : ExtractorApi() {
                 }
 
                 // PixelDrain - URL-based detection (pixeldrain.dev, hubcdn.fans)
-                link.contains("pixeldrain", ignoreCase = true) || 
-                link.contains("hubcdn.fans", ignoreCase = true) ||
-                text.contains("pixeldra", ignoreCase = true) || 
-                text.contains("pixel", ignoreCase = true) -> {
+                link.contains("pixeldrain", ignoreCase = true) ||
+                        link.contains("hubcdn.fans", ignoreCase = true) ||
+                        text.contains("pixeldra", ignoreCase = true) ||
+                        text.contains("pixel", ignoreCase = true) -> {
                     // Handle different pixeldrain URL formats
                     val finalURL = when {
                         link.contains("pixeldrain.dev/u/") || link.contains("pixeldrain.com/u/") -> {
@@ -813,7 +552,8 @@ class HubCloud : ExtractorApi() {
     }
 
     private fun getIndexQuality(str: String?): Int {
-        return Regex("(\\d{3,4})[pP]").find(str.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val searchStr = str ?: ""
+        return Regex("(\\d{3,4})[pP]").find(searchStr)?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.P2160.value
     }
 
@@ -877,13 +617,6 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        // hdstream4u.com /file/ URLs are valid streaming pages - redirect to HdStream4u extractor
-        if ("/file/" in url && url.contains("hdstream4u", ignoreCase = true)) {
-            Log.d("HUBCDN", "Redirecting hdstream4u /file/ URL to HdStream4u extractor: $url")
-            HdStream4u().getUrl(url, referer, subtitleCallback, callback)
-            return
-        }
-        
         val doc = app.get(url).documentLarge
         val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
@@ -913,11 +646,10 @@ class HUBCDN : ExtractorApi() {
             try {
                 // Try to find any redirect link or hubcloud link
                 val fallbackDoc = app.get(url).document
-                val hubcloudLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
-                    .ifBlank {
-                        fallbackDoc.select("a.btn[href*=drive]").attr("href")
-                    }
-                
+                val primaryLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
+                val secondaryLink = fallbackDoc.select("a.btn[href*=drive]").attr("href")
+                val hubcloudLink = if (primaryLink.isNotBlank()) primaryLink else secondaryLink
+
                 if (hubcloudLink.isNotBlank() && hubcloudLink.contains("hubcloud", true)) {
                     Log.d("HUBCDN", "Found hubcloud link: $hubcloudLink")
                     HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
