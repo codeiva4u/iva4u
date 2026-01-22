@@ -9,6 +9,7 @@ class HDhub4uPlugin: BasePlugin() {
     override fun load() {
         registerMainAPI(HDhub4uProvider())
         registerExtractorAPI(Hblinks())
+        registerExtractorAPI(FourKHDHub())
         registerExtractorAPI(HubCloud())
         registerExtractorAPI(Hubcdnn())
         registerExtractorAPI(Hubdrive())

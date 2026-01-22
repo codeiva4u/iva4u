@@ -115,6 +115,12 @@ class Hubstreamdad : Hblinks() {
     override var mainUrl = "https://hblinks.*"
 }
 
+// 4khdhub uses same structure as hblinks
+class FourKHDHub : Hblinks() {
+    override var mainUrl = "https://4khdhub.*"
+    override val name = "4KHDHub"
+}
+
 /**
  * Hblinks / 4khdhub Extractor
  * 
