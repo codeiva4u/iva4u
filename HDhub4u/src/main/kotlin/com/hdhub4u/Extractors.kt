@@ -7,13 +7,11 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.network.CloudflareKiller
-import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.fixUrl
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
@@ -117,6 +115,17 @@ class Hubstreamdad : Hblinks() {
     override var mainUrl = "https://hblinks.*"
 }
 
+/**
+ * Hblinks / 4khdhub Extractor
+ * 
+ * Final download page structure (Jan 2026):
+ * hblinks.dad/archives/XXXXX
+ * 
+ * Contains links to:
+ * - hubdrive.space/file/XXX (Drive) → redirects to hubcloud
+ * - hubcdn.fans/file/XXX (Instant) → direct download
+ * - hubcloud.foo/drive/XXX (Direct) → gamerxyt.com final links
+ */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
     override val mainUrl = "https://hblinks.*"
@@ -128,16 +137,82 @@ open class Hblinks : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        app.get(url).documentLarge.select("h3 a,h5 a,div.entry-content p a").map {
-            val absHref = it.absUrl("href")
-            val lower = absHref.ifBlank { it.attr("href") }
-            val href = lower.lowercase()
-            when {
-                "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                "hubcloud" in lower -> HubCloud().getUrl(href, name, subtitleCallback, callback)
-                "hubcdn" in lower -> HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                else -> loadSourceNameExtractor(name, href, "", Qualities.Unknown.value,subtitleCallback, callback)
+        val tag = "Hblinks"
+        Log.d(tag, "Processing URL: $url")
+        
+        try {
+            val doc = app.get(url, timeout = 30).document
+            
+            // Select all download links from hblinks page
+            // Structure: h3/h5 > a[href] with text like "Drive", "Instant", "Direct"
+            val links = doc.select("h3 a[href], h5 a[href], div.entry-content p a[href], div.entry-content a[href]")
+            
+            Log.d(tag, "Found ${links.size} links")
+            
+            links.amap { element ->
+                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                val linkText = element.text().trim()
+                val parentText = element.parent()?.text()?.trim() ?: ""
+                
+                // Skip invalid links
+                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
+                
+                Log.d(tag, "Processing link: $linkText -> $href")
+                
+                // Extract quality from parent text (e.g., "480p – Drive | Instant | Direct")
+                val qualityMatch = Regex("""(\d{3,4})p""").find(parentText)
+                val quality = qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                
+                when {
+                    // hubdrive.space links → use Hubdrive extractor
+                    href.contains("hubdrive", ignoreCase = true) -> {
+                        try {
+                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e(tag, "Hubdrive failed: ${e.message}")
+                        }
+                    }
+                    
+                    // hubcloud links → use HubCloud extractor
+                    href.contains("hubcloud", ignoreCase = true) -> {
+                        try {
+                            HubCloud().getUrl(href, name, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e(tag, "HubCloud failed: ${e.message}")
+                        }
+                    }
+                    
+                    // hubcdn.fans (Instant) → direct file or HUBCDN extractor
+                    href.contains("hubcdn.fans", ignoreCase = true) -> {
+                        try {
+                            // hubcdn.fans often provides direct download
+                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e(tag, "HUBCDN failed: ${e.message}")
+                        }
+                    }
+                    
+                    // pixeldrain links
+                    href.contains("pixeldrain", ignoreCase = true) -> {
+                        try {
+                            loadExtractor(href, referer, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e(tag, "Pixeldrain failed: ${e.message}")
+                        }
+                    }
+                    
+                    // Other links - try generic extractor
+                    href.startsWith("http") -> {
+                        try {
+                            loadSourceNameExtractor(name, href, "", quality, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.w(tag, "Generic extractor failed for: $href")
+                        }
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing hblinks page: ${e.message}")
         }
     }
 }
@@ -605,9 +680,12 @@ class HubCloud : ExtractorApi() {
     }
 }
 
+/**
+ * HUBCDN Extractor - hubcdn.fans instant downloads
+ */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
-    override val mainUrl = "https://hubcdn.*"
+    override val mainUrl = "https://hubcdn.fans"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -616,49 +694,89 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = app.get(url).documentLarge
-        val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
+        val tag = "HUBCDN"
+        Log.d(tag, "Processing URL: $url")
 
-        val encodedUrl = Regex("reurl\\s*=\\s*\"([^\"]+)\"")
-            .find(scriptText ?: "")
-            ?.groupValues?.get(1)
-            ?.substringAfter("?r=")
-
-        val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
-
-
-        if (decodedUrl != null) {
-            callback(
-                newExtractorLink(
-                    this.name,
-                    this.name,
-                    decodedUrl,
-                    INFER_TYPE,
-                )
-                {
-                    this.quality=Qualities.Unknown.value
+        try {
+            when {
+                // Format: hubcdn.fans/file/XXX (Instant download)
+                url.contains("hubcdn.fans/file/") -> {
+                    Log.d(tag, "hubcdn.fans instant download")
+                    val doc = app.get(url, timeout = 30).document
+                    
+                    // Try to find reurl variable
+                    val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
+                    val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
+                        .find(scriptText ?: "")
+                        ?.groupValues?.get(1)
+                        ?.substringAfter("?r=")
+                    
+                    val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
+                    
+                    if (decodedUrl != null) {
+                        callback(
+                            newExtractorLink(
+                                "Instant DL",
+                                "Instant DL [hubcdn.fans]",
+                                decodedUrl,
+                                INFER_TYPE,
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    } else {
+                        // Direct link fallback
+                        callback(
+                            newExtractorLink(
+                                "Instant DL",
+                                "Instant DL [hubcdn.fans]",
+                                url,
+                                INFER_TYPE,
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
                 }
-            )
-        } else {
-            // Fallback: Try to find hubcloud link on page for /file/ URLs
-            Log.d("HUBCDN", "var reurl not found, trying fallback for /file/ URL")
-            try {
-                // Try to find any redirect link or hubcloud link
-                val fallbackDoc = app.get(url).document
-                val primaryLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
-                val hubcloudLink = primaryLink.ifBlank { 
-                    fallbackDoc.select("a.btn[href*=drive]").attr("href") 
-                }
+                
+                // Legacy hubcdn format
+                url.contains("hubcdn") -> {
+                    val doc = app.get(url).document
+                    val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
-                if (hubcloudLink.isNotBlank() && hubcloudLink.contains("hubcloud", true)) {
-                    Log.d("HUBCDN", "Found hubcloud link: $hubcloudLink")
-                    HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
-                } else {
-                    Log.e("HUBCDN", "No fallback link found for: $url")
+                    val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
+                        .find(scriptText ?: "")
+                        ?.groupValues?.get(1)
+                        ?.substringAfter("?r=")
+
+                    val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
+
+                    if (decodedUrl != null) {
+                        callback(
+                            newExtractorLink(
+                                this.name,
+                                this.name,
+                                decodedUrl,
+                                INFER_TYPE,
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    } else {
+                        // Try hubcloud fallback
+                        val hubcloudLink = doc.select("a[href*=hubcloud]").attr("href")
+                        if (hubcloudLink.isNotBlank()) {
+                            HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("HUBCDN", "Fallback failed: ${e.message}")
+                
+                else -> {
+                    Log.w(tag, "Unknown URL format: $url")
+                }
             }
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing URL: ${e.message}")
         }
     }
 }
