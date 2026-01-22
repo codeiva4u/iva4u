@@ -130,8 +130,7 @@ open class Hblinks : ExtractorApi() {
     ) {
         app.get(url).documentLarge.select("h3 a,h5 a,div.entry-content p a").map {
             val absHref = it.absUrl("href")
-            val attrHref = it.attr("href")
-            val lower = if (absHref.isNotBlank()) absHref else attrHref
+            val lower = absHref.ifBlank { it.attr("href") }
             val href = lower.lowercase()
             when {
                 "hubdrive" in lower -> Hubdrive().getUrl(href, name, subtitleCallback, callback)
@@ -647,8 +646,9 @@ class HUBCDN : ExtractorApi() {
                 // Try to find any redirect link or hubcloud link
                 val fallbackDoc = app.get(url).document
                 val primaryLink = fallbackDoc.select("a[href*=hubcloud]").attr("href")
-                val secondaryLink = fallbackDoc.select("a.btn[href*=drive]").attr("href")
-                val hubcloudLink = if (primaryLink.isNotBlank()) primaryLink else secondaryLink
+                val hubcloudLink = primaryLink.ifBlank { 
+                    fallbackDoc.select("a.btn[href*=drive]").attr("href") 
+                }
 
                 if (hubcloudLink.isNotBlank() && hubcloudLink.contains("hubcloud", true)) {
                     Log.d("HUBCDN", "Found hubcloud link: $hubcloudLink")

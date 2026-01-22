@@ -51,7 +51,7 @@ class HDhub4uProvider : MainAPI() {
                 val json = response.text
                 val jsonObject = JSONObject(json)
                 val urlString = jsonObject.optString("hdhub4u")
-                if (urlString.isNotBlank()) urlString else null
+                urlString.ifBlank { null }
             }
             if (result != null) {
                 cachedMainUrl = result
@@ -114,7 +114,7 @@ class HDhub4uProvider : MainAPI() {
         // figcaption > a > p for title
 
         // Extract link from figure > a or figcaption > a
-        val linkElement: org.jsoup.nodes.Element? = selectFirst("figure a[href]")
+        val linkElement: Element? = selectFirst("figure a[href]")
             ?: (selectFirst("figcaption a[href]")
             ?: selectFirst("a[href]"))
 
@@ -238,13 +238,12 @@ class HDhub4uProvider : MainAPI() {
         // Method 1: Use CSS selectors to find all links on page
         document.select("a[href]").forEach { element ->
             val href = element.attr("href")
-            var text = element.text().trim()
+            val text = element.text().trim()
 
             // Always get context from parent/siblings for better episode detection
             // Even links with text like "WATCH" need prevSibling context ("EPiSODE 1")
             val parentText = element.parent()?.text()?.trim() ?: ""
             val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
-            val nextSiblingText = element.nextElementSibling()?.text()?.trim() ?: ""
 
             // Combine all context for episode detection
             // Priority: link text, then sibling context, then parent
@@ -258,7 +257,7 @@ class HDhub4uProvider : MainAPI() {
             }
 
             if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
-                val qualityText = if (episodeContext.isBlank()) href else episodeContext
+                val qualityText = episodeContext.ifBlank { href }
                 val quality = extractQuality(qualityText)
                 val size = parseFileSize(episodeContext)
 
@@ -376,7 +375,7 @@ class HDhub4uProvider : MainAPI() {
         val originalText: String
     )
 
-    private fun parseEpisodes(document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
+    private fun parseEpisodes(@Suppress("UNUSED_PARAMETER") document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
 
         Log.d("HDhub4uProvider", "=== parseEpisodes START ===")
@@ -388,14 +387,14 @@ class HDhub4uProvider : MainAPI() {
         // Group links by episode number
         val groupedByEpisode = links.groupBy { link ->
             // Try to find episode number in text first
-            var episodeNum = episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
+            val episodeNum = episodePattern.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
 
-            // If not found in text, try URL (for hubstream.art links which have unique IDs per episode)
+            // If not found in text, use 0 as fallback
             if (episodeNum == null || episodeNum == 0) {
-                // For web series, links are often in order - use index as fallback later
-                episodeNum = 0
+                0
+            } else {
+                episodeNum
             }
-            episodeNum
         }
 
         Log.d("HDhub4uProvider", "Episode grouping: ${groupedByEpisode.keys}")
