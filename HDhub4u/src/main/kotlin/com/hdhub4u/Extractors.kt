@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -15,6 +16,9 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 // Helper function to load source with extractor name
 suspend fun loadSourceNameExtractor(
@@ -682,6 +686,577 @@ class HubCloud : ExtractorApi() {
             parts.subList(startIndex, parts.size).joinToString(".")
         } else {
             parts.takeLast(3).joinToString(".")
+        }
+    }
+}
+
+/**
+ * HDStream4u Extractor - hdstream4u.com streaming player with download links
+ * 
+ * URL Format: hdstream4u.com/file/{file_code}
+ * Download Chain:
+ *   1. hdstream4u.com/file/{code} → Extract file code
+ *   2. minochinos.com/download/{code} → Quality selection (HD: _n, Normal: _l)
+ *   3. minochinos.com/download/{code}_{quality} → POST form with hash
+ *   4. Final CDN URL: *.acek-cdn.com/vp/.../filename.mkv.mp4?...
+ * 
+ * Note: reCAPTCHA bypassed by sending form directly with proper parameters
+ */
+class HDStream4u : ExtractorApi() {
+    override val name = "HDStream4u"
+    override val mainUrl = "https://hdstream4u.com"
+    override val requiresReferer = true
+
+    companion object {
+        // Regex patterns
+        private val FILE_CODE_REGEX = Regex("""/file/([a-zA-Z0-9]+)""")
+        private val DOWNLOAD_LINK_REGEX = Regex("""href=["']([^"']*acek-cdn\.com[^"']*)["']""", RegexOption.IGNORE_CASE)
+        private val HASH_REGEX = Regex("""name=["']hash["']\s+value=["']([^"']+)["']""")
+        private val QUALITY_REGEX = Regex("""(\d{3,4})x(\d{3,4})\s+([\d.]+\s*[GM]B)""", RegexOption.IGNORE_CASE)
+    }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "HDStream4u"
+        Log.d(tag, "Processing URL: $url")
+
+        try {
+            // Extract file code from URL
+            val fileCode = FILE_CODE_REGEX.find(url)?.groupValues?.get(1)
+            if (fileCode.isNullOrBlank()) {
+                Log.e(tag, "Could not extract file code from: $url")
+                return
+            }
+            Log.d(tag, "File code: $fileCode")
+
+            // Determine download domain dynamically
+            // hdstream4u.com uses minochinos.com for downloads (may change)
+            val downloadBaseUrl = getDownloadBaseUrl(url, fileCode)
+            if (downloadBaseUrl.isBlank()) {
+                Log.e(tag, "Could not determine download URL")
+                return
+            }
+
+            // Fetch quality selection page
+            val downloadUrl = "$downloadBaseUrl/download/$fileCode"
+            Log.d(tag, "Fetching quality page: $downloadUrl")
+            
+            val qualityDoc = app.get(downloadUrl, timeout = 30).document
+
+            // Find quality links: /download/{code}_n (HD), /download/{code}_l (Normal)
+            val qualityLinks = qualityDoc.select("a.btn[href*='/download/$fileCode']")
+            
+            if (qualityLinks.isEmpty()) {
+                Log.w(tag, "No quality links found, trying direct download")
+                processDownloadPage(downloadUrl, fileCode, "n", referer, callback)
+                return
+            }
+
+            // Process each quality option
+            qualityLinks.forEach { element ->
+                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                val qualityText = element.selectFirst("small")?.text() ?: ""
+                val buttonText = element.selectFirst("b")?.text() ?: ""
+                
+                // Extract quality mode (_n for HD, _l for Normal)
+                val mode = when {
+                    href.endsWith("_n") -> "n"
+                    href.endsWith("_l") -> "l"
+                    else -> "n"
+                }
+
+                // Parse resolution and size
+                val qualityMatch = QUALITY_REGEX.find(qualityText)
+                val width = qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                val height = qualityMatch?.groupValues?.get(2)?.toIntOrNull() ?: 0
+                val size = qualityMatch?.groupValues?.get(3) ?: ""
+                
+                val quality = when {
+                    height >= 1080 || width >= 1920 -> 1080
+                    height >= 720 || width >= 1280 -> 720
+                    height >= 480 || width >= 854 -> 480
+                    else -> 0
+                }
+
+                Log.d(tag, "Quality option: $buttonText - ${width}x$height $size")
+
+                // Process download page for this quality
+                val fullDownloadUrl = if (href.startsWith("http")) href else "$downloadBaseUrl$href"
+                processDownloadPage(fullDownloadUrl, fileCode, mode, referer, callback, quality, size)
+            }
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing HDStream4u: ${e.message}")
+        }
+    }
+
+    private suspend fun getDownloadBaseUrl(url: String, fileCode: String): String {
+        val tag = "HDStream4u"
+        
+        try {
+            // Try to find download URL from the player page
+            val doc = app.get(url, timeout = 30).document
+            
+            // Look for window.open with download URL in scripts
+            doc.select("script").forEach { script ->
+                val scriptData = script.data()
+                
+                // Pattern: window.open('https://minochinos.com/download/...')
+                val downloadMatch = Regex("""window\.open\(['"]([^'"]+/download/[^'"]+)['"]""")
+                    .find(scriptData)
+                if (downloadMatch != null) {
+                    val foundUrl = downloadMatch.groupValues[1]
+                    return getBaseUrl(foundUrl)
+                }
+                
+                // Alternative: look for download domain in packed JS
+                val domainMatch = Regex("""https?://([a-zA-Z0-9.-]+)/download/""")
+                    .find(scriptData)
+                if (domainMatch != null) {
+                    return "https://${domainMatch.groupValues[1]}"
+                }
+            }
+
+            // Fallback: known download domains
+            val knownDomains = listOf(
+                "minochinos.com",
+                "earnvids.com",
+                "streamhg.com"
+            )
+
+            for (domain in knownDomains) {
+                try {
+                    val testUrl = "https://$domain/download/$fileCode"
+                    val response = app.get(testUrl, timeout = 10, allowRedirects = false)
+                    if (response.code == 200 || response.code == 302) {
+                        return "https://$domain"
+                    }
+                } catch (e: Exception) {
+                    continue
+                }
+            }
+
+            // Ultimate fallback
+            return "https://minochinos.com"
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error finding download URL: ${e.message}")
+            return "https://minochinos.com"
+        }
+    }
+
+    private suspend fun processDownloadPage(
+        url: String,
+        fileCode: String,
+        mode: String,
+        referer: String?,
+        callback: (ExtractorLink) -> Unit,
+        quality: Int = 0,
+        size: String = ""
+    ) {
+        val tag = "HDStream4u"
+        
+        try {
+            Log.d(tag, "Processing download page: $url")
+            
+            val doc = app.get(url, timeout = 30).document
+            
+            // Extract form parameters
+            val form = doc.selectFirst("form[method=POST]")
+            if (form != null) {
+                val op = form.selectFirst("input[name=op]")?.attr("value") ?: "download_orig"
+                val id = form.selectFirst("input[name=id]")?.attr("value") ?: fileCode
+                val modeValue = form.selectFirst("input[name=mode]")?.attr("value") ?: mode
+                val hash = form.selectFirst("input[name=hash]")?.attr("value") ?: ""
+                
+                if (hash.isNotBlank()) {
+                    Log.d(tag, "Submitting download form with hash: ${hash.take(20)}...")
+                    
+                    // Submit form (bypass reCAPTCHA by direct POST)
+                    val formData = mapOf(
+                        "op" to op,
+                        "id" to id,
+                        "mode" to modeValue,
+                        "hash" to hash,
+                        "g-recaptcha-response" to "" // Empty token, may work without verification
+                    )
+                    
+                    val resultDoc = app.post(
+                        url,
+                        data = formData,
+                        timeout = 30
+                    ).document
+                    
+                    // Look for direct download link
+                    val downloadLink = resultDoc.selectFirst("a.btn[href*=acek-cdn], a[href*=acek-cdn], a.btn-gradient[href]")
+                        ?.absUrl("href")
+                    
+                    if (!downloadLink.isNullOrBlank()) {
+                        val qualityLabel = when {
+                            mode == "n" -> "HD"
+                            mode == "l" -> "SD"
+                            quality >= 720 -> "HD"
+                            else -> "SD"
+                        }
+                        
+                        val sizeLabel = if (size.isNotBlank()) "[$size]" else ""
+                        
+                        callback(
+                            newExtractorLink(
+                                "HDStream4u [$qualityLabel]",
+                                "HDStream4u [$qualityLabel] $sizeLabel",
+                                downloadLink,
+                            ) {
+                                this.quality = if (quality > 0) quality else if (mode == "n") 720 else 480
+                            }
+                        )
+                        Log.d(tag, "Found download link: $downloadLink")
+                        return
+                    }
+                }
+            }
+            
+            // Fallback: Look for any CDN links on the page
+            val cdnLinks = doc.select("a[href*=acek-cdn], a[href*=cdn], a.btn-gradient")
+            cdnLinks.forEach { link ->
+                val href = link.absUrl("href")
+                if (href.contains("acek-cdn") || href.contains("cdn")) {
+                    callback(
+                        newExtractorLink(
+                            "HDStream4u",
+                            "HDStream4u",
+                            href,
+                        ) {
+                            this.quality = if (quality > 0) quality else Qualities.Unknown.value
+                        }
+                    )
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing download page: ${e.message}")
+        }
+    }
+}
+
+/**
+ * Hubstream Extractor - hubstream.art video streaming
+ * 
+ * URL Format: hubstream.art/#{video_id}
+ * 
+ * API Endpoint: hubstream.art/api/v1/player?t={encrypted_token}
+ * Returns: Encrypted video data (AES-CBC with varying keys)
+ * 
+ * Stream URLs:
+ *   - Primary: hubstream.art/hls/{token}/js/{id}/{folder}/tt/master.m3u8
+ *   - CDN: *.zenitharchitecture.site/v4/js/{id}/cf-master.*.txt
+ *   - Direct IP: {IP}/v4/{token}/{timestamp}/js/{id}/master.m3u8
+ * 
+ * Note: Only M3U8 streaming available - NO direct download links
+ */
+class Hubstream : ExtractorApi() {
+    override val name = "Hubstream"
+    override val mainUrl = "https://hubstream.art"
+    override val requiresReferer = true
+
+    companion object {
+        // Regex patterns for Hubstream
+        private val HASH_REGEX = Regex("""#([a-zA-Z0-9]+)""")
+        private val M3U8_REGEX = Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""", RegexOption.IGNORE_CASE)
+        private val TXT_M3U8_REGEX = Regex("""(https?://[^"'\s]+master[^"'\s]*\.txt[^"'\s]*)""", RegexOption.IGNORE_CASE)
+        
+        // AES-128-CBC Decryption Key for Hubstream Download API
+        private const val AES_KEY = "kiemtienmua911ca"  // 16 chars for AES-128
+        
+        /**
+         * Convert hex string to byte array
+         */
+        private fun hexToBytes(hex: String): ByteArray {
+            val cleanHex = hex.trim()
+            return ByteArray(cleanHex.length / 2) { i ->
+                cleanHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
+        }
+        
+        /**
+         * Decrypt AES-128-CBC encrypted hex string
+         * Format: First 16 bytes = IV, remaining = ciphertext
+         */
+        private fun decryptAES(encryptedHex: String): String? {
+            return try {
+                val encryptedBytes = hexToBytes(encryptedHex)
+                
+                // First 16 bytes are the IV
+                val iv = encryptedBytes.sliceArray(0 until 16)
+                // Remaining bytes are the ciphertext
+                val ciphertext = encryptedBytes.sliceArray(16 until encryptedBytes.size)
+                
+                val keySpec = SecretKeySpec(AES_KEY.toByteArray(Charsets.UTF_8), "AES")
+                val ivSpec = IvParameterSpec(iv)
+                
+                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+                
+                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+            } catch (e: Exception) {
+                Log.e("Hubstream", "AES decryption failed: ${e.message}")
+                null
+            }
+        }
+    }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "Hubstream"
+        Log.d(tag, "Processing URL: $url")
+
+        try {
+            // Extract video ID from hash
+            val videoId = HASH_REGEX.find(url)?.groupValues?.get(1)
+            if (videoId.isNullOrBlank()) {
+                Log.e(tag, "Could not extract video ID from: $url")
+                return
+            }
+            Log.d(tag, "Video ID: $videoId")
+
+            // PRIORITY 1: Try direct MP4 download API (best quality, fastest)
+            val downloadSuccess = extractDownloadLink(videoId, url, subtitleCallback, callback)
+            
+            // PRIORITY 2: Fall back to M3U8 streaming if download failed
+            if (!downloadSuccess) {
+                Log.d(tag, "Download API failed, trying M3U8 streams")
+                
+                // Fetch the player page
+                val doc = app.get(url, timeout = 30).document
+                val pageHtml = doc.html()
+                
+                // Find .txt master files (used by hubstream CDN)
+                val txtMatches = TXT_M3U8_REGEX.findAll(pageHtml)
+                txtMatches.forEach { match ->
+                    val m3u8Url = match.groupValues[1]
+                        .replace("&amp;", "&")
+                        .replace("\\/", "/")
+                    
+                    if (m3u8Url.contains("master") || m3u8Url.contains("cf-master")) {
+                        callback(
+                            newExtractorLink(
+                                name,
+                                "Hubstream [Stream]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = url
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                        Log.d(tag, "Found TXT M3U8: $m3u8Url")
+                    }
+                }
+
+                // Find direct M3U8 URLs
+                val m3u8Matches = M3U8_REGEX.findAll(pageHtml)
+                m3u8Matches.forEach { match ->
+                    val m3u8Url = match.groupValues[1]
+                        .replace("&amp;", "&")
+                        .replace("\\/", "/")
+                    
+                    if (m3u8Url.contains("master") && !m3u8Url.contains(".txt")) {
+                        callback(
+                            newExtractorLink(
+                                name,
+                                "Hubstream [HLS]",
+                                m3u8Url,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = url
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                        Log.d(tag, "Found M3U8: $m3u8Url")
+                    }
+                }
+
+                // Method 2: Try to call the player API directly
+                tryPlayerApi(videoId, url, callback)
+            }
+
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing Hubstream: ${e.message}")
+        }
+    }
+    
+    /**
+     * Extract direct MP4 download link using Hubstream Download API
+     * 
+     * API: /api/v1/download?id={videoId}
+     * Returns: Hex-encoded AES-128-CBC encrypted JSON
+     * Key: kiemtienmua911ca (16 chars)
+     * Format: First 16 bytes = IV, rest = ciphertext
+     * Decrypted: {"mp4": "https://IP/token/timestamp/js/path/file.mp4/download?title=...", ...}
+     */
+    private suspend fun extractDownloadLink(
+        videoId: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val tag = "Hubstream"
+        
+        try {
+            // Call the download API
+            val downloadApiUrl = "$mainUrl/api/v1/download?id=$videoId"
+            Log.d(tag, "Calling download API: $downloadApiUrl")
+            
+            val response = app.get(
+                downloadApiUrl,
+                referer = referer,
+                timeout = 30
+            ).text.trim()
+            
+            if (response.isBlank() || response.length < 32) {
+                Log.w(tag, "Empty or invalid API response")
+                return false
+            }
+            
+            Log.d(tag, "API response length: ${response.length}")
+            
+            // Decrypt the response
+            val decrypted = decryptAES(response)
+            if (decrypted.isNullOrBlank()) {
+                Log.w(tag, "Decryption returned null")
+                return false
+            }
+            
+            Log.d(tag, "Decrypted response: ${decrypted.take(200)}...")
+            
+            // Find JSON start (decrypted may have garbage prefix)
+            val jsonStart = decrypted.indexOf("{")
+            if (jsonStart < 0) {
+                Log.w(tag, "No JSON found in decrypted data")
+                return false
+            }
+            
+            val jsonStr = decrypted.substring(jsonStart)
+            
+            // Extract mp4 URL from JSON
+            val mp4Url = Regex(""""mp4"\s*:\s*"([^"]+)"""").find(jsonStr)?.groupValues?.get(1)
+                ?.replace("\\/", "/")
+            
+            if (!mp4Url.isNullOrBlank() && mp4Url.startsWith("http")) {
+                Log.d(tag, "Found MP4 download URL: $mp4Url")
+                
+                // Extract title from URL if available
+                val title = Regex("""title=([^&]+)""").find(mp4Url)?.groupValues?.get(1)
+                    ?.replace(".mp4", "")
+                    ?.replace("+", " ")
+                    ?: "Hubstream Download"
+                
+                // Determine quality from filename
+                val quality = when {
+                    title.contains("2160p", true) || title.contains("4K", true) -> Qualities.P2160.value
+                    title.contains("1080p", true) -> Qualities.P1080.value
+                    title.contains("720p", true) -> Qualities.P720.value
+                    title.contains("480p", true) -> Qualities.P480.value
+                    else -> Qualities.P1080.value  // Default to 1080p for downloads
+                }
+                
+                callback(
+                    newExtractorLink(
+                        name,
+                        "Hubstream [Download]",
+                        mp4Url,
+                        ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = referer
+                        this.quality = quality
+                    }
+                )
+                
+                // Also try to extract subtitles
+                val subtitleMatch = Regex(""""subtitle"\s*:\s*\{([^}]+)\}""").find(jsonStr)
+                if (subtitleMatch != null) {
+                    val subtitleJson = subtitleMatch.groupValues[1]
+                    // Pattern: "en": "/path/to/en.vtt#en"
+                    Regex(""""(\w+)"\s*:\s*"([^"]+)"""").findAll(subtitleJson).forEach { subMatch ->
+                        val lang = subMatch.groupValues[1]
+                        var subUrl = subMatch.groupValues[2].replace("\\/", "/")
+                        
+                        // Make URL absolute if needed
+                        if (subUrl.startsWith("/")) {
+                            subUrl = "$mainUrl$subUrl"
+                        }
+                        
+                        // Remove hash fragment if present
+                        subUrl = subUrl.substringBefore("#")
+                        
+                        subtitleCallback(
+                            newSubtitleFile(lang.uppercase(), subUrl)
+                        )
+                        Log.d(tag, "Found subtitle: $lang -> $subUrl")
+                    }
+                }
+                
+                return true
+            }
+            
+            Log.w(tag, "No valid MP4 URL in response")
+            return false
+            
+        } catch (e: Exception) {
+            Log.e(tag, "Download API failed: ${e.message}")
+            return false
+        }
+    }
+
+    private suspend fun tryPlayerApi(
+        videoId: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "Hubstream"
+        
+        try {
+            // Known CDN patterns for hubstream
+            val cdnDomains = listOf(
+                "zenitharchitecture.site",
+                "hubstream.art"
+            )
+            
+            for (domain in cdnDomains) {
+                try {
+                    // Pattern 1: Direct CDN txt file
+                    val txtUrl = "https://s3ae.$domain/v4/js/$videoId/cf-master.txt"
+                    val txtResponse = app.get(txtUrl, timeout = 10, allowRedirects = true)
+                    
+                    if (txtResponse.code == 200) {
+                        callback(
+                            newExtractorLink(
+                                name,
+                                "Hubstream CDN",
+                                txtUrl,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = referer
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                        Log.d(tag, "Found CDN stream: $txtUrl")
+                        return
+                    }
+                } catch (e: Exception) {
+                    continue
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "API method failed: ${e.message}")
         }
     }
 }
