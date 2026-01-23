@@ -85,17 +85,17 @@ class HDhub4uProvider : MainAPI() {
 
     override var mainUrl: String = "https://new2.hdhub4u.fo"
 
-    // Async domain fetch with 10s timeout - no blocking
+    // Fast async domain fetch with 3s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
         if (cachedMainUrl != null) return cachedMainUrl!!
         if (urlsFetched) return mainUrl
 
         urlsFetched = true
         try {
-            val result = withTimeoutOrNull(10_000L) {
+            val result = withTimeoutOrNull(3_000L) {  // Reduced from 10s to 3s
                 val response = app.get(
                     "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 10
+                    timeout = 3  // Reduced timeout
                 )
                 val json = response.text
                 val jsonObject = JSONObject(json)
@@ -136,7 +136,7 @@ class HDhub4uProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        // Fetch latest mainUrl (async, cached)
+        // Fetch latest mainUrl (async, cached) - only first time
         fetchMainUrl()
 
         val url = if (page == 1) {
@@ -146,7 +146,7 @@ class HDhub4uProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, headers = headers, timeout = 20).document
+        val document = app.get(url, headers = headers, timeout = 10).document  // Reduced from 20s to 10s
 
         // Correct selector: li.thumb contains movie items
         val home = document.select("li.thumb").mapNotNull {
