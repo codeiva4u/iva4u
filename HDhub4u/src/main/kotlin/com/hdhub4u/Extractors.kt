@@ -1137,17 +1137,9 @@ class Hubstream : ExtractorApi() {
             
             Log.d(tag, "Decrypted response: ${decrypted.take(200)}...")
             
-            // Find JSON start (decrypted may have garbage prefix)
-            val jsonStart = decrypted.indexOf("{")
-            if (jsonStart < 0) {
-                Log.w(tag, "No JSON found in decrypted data")
-                return false
-            }
-            
-            val jsonStr = decrypted.substring(jsonStart)
-            
-            // Extract mp4 URL from JSON
-            val mp4Url = Regex(""""mp4"\s*:\s*"([^"]+)"""").find(jsonStr)?.groupValues?.get(1)
+            // Extract mp4 URL directly from decrypted data (may not be valid JSON)
+            // Pattern: "mp4":"https://IP/token/timestamp/path/file.mp4/download?title=..."
+            val mp4Url = Regex(""""mp4"\s*:\s*"([^"]+)""").find(decrypted)?.groupValues?.get(1)
                 ?.replace("\\/", "/")
             
             if (!mp4Url.isNullOrBlank() && mp4Url.startsWith("http")) {
@@ -1181,7 +1173,7 @@ class Hubstream : ExtractorApi() {
                 )
                 
                 // Also try to extract subtitles
-                val subtitleMatch = Regex(""""subtitle"\s*:\s*\{([^}]+)\}""").find(jsonStr)
+                val subtitleMatch = Regex(""""subtitle"\s*:\s*\{([^}]+)\}""").find(decrypted)
                 if (subtitleMatch != null) {
                     val subtitleJson = subtitleMatch.groupValues[1]
                     // Pattern: "en": "/path/to/en.vtt#en"
