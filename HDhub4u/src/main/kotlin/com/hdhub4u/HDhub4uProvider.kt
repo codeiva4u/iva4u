@@ -325,9 +325,8 @@ class HDhub4uProvider : MainAPI() {
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
 
         return if (isSeries) {
-            // Extract episodes for series - need to parse links for episode grouping
-            val sortedLinks = extractDownloadLinks(document)
-            val episodes = parseEpisodes(document, sortedLinks, url)
+            // Detect episodes from HTML text (no link extraction needed)
+            val episodes = detectEpisodesFromHtml(document, url)
 
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
@@ -353,73 +352,60 @@ class HDhub4uProvider : MainAPI() {
         val originalText: String
     )
 
-    private fun parseEpisodes(@Suppress("UNUSED_PARAMETER") document: org.jsoup.nodes.Document, links: List<DownloadLink>, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
+    // ═══════════════════════════════════════════════════════════════════
+    // Detect episode numbers from HTML text (without extracting download links)
+    // This allows load() to create episode list without parsing links
+    // ═══════════════════════════════════════════════════════════════════
+    private fun detectEpisodesFromHtml(document: org.jsoup.nodes.Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
-
-        Log.d("HDhub4uProvider", "=== parseEpisodes START ===")
-        Log.d("HDhub4uProvider", "Total links: ${links.size}")
-
-        // ═══════════════════════════════════════════════════════════════════
-        // STEP 1: Separate batch download links from individual episode links
-        // Batch links: "4K | SDR | HDR | HEVC", "WEB-DL | HEVC" (ZIP downloads)
-        // ═══════════════════════════════════════════════════════════════════
-        val batchLinks = links.filter { link ->
-            BATCH_DOWNLOAD_REGEX.containsMatchIn(link.originalText) &&
-            !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText)
-        }
-        val episodeLinks = links.filter { link ->
-            !BATCH_DOWNLOAD_REGEX.containsMatchIn(link.originalText) ||
-            EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText)
-        }
-
-        Log.d("HDhub4uProvider", "Batch links: ${batchLinks.size}, Episode links: ${episodeLinks.size}")
-
-        // ═══════════════════════════════════════════════════════════════════
-        // STEP 2: Group individual episode links by episode number
-        // ═══════════════════════════════════════════════════════════════════
-        val groupedByEpisode = episodeLinks.groupBy { link ->
-            val episodeNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
-            if (episodeNum == null || episodeNum == 0) 0 else episodeNum
-        }
-
-        Log.d("HDhub4uProvider", "Episode grouping: ${groupedByEpisode.keys}")
-
-        // Create episodes from grouped links - pass pageUrl + episodeNum as data
-        if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
-            groupedByEpisode.forEach { (episodeNum, _) ->
-                if (episodeNum > 0) {
-                    // Data format: "pageUrl|||episodeNum" - links will be extracted in loadLinks
-                    val data = "$pageUrl|||$episodeNum"
-                    episodes.add(
-                        newEpisode(data) {
-                            this.name = "Episode $episodeNum"
-                            this.episode = episodeNum
-                        }
-                    )
-                }
+        val detectedEpisodes = mutableSetOf<Int>()
+        
+        Log.d(TAG, "=== detectEpisodesFromHtml START ===")
+        
+        // Get full page text for episode detection
+        val bodyText = document.body().text()
+        val bodyHtml = document.body().html()
+        
+        // Method 1: Find all episode numbers from text using EPISODE_NUMBER_REGEX
+        // Matches: "EPiSODE 1", "Episode 2", "EP-03", "EP 4", "E05"
+        EPISODE_NUMBER_REGEX.findAll(bodyText).forEach { match ->
+            val epNum = match.groupValues[1].toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum < 500) { // Reasonable episode range
+                detectedEpisodes.add(epNum)
             }
         }
-
-        // If still no individual episodes, try position-based assignment
-        if (episodes.isEmpty() && episodeLinks.isNotEmpty()) {
-            val downloadLinks = episodeLinks.filter {
-                it.url.contains("gadgetsweb", true) && it.originalText.contains("episode", true)
+        
+        // Method 2: Also check HTML for episode patterns (in case text extraction missed some)
+        EPISODE_NUMBER_REGEX.findAll(bodyHtml).forEach { match ->
+            val epNum = match.groupValues[1].toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum < 500) {
+                detectedEpisodes.add(epNum)
             }
-
-            if (downloadLinks.isNotEmpty()) {
-                downloadLinks.forEachIndexed { index, _ ->
-                    val episodeNum = index + 1
-                    val data = "$pageUrl|||$episodeNum"
-                    episodes.add(
-                        newEpisode(data) {
-                            this.name = "Episode $episodeNum"
-                            this.episode = episodeNum
-                        }
-                    )
-                }
-                Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from download links")
-            } else if (batchLinks.isEmpty()) {
-                // Fallback only if no batch links: treat as full season
+        }
+        
+        Log.d(TAG, "Detected episode numbers: $detectedEpisodes")
+        
+        // Create episodes from detected numbers
+        if (detectedEpisodes.isNotEmpty()) {
+            detectedEpisodes.sorted().forEach { episodeNum ->
+                val data = "$pageUrl|||$episodeNum"
+                episodes.add(
+                    newEpisode(data) {
+                        this.name = "Episode $episodeNum"
+                        this.episode = episodeNum
+                    }
+                )
+            }
+        }
+        
+        // Fallback: If no episodes detected, check for batch/complete season indicators
+        if (episodes.isEmpty()) {
+            val hasBatchIndicator = BATCH_DOWNLOAD_REGEX.containsMatchIn(bodyText) || 
+                                    bodyText.contains("Complete", true) ||
+                                    bodyText.contains("All Episodes", true)
+            
+            if (hasBatchIndicator) {
+                // Add a single "Full Season" episode
                 val data = "$pageUrl|||0"
                 episodes.add(
                     newEpisode(data) {
@@ -427,53 +413,11 @@ class HDhub4uProvider : MainAPI() {
                         this.episode = 1
                     }
                 )
+                Log.d(TAG, "Added Full Season episode (batch detected)")
             }
         }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // STEP 3: Add batch download links as special episodes at the end
-        // These are ZIP/batch downloads for all episodes (4K HEVC, WEB-DL, etc.)
-        // ═══════════════════════════════════════════════════════════════════
-        if (batchLinks.isNotEmpty()) {
-            val maxEpisode = episodes.maxOfOrNull { it.episode ?: 0 } ?: 0
-            var batchEpisodeNum = maxOf(maxEpisode + 100, 900) // Start batch eps at 900+
-
-            // Group batch links by quality/type for cleaner episode names
-            val batchByQuality = batchLinks.groupBy { link ->
-                val text = link.originalText.uppercase()
-                when {
-                    text.contains("4K") && text.contains("HDR") -> "4K HDR"
-                    text.contains("4K") && text.contains("SDR") -> "4K SDR"
-                    text.contains("4K") -> "4K HEVC"
-                    text.contains("2160") -> "4K"
-                    text.contains("1080") && text.contains("HEVC") -> "1080p HEVC"
-                    text.contains("1080") -> "1080p"
-                    text.contains("WEB-DL") && text.contains("HEVC") -> "WEB-DL HEVC"
-                    text.contains("WEB-DL") -> "WEB-DL"
-                    text.contains("HEVC") && text.contains("X264") -> "HEVC + x264"
-                    text.contains("HEVC") -> "HEVC"
-                    text.contains("720") -> "720p"
-                    text.contains("480") -> "480p"
-                    else -> "Batch"
-                }
-            }
-
-            batchByQuality.forEach { (qualityName, _) ->
-                // Data format: "pageUrl|||batch_qualityName" - links will be extracted in loadLinks
-                val data = "$pageUrl|||batch_$qualityName"
-                
-                episodes.add(
-                    newEpisode(data) {
-                        this.name = "All Episodes ($qualityName)"
-                        this.episode = batchEpisodeNum
-                    }
-                )
-                Log.d("HDhub4uProvider", "Batch episode added: All Episodes ($qualityName) - EP#$batchEpisodeNum")
-                batchEpisodeNum++
-            }
-        }
-
-        Log.d("HDhub4uProvider", "=== parseEpisodes END === Total episodes: ${episodes.size}")
+        
+        Log.d(TAG, "=== detectEpisodesFromHtml END === Total episodes: ${episodes.size}")
         return episodes.sortedBy { it.episode }
     }
 
@@ -637,49 +581,28 @@ class HDhub4uProvider : MainAPI() {
 
             Log.d(TAG, "Total links extracted: ${allLinks.size}")
 
-            // Filter links based on episode number or batch type
+            // Filter links based on episode number
             val linksToProcess = when {
                 // Movie (no episode identifier)
                 episodeIdentifier == null -> allLinks
 
-                // Batch download (e.g., "batch_4K HDR")
-                episodeIdentifier.startsWith("batch_") -> {
-                    val qualityName = episodeIdentifier.removePrefix("batch_")
-                    allLinks.filter { link ->
-                        val text = link.originalText.uppercase()
-                        BATCH_DOWNLOAD_REGEX.containsMatchIn(link.originalText) &&
-                        !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText) &&
-                        when (qualityName) {
-                            "4K HDR" -> text.contains("4K") && text.contains("HDR")
-                            "4K SDR" -> text.contains("4K") && text.contains("SDR")
-                            "4K HEVC" -> text.contains("4K") && !text.contains("HDR") && !text.contains("SDR")
-                            "4K" -> text.contains("2160")
-                            "1080p HEVC" -> text.contains("1080") && text.contains("HEVC")
-                            "1080p" -> text.contains("1080") && !text.contains("HEVC")
-                            "WEB-DL HEVC" -> text.contains("WEB-DL") && text.contains("HEVC")
-                            "WEB-DL" -> text.contains("WEB-DL") && !text.contains("HEVC")
-                            "HEVC + x264" -> text.contains("HEVC") && text.contains("X264")
-                            "HEVC" -> text.contains("HEVC")
-                            "720p" -> text.contains("720")
-                            "480p" -> text.contains("480")
-                            else -> true
-                        }
-                    }
-                }
-
-                // Full season (episode 0)
+                // Full season (episode 0) - get all non-episode-specific links
                 episodeIdentifier == "0" -> {
                     allLinks.filter { link ->
                         !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText)
-                    }
+                    }.ifEmpty { allLinks } // Fallback to all links if none match
                 }
 
                 // Specific episode number
                 else -> {
                     val targetEpisode = episodeIdentifier.toIntOrNull() ?: 0
-                    allLinks.filter { link ->
-                        val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                        epNum == targetEpisode
+                    if (targetEpisode > 0) {
+                        allLinks.filter { link ->
+                            val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                            epNum == targetEpisode
+                        }.ifEmpty { allLinks } // Fallback to all links if specific episode not found
+                    } else {
+                        allLinks
                     }
                 }
             }
