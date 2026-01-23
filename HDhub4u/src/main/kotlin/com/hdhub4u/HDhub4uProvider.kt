@@ -321,117 +321,13 @@ class HDhub4uProvider : MainAPI() {
         // Extract tags/genres
         val tags = document.select(".entry-categories a, .post-categories a, .cat-links a, a[rel=tag]").map { it.text() }
 
-        // Extract ALL download links - use body html since content class varies
-        val downloadLinks = mutableListOf<DownloadLink>()
-
-        // Method 1: Use CSS selectors to find all links on page
-        document.select("a[href]").forEach { element ->
-            val href = element.attr("href")
-            val text = element.text().trim()
-
-            // Always get context from parent/siblings for better episode detection
-            // Even links with text like "WATCH" need prevSibling context ("EPiSODE 1")
-            val parentText = element.parent()?.text()?.trim() ?: ""
-            val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
-
-            // Combine all context for episode detection
-            // Priority: link text, then sibling context, then parent
-            val episodeContext: String = when {
-                text.contains("episode", true) || text.contains("ep", true) -> text
-                prevSiblingText.contains("episode", true) -> "$prevSiblingText | $text"
-                parentText.contains("episode", true) -> parentText
-                text.isNotBlank() -> text
-                parentText.isNotBlank() -> parentText
-                else -> href
-            }
-
-            if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
-                val qualityText = episodeContext.ifBlank { href }
-                val quality = extractQuality(qualityText)
-                val size = parseFileSize(episodeContext)
-
-                downloadLinks.add(
-                    DownloadLink(
-                        url = href,
-                        quality = quality,
-                        sizeMB = size,
-                        originalText = episodeContext
-                    )
-                )
-            }
-
-        }
-
-        // Method 2: Use companion object DOWNLOAD_URL_REGEX for any missed links
-        val bodyHtml = document.body().html()
-
-        DOWNLOAD_URL_REGEX.findAll(bodyHtml).forEach { match ->
-            val linkUrl = match.value
-            if (downloadLinks.none { it.url == linkUrl }) {
-                val quality = extractQuality(linkUrl)
-
-                // Try to find episode context from surrounding HTML (100 chars before the URL)
-                val startPos = maxOf(0, match.range.first - 100)
-                val surroundingText = bodyHtml.substring(startPos, match.range.first)
-                val episodeMatch = EPISODE_NUMBER_REGEX.findAll(surroundingText).lastOrNull()
-                val episodeContext = if (episodeMatch != null) {
-                    "EPiSODE ${episodeMatch.groupValues[1]}"
-                } else {
-                    ""
-                }
-
-                downloadLinks.add(
-                    DownloadLink(
-                        url = linkUrl,
-                        quality = quality,
-                        sizeMB = 0.0,
-                        originalText = episodeContext
-                    )
-                )
-            }
-        }
-
-        Log.d(TAG, "Total links found: ${downloadLinks.size}")
-
-        // Smart sort: 1080p priority → H264 codec → Smallest Size → Fastest Server
-        val sortedLinks = downloadLinks.sortedWith(
-            compareByDescending<DownloadLink> {
-                // Priority 1: 1080p gets highest score
-                when (it.quality) {
-                    1080 -> 100
-                    2160 -> 90  // 4K is good but 1080p preferred
-                    720 -> 70
-                    480 -> 50
-                    else -> 30
-                }
-            }.thenByDescending {
-                // Priority 2: H264/x264 preferred over HEVC/x265 (less buffering)
-                val text = it.originalText.lowercase() + it.url.lowercase()
-                when {
-                    text.contains("x264") || text.contains("h264") || text.contains("h.264") -> 100
-                    text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 10
-                    else -> 50 // Unknown codec - middle priority
-                }
-            }.thenBy {
-                // Priority 3: Smallest file size among same quality
-                if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
-            }.thenByDescending {
-                // Priority 4: Fastest server based on name
-                getServerPriority(it.originalText)
-            }
-        )
-
-        // Create data string (comma separated URLs)
-        val data = sortedLinks.joinToString(",") { it.url }
-
-        Log.d(TAG, "Sorted Links: ${sortedLinks.take(5).map { "${it.originalText} (${it.quality}p, ${it.sizeMB}MB)" }}")
-
         // Determine if series using companion object SERIES_DETECTION_REGEX
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
 
         return if (isSeries) {
-            // Extract episodes for series
-            val episodes = parseEpisodes(document, sortedLinks)
+            // Extract episodes for series - need to parse links for episode grouping
+            val sortedLinks = extractDownloadLinks(document)
+            val episodes = parseEpisodes(document, sortedLinks, url)
 
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
@@ -440,7 +336,8 @@ class HDhub4uProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, data) {
+            // For movies: pass URL as data, link extraction happens in loadLinks
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -456,7 +353,7 @@ class HDhub4uProvider : MainAPI() {
         val originalText: String
     )
 
-    private fun parseEpisodes(@Suppress("UNUSED_PARAMETER") document: org.jsoup.nodes.Document, links: List<DownloadLink>): List<com.lagradost.cloudstream3.Episode> {
+    private fun parseEpisodes(@Suppress("UNUSED_PARAMETER") document: org.jsoup.nodes.Document, links: List<DownloadLink>, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
 
         Log.d("HDhub4uProvider", "=== parseEpisodes START ===")
@@ -487,22 +384,12 @@ class HDhub4uProvider : MainAPI() {
 
         Log.d("HDhub4uProvider", "Episode grouping: ${groupedByEpisode.keys}")
 
-        // Create episodes from grouped links
+        // Create episodes from grouped links - pass pageUrl + episodeNum as data
         if (groupedByEpisode.size > 1 || (groupedByEpisode.size == 1 && groupedByEpisode.keys.first() != 0)) {
-            groupedByEpisode.forEach { (episodeNum, epLinks) ->
+            groupedByEpisode.forEach { (episodeNum, _) ->
                 if (episodeNum > 0) {
-                    // Prioritize hubcloud/hblinks over gadgetsweb
-                    val sortedLinks = epLinks.sortedByDescending { link ->
-                        when {
-                            link.url.contains("hubcloud", true) -> 100
-                            link.url.contains("hblinks", true) -> 90
-                            link.url.contains("hubdrive", true) -> 80
-                            link.url.contains("gadgetsweb", true) -> 50
-                            else -> 30
-                        }
-                    }
-                    val data = sortedLinks.joinToString(",") { it.url }
-                    Log.d("HDhub4uProvider", "Episode $episodeNum data order: ${sortedLinks.map { it.url.substringAfter("://").take(15) }}")
+                    // Data format: "pageUrl|||episodeNum" - links will be extracted in loadLinks
+                    val data = "$pageUrl|||$episodeNum"
                     episodes.add(
                         newEpisode(data) {
                             this.name = "Episode $episodeNum"
@@ -520,10 +407,11 @@ class HDhub4uProvider : MainAPI() {
             }
 
             if (downloadLinks.isNotEmpty()) {
-                downloadLinks.forEachIndexed { index, link ->
+                downloadLinks.forEachIndexed { index, _ ->
                     val episodeNum = index + 1
+                    val data = "$pageUrl|||$episodeNum"
                     episodes.add(
-                        newEpisode(link.url) {
+                        newEpisode(data) {
                             this.name = "Episode $episodeNum"
                             this.episode = episodeNum
                         }
@@ -531,8 +419,8 @@ class HDhub4uProvider : MainAPI() {
                 }
                 Log.d("HDhub4uProvider", "Created ${episodes.size} episodes from download links")
             } else if (batchLinks.isEmpty()) {
-                // Fallback only if no batch links: treat all links as one episode
-                val data = episodeLinks.joinToString(",") { it.url }
+                // Fallback only if no batch links: treat as full season
+                val data = "$pageUrl|||0"
                 episodes.add(
                     newEpisode(data) {
                         this.name = "Full Season"
@@ -570,17 +458,9 @@ class HDhub4uProvider : MainAPI() {
                 }
             }
 
-            batchByQuality.forEach { (qualityName, qualityLinks) ->
-                val sortedLinks = qualityLinks.sortedByDescending { link ->
-                    when {
-                        link.url.contains("hubcloud", true) -> 100
-                        link.url.contains("hblinks", true) -> 90
-                        link.url.contains("hubdrive", true) -> 80
-                        link.url.contains("gadgetsweb", true) -> 50
-                        else -> 30
-                    }
-                }
-                val data = sortedLinks.joinToString(",") { it.url }
+            batchByQuality.forEach { (qualityName, _) ->
+                // Data format: "pageUrl|||batch_qualityName" - links will be extracted in loadLinks
+                val data = "$pageUrl|||batch_$qualityName"
                 
                 episodes.add(
                     newEpisode(data) {
@@ -645,6 +525,96 @@ class HDhub4uProvider : MainAPI() {
         }
     }
 
+    // Helper function to extract download links from document
+    private fun extractDownloadLinks(document: org.jsoup.nodes.Document): List<DownloadLink> {
+        val downloadLinks = mutableListOf<DownloadLink>()
+        
+        // Method 1: Use CSS selectors to find all links on page
+        document.select("a[href]").forEach { element ->
+            val href = element.attr("href")
+            val text = element.text().trim()
+
+            val parentText = element.parent()?.text()?.trim() ?: ""
+            val prevSiblingText = element.previousElementSibling()?.text()?.trim() ?: ""
+
+            val episodeContext: String = when {
+                text.contains("episode", true) || text.contains("ep", true) -> text
+                prevSiblingText.contains("episode", true) -> "$prevSiblingText | $text"
+                parentText.contains("episode", true) -> parentText
+                text.isNotBlank() -> text
+                parentText.isNotBlank() -> parentText
+                else -> href
+            }
+
+            if (isValidDownloadLink(href) && downloadLinks.none { it.url == href }) {
+                val qualityText = episodeContext.ifBlank { href }
+                val quality = extractQuality(qualityText)
+                val size = parseFileSize(episodeContext)
+
+                downloadLinks.add(
+                    DownloadLink(
+                        url = href,
+                        quality = quality,
+                        sizeMB = size,
+                        originalText = episodeContext
+                    )
+                )
+            }
+        }
+
+        // Method 2: Use companion object DOWNLOAD_URL_REGEX for any missed links
+        val bodyHtml = document.body().html()
+
+        DOWNLOAD_URL_REGEX.findAll(bodyHtml).forEach { match ->
+            val linkUrl = match.value
+            if (downloadLinks.none { it.url == linkUrl }) {
+                val quality = extractQuality(linkUrl)
+
+                val startPos = maxOf(0, match.range.first - 100)
+                val surroundingText = bodyHtml.substring(startPos, match.range.first)
+                val episodeMatch = EPISODE_NUMBER_REGEX.findAll(surroundingText).lastOrNull()
+                val episodeContext = if (episodeMatch != null) {
+                    "EPiSODE ${episodeMatch.groupValues[1]}"
+                } else {
+                    ""
+                }
+
+                downloadLinks.add(
+                    DownloadLink(
+                        url = linkUrl,
+                        quality = quality,
+                        sizeMB = 0.0,
+                        originalText = episodeContext
+                    )
+                )
+            }
+        }
+
+        // Smart sort: 1080p priority → H264 codec → Smallest Size → Fastest Server
+        return downloadLinks.sortedWith(
+            compareByDescending<DownloadLink> {
+                when (it.quality) {
+                    1080 -> 100
+                    2160 -> 90
+                    720 -> 70
+                    480 -> 50
+                    else -> 30
+                }
+            }.thenByDescending {
+                val text = it.originalText.lowercase() + it.url.lowercase()
+                when {
+                    text.contains("x264") || text.contains("h264") || text.contains("h.264") -> 100
+                    text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 10
+                    else -> 50
+                }
+            }.thenBy {
+                if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+            }.thenByDescending {
+                getServerPriority(it.originalText)
+            }
+        )
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -654,16 +624,85 @@ class HDhub4uProvider : MainAPI() {
         Log.d(TAG, "Loading links from: $data")
 
         try {
-            // Parse comma-separated URLs
-            val links = data.split(",")
-                .map { it.trim() }
-                .filter { it.startsWith("http") }
+            // Parse data format: "pageUrl|||episodeNum" or just "pageUrl" (for movies)
+            val parts = data.split("|||")
+            val pageUrl = parts[0]
+            val episodeIdentifier = if (parts.size > 1) parts[1] else null
 
-            Log.d(TAG, "Processing ${links.size} links")
+            Log.d(TAG, "Page URL: $pageUrl, Episode: $episodeIdentifier")
 
-            // Take top 3 links (already sorted by quality in load())
-            links.take(3).amap { link ->
+            // Fetch page and extract all download links
+            val document = app.get(pageUrl, headers = headers, timeout = 20).document
+            val allLinks = extractDownloadLinks(document)
+
+            Log.d(TAG, "Total links extracted: ${allLinks.size}")
+
+            // Filter links based on episode number or batch type
+            val linksToProcess = when {
+                // Movie (no episode identifier)
+                episodeIdentifier == null -> allLinks
+
+                // Batch download (e.g., "batch_4K HDR")
+                episodeIdentifier.startsWith("batch_") -> {
+                    val qualityName = episodeIdentifier.removePrefix("batch_")
+                    allLinks.filter { link ->
+                        val text = link.originalText.uppercase()
+                        BATCH_DOWNLOAD_REGEX.containsMatchIn(link.originalText) &&
+                        !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText) &&
+                        when (qualityName) {
+                            "4K HDR" -> text.contains("4K") && text.contains("HDR")
+                            "4K SDR" -> text.contains("4K") && text.contains("SDR")
+                            "4K HEVC" -> text.contains("4K") && !text.contains("HDR") && !text.contains("SDR")
+                            "4K" -> text.contains("2160")
+                            "1080p HEVC" -> text.contains("1080") && text.contains("HEVC")
+                            "1080p" -> text.contains("1080") && !text.contains("HEVC")
+                            "WEB-DL HEVC" -> text.contains("WEB-DL") && text.contains("HEVC")
+                            "WEB-DL" -> text.contains("WEB-DL") && !text.contains("HEVC")
+                            "HEVC + x264" -> text.contains("HEVC") && text.contains("X264")
+                            "HEVC" -> text.contains("HEVC")
+                            "720p" -> text.contains("720")
+                            "480p" -> text.contains("480")
+                            else -> true
+                        }
+                    }
+                }
+
+                // Full season (episode 0)
+                episodeIdentifier == "0" -> {
+                    allLinks.filter { link ->
+                        !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText)
+                    }
+                }
+
+                // Specific episode number
+                else -> {
+                    val targetEpisode = episodeIdentifier.toIntOrNull() ?: 0
+                    allLinks.filter { link ->
+                        val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                        epNum == targetEpisode
+                    }
+                }
+            }
+
+            Log.d(TAG, "Filtered links count: ${linksToProcess.size}")
+
+            // Sort links with priority: hubcloud > hblinks > hubdrive > gadgetsweb
+            val sortedLinks = linksToProcess.sortedByDescending { link ->
+                when {
+                    link.url.contains("hubcloud", true) -> 100
+                    link.url.contains("hblinks", true) -> 90
+                    link.url.contains("hubdrive", true) -> 80
+                    link.url.contains("gadgetsweb", true) -> 50
+                    else -> 30
+                }
+            }
+
+            // Take top 3 links for extraction
+            sortedLinks.take(3).amap { downloadLink ->
                 try {
+                    val link = downloadLink.url
+                    Log.d(TAG, "Extracting: $link")
+                    
                     when {
                         link.contains("hubdrive", true) ->
                             Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
@@ -686,7 +725,7 @@ class HDhub4uProvider : MainAPI() {
                         else -> Log.w(TAG, "No extractor for: $link")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error extracting $link: ${e.message}")
+                    Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                 }
             }
         } catch (e: Exception) {
