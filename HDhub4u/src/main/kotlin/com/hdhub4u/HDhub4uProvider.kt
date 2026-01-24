@@ -459,12 +459,11 @@ class HDhub4uProvider : MainAPI() {
         return when {
             serverName.contains("Instant", true) -> 100  // Instant DL = fastest
             serverName.contains("Direct", true) -> 90
+            serverName.contains("10Gbps", true) -> 88
             serverName.contains("FSLv2", true) -> 85
             serverName.contains("FSL", true) -> 80
-            serverName.contains("10Gbps", true) -> 88
             serverName.contains("Download File", true) -> 70
             serverName.contains("Pixel", true) -> 60
-            serverName.contains("Buzz", true) -> 55
             else -> 50
         }
     }
