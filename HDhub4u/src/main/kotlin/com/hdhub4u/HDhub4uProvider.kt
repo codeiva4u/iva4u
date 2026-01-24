@@ -704,22 +704,39 @@ class HDhub4uProvider : MainAPI() {
                     }
                 )
 
-            // Process top 5 links (extractors do the heavy work)
-            sortedLinks.take(5).amap { downloadLink ->
+            // Process top 8 links (extractors do the heavy work)
+            // Increased from 5 to 8 to handle more episode links
+            sortedLinks.take(8).amap { downloadLink ->
                 try {
                     val link = downloadLink.url
                     Log.d(TAG, "Extracting: $link")
                     
                     when {
+                        // HubCloud direct links
                         link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        link.contains("hblinks", true) || link.contains("4khdhub", true) ->
+                        // Hblinks download pages (archives)
+                        link.contains("hblinks", true) && link.contains("/archives/", true) ->
                             Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                        
+                        // 4khdhub.fans series pages (not archives - different structure)
+                        link.contains("4khdhub.fans", true) && !link.contains("/archives/", true) ->
+                            FourKHDHubFans().getUrl(link, mainUrl, subtitleCallback, callback)
+                        
+                        // 4khdhub archives (same as hblinks)
+                        link.contains("4khdhub", true) && link.contains("/archives/", true) ->
+                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                        
+                        // 4khdhub general (fallback to FourKHDHub class)
+                        link.contains("4khdhub", true) ->
+                            FourKHDHub().getUrl(link, mainUrl, subtitleCallback, callback)
 
+                        // Hubdrive links
                         link.contains("hubdrive", true) ->
                             Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
+                        // gadgetsweb mediator and hubcdn instant download
                         link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
                             HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 

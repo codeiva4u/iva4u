@@ -520,6 +520,12 @@ class HubCloud : ExtractorApi() {
 
 /**
  * HUBCDN Extractor - hubcdn.fans instant downloads + gadgetsweb.xyz
+ * 
+ * gadgetsweb.xyz flow:
+ * 1. gadgetsweb.xyz/?id=BASE64 → redirects to → gadgetsweb.xyz/homelander/
+ * 2. Mediator page has JavaScript countdown (10 seconds)
+ * 3. After countdown, button href changes to hblinks.dad/archives/XXXXX
+ * 4. The hblinks URL is set via JavaScript, so we need to extract it from scripts
  */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
@@ -537,37 +543,85 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
-                // gadgetsweb.xyz/?id=BASE64 - Find hblinks URL
+                // gadgetsweb.xyz/?id=BASE64 - Follow redirect and find hblinks URL
                 url.contains("gadgetsweb.xyz") && url.contains("?id=") -> {
-                    Log.d(tag, "Gadgetsweb mediator")
+                    Log.d(tag, "Gadgetsweb mediator - following redirect chain")
                     
                     var hblinksUrl: String? = null
                     
-                    // Try base64 decode
-                    val encodedId = url.substringAfter("?id=").substringBefore("&")
-                    try {
-                        val decoded = base64Decode(encodedId)
-                        hblinksUrl = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
-                            .find(decoded)?.value
-                    } catch (_: Exception) { }
+                    // Step 1: Follow redirect to mediator page (e.g., /homelander/)
+                    val response = app.get(url, timeout = 30, allowRedirects = true)
+                    val finalUrl = response.url
+                    val doc = response.document
+                    val html = doc.html()
                     
-                    // Try page scraping
-                    if (hblinksUrl == null) {
-                        try {
-                            val doc = app.get(url, timeout = 30).document
-                            doc.select("script").forEach { script ->
-                                val match = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
-                                    .find(script.data())
-                                if (match != null) hblinksUrl = match.value
-                            }
-                            if (hblinksUrl == null) {
-                                hblinksUrl = doc.selectFirst("a#verify_btn, a[href*=hblinks], a[href*=4khdhub]")
-                                    ?.attr("href")
-                            }
-                        } catch (_: Exception) { }
+                    Log.d(tag, "Redirected to: $finalUrl")
+                    
+                    // Step 2: Search for hblinks URL in page content
+                    // The URL is typically set in JavaScript like: href = "https://hblinks.dad/archives/XXXXX"
+                    val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                    
+                    // Check in scripts
+                    doc.select("script").forEach { script ->
+                        val scriptData = script.data()
+                        val match = hblinksPattern.find(scriptData)
+                        if (match != null && hblinksUrl == null) {
+                            hblinksUrl = match.value
+                            Log.d(tag, "Found hblinks in script: $hblinksUrl")
+                        }
                     }
                     
+                    // Check in full HTML (sometimes embedded in data attributes or inline)
+                    if (hblinksUrl == null) {
+                        val match = hblinksPattern.find(html)
+                        if (match != null) {
+                            hblinksUrl = match.value
+                            Log.d(tag, "Found hblinks in HTML: $hblinksUrl")
+                        }
+                    }
+                    
+                    // Check button href
+                    if (hblinksUrl == null) {
+                        hblinksUrl = doc.selectFirst("a#verify_btn[href*=hblinks], a#verify_btn[href*=4khdhub], a.get-link[href*=hblinks]")
+                            ?.attr("href")?.takeIf { it.startsWith("http") }
+                        if (hblinksUrl != null) {
+                            Log.d(tag, "Found hblinks in button: $hblinksUrl")
+                        }
+                    }
+                    
+                    // Check for any hblinks/4khdhub links on page
+                    if (hblinksUrl == null) {
+                        doc.select("a[href*=hblinks], a[href*=4khdhub]").forEach { link ->
+                            val href = link.attr("href")
+                            if (href.contains("/archives/") && hblinksUrl == null) {
+                                hblinksUrl = href
+                                Log.d(tag, "Found hblinks link: $hblinksUrl")
+                            }
+                        }
+                    }
+                    
+                    // Step 3: If found, process hblinks
                     if (!hblinksUrl.isNullOrBlank()) {
+                        Log.d(tag, "Processing hblinks: $hblinksUrl")
+                        Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
+                    } else {
+                        Log.w(tag, "Could not find hblinks URL - gadgetsweb requires JavaScript execution")
+                        // Note: gadgetsweb.xyz uses JavaScript countdown to reveal hblinks URL
+                        // CloudStream cannot execute JavaScript, so this may fail for some links
+                    }
+                }
+                
+                // gadgetsweb.xyz/homelander/ or similar mediator pages (direct access)
+                url.contains("gadgetsweb.xyz") && !url.contains("?id=") -> {
+                    Log.d(tag, "Gadgetsweb mediator page (direct)")
+                    val doc = app.get(url, timeout = 30).document
+                    val html = doc.html()
+                    
+                    val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                    val match = hblinksPattern.find(html)
+                    
+                    if (match != null) {
+                        val hblinksUrl = match.value
                         Log.d(tag, "Found hblinks: $hblinksUrl")
                         Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
                     }
@@ -616,6 +670,64 @@ class HUBCDN : ExtractorApi() {
                             HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
                         }
                     }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error: ${e.message}")
+        }
+    }
+}
+
+/**
+ * 4KHDHub Fans Extractor - 4khdhub.fans direct download page
+ * Similar structure to hblinks but for 4K content
+ * URL pattern: 4khdhub.fans/{series-name}-{id}/
+ */
+class FourKHDHubFans : ExtractorApi() {
+    override val name = "4KHDHubFans"
+    override val mainUrl = "https://4khdhub.fans"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "4KHDHubFans"
+        Log.d(tag, "Processing: $url")
+        
+        try {
+            val doc = app.get(url, timeout = 30).document
+            val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
+            
+            Log.d(tag, "Found ${links.size} links")
+            
+            links.amap { element ->
+                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
+                if (shouldBlockUrl(href)) {
+                    Log.d(tag, "BLOCKED: $href")
+                    return@amap
+                }
+                
+                Log.d(tag, "Processing: $href")
+                
+                try {
+                    when {
+                        href.contains("hubdrive", true) -> 
+                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("hubcloud", true) -> 
+                            HubCloud().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("hubcdn.fans", true) -> 
+                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("pixeldrain", true) -> 
+                            loadExtractor(href, referer, subtitleCallback, callback)
+                        href.startsWith("http") && isDirectDownloadUrl(href) ->
+                            loadExtractor(href, referer, subtitleCallback, callback)
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed: ${e.message}")
                 }
             }
         } catch (e: Exception) {
