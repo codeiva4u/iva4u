@@ -20,6 +20,66 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * STREAMING URLs BLOCKER - Key Configuration
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * IMPORTANT: Streaming URLs (M3U8/HLS) से buffering issues होते हैं।
+ * इसलिए हम ONLY direct download links को prefer करते हैं।
+ * 
+ * BLOCKED DOMAINS (Streaming Only - No Downloads):
+ * - hubstream.art (only provides M3U8 streams, high buffering)
+ * - hdstream4u.com (streaming player, download requires reCAPTCHA bypass)
+ * 
+ * PREFERRED DOMAINS (Direct Downloads):
+ * - hubcloud.* (gamerxyt.com final links)
+ * - hubdrive.* (redirects to hubcloud)
+ * - pixeldrain.dev/com (direct downloads)
+ * - hubcdn.fans (instant downloads)
+ * - hblinks.* (download aggregator)
+ * - 4khdhub.* (download aggregator)
+ */
+
+// List of streaming-only domains to BLOCK/SKIP
+private val STREAMING_ONLY_DOMAINS = listOf(
+    "hubstream.art",
+    "hubstream.com", 
+    "hdstream4u.com",
+    "hdstream4u.net"
+)
+
+// Check if URL is from a streaming-only domain (should be blocked)
+fun isStreamingOnlyUrl(url: String): Boolean {
+    return STREAMING_ONLY_DOMAINS.any { domain -> 
+        url.contains(domain, ignoreCase = true) 
+    }
+}
+
+// Check if URL is a streaming format (M3U8/HLS)
+fun isStreamingFormat(url: String): Boolean {
+    return url.contains(".m3u8", ignoreCase = true) ||
+           url.contains(".txt", ignoreCase = true) && url.contains("master", ignoreCase = true) ||
+           url.contains("/hls/", ignoreCase = true)
+}
+
+// Check if URL is a direct download link (preferred)
+fun isDirectDownloadUrl(url: String): Boolean {
+    val downloadDomains = listOf(
+        "gamerxyt.com",
+        "pixeldrain.dev", "pixeldrain.com",
+        "r2.dev", "gdboka.buzz", "fukggl.buzz", "carnewz.site",
+        "fsl.gigabytes", "fsl-lover.buzz", "gigabytes.icu",
+        "bloggingvector.shop",
+        "acek-cdn.com"
+    )
+    return downloadDomains.any { domain -> url.contains(domain, ignoreCase = true) } ||
+           url.contains("/download", ignoreCase = true) ||
+           url.endsWith(".mkv", ignoreCase = true) ||
+           url.endsWith(".mp4", ignoreCase = true) ||
+           url.endsWith(".avi", ignoreCase = true)
+}
+
 // Helper function to load source with extractor name
 suspend fun loadSourceNameExtractor(
     name: String,
@@ -29,6 +89,11 @@ suspend fun loadSourceNameExtractor(
     subtitleCallback: (SubtitleFile) -> Unit,
     callback: (ExtractorLink) -> Unit
 ) {
+    // BLOCK streaming-only URLs
+    if (isStreamingOnlyUrl(url)) {
+        Log.d("Extractor", "BLOCKED streaming-only URL: $url")
+        return
+    }
     loadExtractor(url, referer, subtitleCallback, callback)
 }
 
@@ -311,6 +376,15 @@ class HubCloud : ExtractorApi() {
 
     // Cloudflare bypass
     private val cfKiller by lazy { CloudflareKiller() }
+    
+    /**
+     * ═══════════════════════════════════════════════════════════════════════
+     * SMART LINK FILTERING - Download Links Only
+     * ═══════════════════════════════════════════════════════════════════════
+     * 
+     * This extractor now ONLY returns direct download links, NOT streaming URLs.
+     * Streaming URLs (M3U8/HLS) are filtered out to prevent buffering issues.
+     */
 
     override suspend fun getUrl(
         url: String,
@@ -319,6 +393,13 @@ class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "HubCloud"
+        
+        // FILTER: Skip streaming-only domains
+        if (isStreamingOnlyUrl(url)) {
+            Log.d(tag, "SKIPPED streaming-only URL: $url")
+            return
+        }
+        
         val isValidUrl = try { 
             URI(url).toURL()
             true 
@@ -411,18 +492,38 @@ class HubCloud : ExtractorApi() {
         }
         val baseQuality = getIndexQuality(header)
 
+        // Helper function to invoke callback only for download links (not streaming)
+        val safeCallback: (ExtractorLink) -> Unit = { extractorLink ->
+            val linkUrl = extractorLink.url
+            // FILTER: Skip streaming URLs (M3U8/HLS cause buffering)
+            if (isStreamingFormat(linkUrl)) {
+                Log.d(tag, "FILTERED streaming URL: $linkUrl")
+            } else if (isStreamingOnlyUrl(linkUrl)) {
+                Log.d(tag, "FILTERED streaming-only domain: $linkUrl")
+            } else {
+                // Only invoke callback for direct download links
+                callback.invoke(extractorLink)
+                Log.d(tag, "ACCEPTED download link: $linkUrl")
+            }
+        }
 
         document.select("div.card-body a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
             val serverQuality = getAdjustedQuality(baseQuality, size, text)
             Log.d("Phisher", "Link: $link, Text: $text")
+            
+            // FILTER: Skip streaming URLs before processing
+            if (isStreamingFormat(link) || isStreamingOnlyUrl(link)) {
+                Log.d(tag, "SKIPPED streaming link: $link")
+                return@amap
+            }
 
             // URL-based server detection (since button text is often empty)
             when {
                 // Instant DL - Fastest server, highest priority
                 text.contains("Instant", ignoreCase = true) || text.contains("🚀", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer [Instant DL]",
                             "$referer [Instant DL] $labelExtras",
@@ -435,7 +536,7 @@ class HubCloud : ExtractorApi() {
                 link.contains("fsl.gigabytes", ignoreCase = true) ||
                         link.contains("fsl-lover.buzz", ignoreCase = true) ||
                         (link.contains("gigabytes.icu", ignoreCase = true) && !link.contains("gdboka")) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer [FSL Server]",
                             "$referer [FSL Server] $labelExtras",
@@ -449,7 +550,7 @@ class HubCloud : ExtractorApi() {
                         link.contains("gdboka.buzz", ignoreCase = true) ||
                         link.contains("fukggl.buzz", ignoreCase = true) ||
                         link.contains("carnewz.site", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer [FSLv2]",
                             "$referer [FSLv2] $labelExtras",
@@ -460,7 +561,7 @@ class HubCloud : ExtractorApi() {
 
                 // Old text-based FSL Server detection (fallback)
                 text.contains("FSL Server", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer [FSL Server]",
                             "$referer [FSL Server] $labelExtras",
@@ -470,7 +571,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("Download File", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer",
                             "$referer $labelExtras",
@@ -487,7 +588,7 @@ class HubCloud : ExtractorApi() {
                         val dlinkHeader = buzzResp.headers["hx-redirect"]
                         val dlink = dlinkHeader ?: ""
                         if (dlink.isNotBlank()) {
-                            callback.invoke(
+                            safeCallback.invoke(
                                 newExtractorLink(
                                     "$referer [BuzzServer]",
                                     "$referer [BuzzServer] $labelExtras",
@@ -496,7 +597,7 @@ class HubCloud : ExtractorApi() {
                             )
                         } else {
                             // Try direct link if no redirect
-                            callback.invoke(
+                            safeCallback.invoke(
                                 newExtractorLink(
                                     "$referer [BuzzServer]",
                                     "$referer [BuzzServer] $labelExtras",
@@ -544,7 +645,7 @@ class HubCloud : ExtractorApi() {
                         }
                     }
 
-                    callback(
+                    safeCallback(
                         newExtractorLink(
                             "Pixeldrain",
                             "Pixeldrain $labelExtras",
@@ -554,7 +655,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("S3 Server", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer S3 Server",
                             "$referer S3 Server $labelExtras",
@@ -564,7 +665,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("FSLv2", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer FSLv2",
                             "$referer FSLv2 $labelExtras",
@@ -574,7 +675,7 @@ class HubCloud : ExtractorApi() {
                 }
 
                 text.contains("Mega Server", ignoreCase = true) -> {
-                    callback.invoke(
+                    safeCallback.invoke(
                         newExtractorLink(
                             "$referer [Mega Server]",
                             "$referer [Mega Server] $labelExtras",
@@ -600,7 +701,7 @@ class HubCloud : ExtractorApi() {
 
                         if ("link=" in redirectUrl) {
                             val finalLink = redirectUrl.substringAfter("link=")
-                            callback.invoke(
+                            safeCallback.invoke(
                                 newExtractorLink(
                                     "10Gbps [Download]",
                                     "10Gbps [Download] $labelExtras",
@@ -620,15 +721,20 @@ class HubCloud : ExtractorApi() {
 
                 else -> {
                     // Handle unknown server types - direct link callback
-                    Log.d(tag, "Unknown server type, using direct link: $text -> $link")
+                    // FILTER: Only accept if it's a download link, not streaming
+                    Log.d(tag, "Unknown server type, checking link: $text -> $link")
                     if (link.isNotBlank() && link.startsWith("http")) {
-                        callback.invoke(
-                            newExtractorLink(
-                                "$referer [Direct]",
-                                "$referer [Direct] $labelExtras",
-                                link,
-                            ) { this.quality = serverQuality }
-                        )
+                        if (isDirectDownloadUrl(link)) {
+                            safeCallback.invoke(
+                                newExtractorLink(
+                                    "$referer [Direct]",
+                                    "$referer [Direct] $labelExtras",
+                                    link,
+                                ) { this.quality = serverQuality }
+                            )
+                        } else {
+                            Log.d(tag, "SKIPPED unknown link (not direct download): $link")
+                        }
                     }
                 }
             }
@@ -691,16 +797,18 @@ class HubCloud : ExtractorApi() {
 }
 
 /**
- * HDStream4u Extractor - hdstream4u.com streaming player with download links
+ * HDStream4u Extractor - BLOCKED (Streaming Only, High Buffering)
  * 
- * URL Format: hdstream4u.com/file/{file_code}
- * Download Chain:
- *   1. hdstream4u.com/file/{code} → Extract file code
- *   2. minochinos.com/download/{code} → Quality selection (HD: _n, Normal: _l)
- *   3. minochinos.com/download/{code}_{quality} → POST form with hash
- *   4. Final CDN URL: *.acek-cdn.com/vp/.../filename.mkv.mp4?...
+ * ═══════════════════════════════════════════════════════════════════════════
+ * REASON FOR BLOCKING:
+ * - hdstream4u.com only provides M3U8 streaming URLs
+ * - Requires reCAPTCHA bypass which is unreliable
+ * - High buffering issues on streaming playback
+ * - No direct download links available without CAPTCHA
  * 
- * Note: reCAPTCHA bypassed by sending form directly with proper parameters
+ * SOLUTION: Use hubcloud/hubdrive/hblinks extractors instead which provide
+ * direct download links from CDN servers (FSL, Pixeldrain, etc.)
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 class HDStream4u : ExtractorApi() {
     override val name = "HDStream4u"
@@ -708,12 +816,29 @@ class HDStream4u : ExtractorApi() {
     override val requiresReferer = true
 
     companion object {
-        // Regex patterns
         private val FILE_CODE_REGEX = Regex("""/file/([a-zA-Z0-9]+)""")
-        private val DOWNLOAD_LINK_REGEX = Regex("""href=["']([^"']*acek-cdn\.com[^"']*)["']""", RegexOption.IGNORE_CASE)
-        private val HASH_REGEX = Regex("""name=["']hash["']\s+value=["']([^"']+)["']""")
-        private val QUALITY_REGEX = Regex("""(\d{3,4})x(\d{3,4})\s+([\d.]+\s*[GM]B)""", RegexOption.IGNORE_CASE)
     }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "HDStream4u"
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // BLOCKED: hdstream4u.com is streaming-only with high buffering
+        // Skip this extractor to prioritize download links from other sources
+        // ═══════════════════════════════════════════════════════════════════
+        Log.d(tag, "SKIPPED: hdstream4u.com blocked (streaming-only, use hubcloud/hblinks instead)")
+        Log.d(tag, "URL was: $url")
+        
+        // Do not process - return immediately
+        // This forces the app to use other extractors that provide download links
+        return
+    }
+}
 
     override suspend fun getUrl(
         url: String,
@@ -944,70 +1069,23 @@ class HDStream4u : ExtractorApi() {
 }
 
 /**
- * Hubstream Extractor - hubstream.art video streaming
+ * Hubstream Extractor - BLOCKED (Streaming Only, High Buffering)
  * 
- * URL Format: hubstream.art/#{video_id}
+ * ═══════════════════════════════════════════════════════════════════════════
+ * REASON FOR BLOCKING:
+ * - hubstream.art ONLY provides M3U8 streaming URLs
+ * - High buffering issues due to HLS streaming nature
+ * - No direct download links available
+ * - AES-encrypted API responses are unreliable
  * 
- * API Endpoint: hubstream.art/api/v1/player?t={encrypted_token}
- * Returns: Encrypted video data (AES-CBC with varying keys)
- * 
- * Stream URLs:
- *   - Primary: hubstream.art/hls/{token}/js/{id}/{folder}/tt/master.m3u8
- *   - CDN: *.zenitharchitecture.site/v4/js/{id}/cf-master.*.txt
- *   - Direct IP: {IP}/v4/{token}/{timestamp}/js/{id}/master.m3u8
- * 
- * Note: Only M3U8 streaming available - NO direct download links
+ * SOLUTION: Use hubcloud/hubdrive/hblinks extractors instead which provide
+ * direct download links from CDN servers (FSL, Pixeldrain, etc.)
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 class Hubstream : ExtractorApi() {
     override val name = "Hubstream"
     override val mainUrl = "https://hubstream.art"
     override val requiresReferer = true
-
-    companion object {
-        // Regex patterns for Hubstream
-        private val HASH_REGEX = Regex("""#([a-zA-Z0-9]+)""")
-        private val M3U8_REGEX = Regex("""(https?://[^"'\s]+\.m3u8[^"'\s]*)""", RegexOption.IGNORE_CASE)
-        private val TXT_M3U8_REGEX = Regex("""(https?://[^"'\s]+master[^"'\s]*\.txt[^"'\s]*)""", RegexOption.IGNORE_CASE)
-        
-        // AES-128-CBC Decryption Key for Hubstream Download API
-        private const val AES_KEY = "kiemtienmua911ca"  // 16 chars for AES-128
-        
-        /**
-         * Convert hex string to byte array
-         */
-        private fun hexToBytes(hex: String): ByteArray {
-            val cleanHex = hex.trim()
-            return ByteArray(cleanHex.length / 2) { i ->
-                cleanHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-            }
-        }
-        
-        /**
-         * Decrypt AES-128-CBC encrypted hex string
-         * Format: First 16 bytes = IV, remaining = ciphertext
-         */
-        private fun decryptAES(encryptedHex: String): String? {
-            return try {
-                val encryptedBytes = hexToBytes(encryptedHex)
-                
-                // First 16 bytes are the IV
-                val iv = encryptedBytes.sliceArray(0 until 16)
-                // Remaining bytes are the ciphertext
-                val ciphertext = encryptedBytes.sliceArray(16 until encryptedBytes.size)
-                
-                val keySpec = SecretKeySpec(AES_KEY.toByteArray(Charsets.UTF_8), "AES")
-                val ivSpec = IvParameterSpec(iv)
-                
-                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
-                
-                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-            } catch (e: Exception) {
-                Log.e("Hubstream", "AES decryption failed: ${e.message}")
-                null
-            }
-        }
-    }
 
     override suspend fun getUrl(
         url: String,
@@ -1016,240 +1094,17 @@ class Hubstream : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "Hubstream"
-        Log.d(tag, "Processing URL: $url")
-
-        try {
-            // Extract video ID from hash
-            val videoId = HASH_REGEX.find(url)?.groupValues?.get(1)
-            if (videoId.isNullOrBlank()) {
-                Log.e(tag, "Could not extract video ID from: $url")
-                return
-            }
-            Log.d(tag, "Video ID: $videoId")
-
-            // PRIORITY 1: Try direct MP4 download API (best quality, fastest)
-            val downloadSuccess = extractDownloadLink(videoId, url, subtitleCallback, callback)
-            
-            // PRIORITY 2: Fall back to M3U8 streaming if download failed
-            if (!downloadSuccess) {
-                Log.d(tag, "Download API failed, trying M3U8 streams")
-                
-                // Fetch the player page
-                val doc = app.get(url, timeout = 30).document
-                val pageHtml = doc.html()
-                
-                // Find .txt master files (used by hubstream CDN)
-                val txtMatches = TXT_M3U8_REGEX.findAll(pageHtml)
-                txtMatches.forEach { match ->
-                    val m3u8Url = match.groupValues[1]
-                        .replace("&amp;", "&")
-                        .replace("\\/", "/")
-                    
-                    if (m3u8Url.contains("master") || m3u8Url.contains("cf-master")) {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "Hubstream [Stream]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                        Log.d(tag, "Found TXT M3U8: $m3u8Url")
-                    }
-                }
-
-                // Find direct M3U8 URLs
-                val m3u8Matches = M3U8_REGEX.findAll(pageHtml)
-                m3u8Matches.forEach { match ->
-                    val m3u8Url = match.groupValues[1]
-                        .replace("&amp;", "&")
-                        .replace("\\/", "/")
-                    
-                    if (m3u8Url.contains("master") && !m3u8Url.contains(".txt")) {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "Hubstream [HLS]",
-                                m3u8Url,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = url
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                        Log.d(tag, "Found M3U8: $m3u8Url")
-                    }
-                }
-
-                // Method 2: Try to call the player API directly
-                tryPlayerApi(videoId, url, callback)
-            }
-
-        } catch (e: Exception) {
-            Log.e(tag, "Error processing Hubstream: ${e.message}")
-        }
-    }
-    
-    /**
-     * Extract direct MP4 download link using Hubstream Download API
-     * 
-     * API: /api/v1/download?id={videoId}
-     * Returns: Hex-encoded AES-128-CBC encrypted JSON
-     * Key: kiemtienmua911ca (16 chars)
-     * Format: First 16 bytes = IV, rest = ciphertext
-     * Decrypted: {"mp4": "https://IP/token/timestamp/js/path/file.mp4/download?title=...", ...}
-     */
-    private suspend fun extractDownloadLink(
-        videoId: String,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val tag = "Hubstream"
         
-        try {
-            // Call the download API
-            val downloadApiUrl = "$mainUrl/api/v1/download?id=$videoId"
-            Log.d(tag, "Calling download API: $downloadApiUrl")
-            
-            val response = app.get(
-                downloadApiUrl,
-                referer = referer,
-                timeout = 30
-            ).text.trim()
-            
-            if (response.isBlank() || response.length < 32) {
-                Log.w(tag, "Empty or invalid API response")
-                return false
-            }
-            
-            Log.d(tag, "API response length: ${response.length}")
-            
-            // Decrypt the response
-            val decrypted = decryptAES(response)
-            if (decrypted.isNullOrBlank()) {
-                Log.w(tag, "Decryption returned null")
-                return false
-            }
-            
-            Log.d(tag, "Decrypted response: ${decrypted.take(200)}...")
-            
-            // Extract mp4 URL directly from decrypted data (may not be valid JSON)
-            // Pattern: "mp4":"https://IP/token/timestamp/path/file.mp4/download?title=..."
-            val mp4Url = Regex(""""mp4"\s*:\s*"([^"]+)""").find(decrypted)?.groupValues?.get(1)
-                ?.replace("\\/", "/")
-            
-            if (!mp4Url.isNullOrBlank() && mp4Url.startsWith("http")) {
-                Log.d(tag, "Found MP4 download URL: $mp4Url")
-                
-                // Extract title from URL if available
-                val title = Regex("""title=([^&]+)""").find(mp4Url)?.groupValues?.get(1)
-                    ?.replace(".mp4", "")
-                    ?.replace("+", " ")
-                    ?: "Hubstream Download"
-                
-                // Determine quality from filename
-                val quality = when {
-                    title.contains("2160p", true) || title.contains("4K", true) -> Qualities.P2160.value
-                    title.contains("1080p", true) -> Qualities.P1080.value
-                    title.contains("720p", true) -> Qualities.P720.value
-                    title.contains("480p", true) -> Qualities.P480.value
-                    else -> Qualities.P1080.value  // Default to 1080p for downloads
-                }
-                
-                callback(
-                    newExtractorLink(
-                        name,
-                        "Hubstream [Download]",
-                        mp4Url,
-                        ExtractorLinkType.VIDEO
-                    ) {
-                        this.referer = referer
-                        this.quality = quality
-                    }
-                )
-                
-                // Also try to extract subtitles
-                val subtitleMatch = Regex(""""subtitle"\s*:\s*\{([^}]+)\}""").find(decrypted)
-                if (subtitleMatch != null) {
-                    val subtitleJson = subtitleMatch.groupValues[1]
-                    // Pattern: "en": "/path/to/en.vtt#en"
-                    Regex(""""(\w+)"\s*:\s*"([^"]+)"""").findAll(subtitleJson).forEach { subMatch ->
-                        val lang = subMatch.groupValues[1]
-                        var subUrl = subMatch.groupValues[2].replace("\\/", "/")
-                        
-                        // Make URL absolute if needed
-                        if (subUrl.startsWith("/")) {
-                            subUrl = "$mainUrl$subUrl"
-                        }
-                        
-                        // Remove hash fragment if present
-                        subUrl = subUrl.substringBefore("#")
-                        
-                        subtitleCallback(
-                            newSubtitleFile(lang.uppercase(), subUrl)
-                        )
-                        Log.d(tag, "Found subtitle: $lang -> $subUrl")
-                    }
-                }
-                
-                return true
-            }
-            
-            Log.w(tag, "No valid MP4 URL in response")
-            return false
-            
-        } catch (e: Exception) {
-            Log.e(tag, "Download API failed: ${e.message}")
-            return false
-        }
-    }
-
-    private suspend fun tryPlayerApi(
-        videoId: String,
-        referer: String,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "Hubstream"
+        // ═══════════════════════════════════════════════════════════════════
+        // BLOCKED: hubstream.art is streaming-only with high buffering
+        // Skip this extractor to prioritize download links from other sources
+        // ═══════════════════════════════════════════════════════════════════
+        Log.d(tag, "SKIPPED: hubstream.art blocked (streaming-only, use hubcloud/hblinks instead)")
+        Log.d(tag, "URL was: $url")
         
-        try {
-            // Known CDN patterns for hubstream
-            val cdnDomains = listOf(
-                "zenitharchitecture.site",
-                "hubstream.art"
-            )
-            
-            for (domain in cdnDomains) {
-                try {
-                    // Pattern 1: Direct CDN txt file
-                    val txtUrl = "https://s3ae.$domain/v4/js/$videoId/cf-master.txt"
-                    val txtResponse = app.get(txtUrl, timeout = 10, allowRedirects = true)
-                    
-                    if (txtResponse.code == 200) {
-                        callback(
-                            newExtractorLink(
-                                name,
-                                "Hubstream CDN",
-                                txtUrl,
-                                ExtractorLinkType.M3U8
-                            ) {
-                                this.referer = referer
-                                this.quality = Qualities.Unknown.value
-                            }
-                        )
-                        Log.d(tag, "Found CDN stream: $txtUrl")
-                        return
-                    }
-                } catch (e: Exception) {
-                    continue
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "API method failed: ${e.message}")
-        }
+        // Do not process - return immediately
+        // This forces the app to use other extractors that provide download links
+        return
     }
 }
 

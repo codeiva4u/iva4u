@@ -621,7 +621,19 @@ class HDhub4uProvider : MainAPI() {
             }
 
             // Take top 3 links for extraction
-            sortedLinks.take(3).amap { downloadLink ->
+            // FILTER: Skip streaming-only URLs (hubstream.art, hdstream4u.com)
+            val filteredLinks = sortedLinks.filter { downloadLink ->
+                val link = downloadLink.url
+                val isStreaming = link.contains("hubstream.art", true) || 
+                                  link.contains("hdstream4u.com", true) ||
+                                  link.contains(".m3u8", true)
+                if (isStreaming) {
+                    Log.d(TAG, "FILTERED streaming URL: $link")
+                }
+                !isStreaming
+            }
+            
+            filteredLinks.take(3).amap { downloadLink ->
                 try {
                     val link = downloadLink.url
                     Log.d(TAG, "Extracting: $link")
