@@ -1,0 +1,9 @@
+{
+  "name": "Iva4u Repo(Hindi)",
+  "description": "Hindi",
+  "iconUrl": "https://wsrv.nl/?url=https://avatars.githubusercontent.com/u/91174352&mask=circle",
+  "manifestVersion": 2,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/codeiva4u/iva4u/refs/heads/builds/plugins.json"
+  ]
+}
