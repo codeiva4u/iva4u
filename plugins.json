@@ -1,0 +1,93 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "status": 1,
+        "version": 3,
+        "name": "HDhub4u",
+        "internalName": "HDhub4u",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "HDhub4u - Download HD Movies & Web Series",
+        "fileSize": 57358,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-cd0a4f4a01fd19d672d66fd17546a63bbc3e59d47d764aa2ee3b3b351dc4fe18"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.cs3",
+        "status": 1,
+        "version": 7,
+        "name": "Movierulzhd",
+        "internalName": "Movierulzhd",
+        "authors": [
+            "Phisher98,hexated"
+        ],
+        "description": "Includes: Movierulzhd",
+        "fileSize": 37137,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/master/Movierulzhd/faviconV2.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-de3f5975dafa9d1a0be3c20b75564e64145e834acd329557ffca1b0b53b0cebb",
+        "jarFileSize": 139250,
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movierulzhd.jar",
+        "jarHash": "sha256-11f439b40adbb35f1adeff2ae0a673845a7398161e5b8b31800d37bca38b3b4d"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "status": 1,
+        "version": 14,
+        "name": "MoviesDrive",
+        "internalName": "MoviesDrive",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "MoviesDrive - Download HD Movies & Web Series in 4K",
+        "fileSize": 67092,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new1.moviesdrive.surf/wp-content/uploads/2026/01/cropped-Gemini_Generated_Image_qt93aqt93aqt93aq-1-192x192.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-e5f0537acd958db9c8392e718b583c8b56d842f0c0fd908020db3c60a3a95f8e"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "status": 1,
+        "version": 9,
+        "name": "MultiMoviesProvider",
+        "internalName": "MultiMoviesProvider",
+        "authors": [
+            "Phisher98"
+        ],
+        "description": "Indian Multi-language HD Provider",
+        "fileSize": 63730,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-958f58267098e4789eda99b9fc863cd939940c35e2d61c22fe3329700f7652ab",
+        "jarFileSize": 278955,
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "jarHash": "sha256-5cb07833e08841360875ee46b48cd085b354a5c66435609df9d3df6b9b183c74"
+    }
+]
