@@ -476,92 +476,88 @@ class HDhub4uProvider : MainAPI() {
         
         // ═══════════════════════════════════════════════════════════════════
         // WEB SERIES EPISODE MAPPING
-        // HDhub4u structure: EPiSODE 01 (hubstream) | WATCH ... gadgetsweb link
-        // Episode numbers and download links appear in same order
+        // HDhub4u structure: <a href="gadgetsweb.xyz">EPiSODE 01</a> | <a href="hubstream">WATCH</a>
+        // Episode text is INSIDE the gadgetsweb link!
         // ═══════════════════════════════════════════════════════════════════
         
-        // Step 1: Find all episode numbers in order from page
-        val episodePositions = mutableListOf<Pair<Int, Int>>()  // (position, episodeNum)
-        EPISODE_NUMBER_REGEX.findAll(bodyHtml).forEach { match ->
-            val epNum = match.groupValues[1].toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum < 500) {
-                episodePositions.add(Pair(match.range.first, epNum))
-            }
-        }
+        Log.d(TAG, "=== extractDownloadLinks START ===")
         
-        // Step 2: Find all valid download links (gadgetsweb, hblinks, etc.) in order
-        val downloadPositions = mutableListOf<Triple<Int, String, String>>()  // (position, url, context)
-        
-        // Find gadgetsweb.xyz links (primary for episodes)
-        Regex("""href=["'](https?://gadgetsweb\.xyz/\?id=[^"']+)["']""", RegexOption.IGNORE_CASE)
+        // Method 1: Find gadgetsweb links with episode text inside them
+        // Pattern: <a href="gadgetsweb.xyz/?id=xxx">EPiSODE 01</a>
+        Regex("""<a[^>]*href=["'](https?://gadgetsweb\.xyz/\?id=[^"']+)["'][^>]*>([^<]*(?:EPiSODE|Episode|EP)[\s-]*\d+[^<]*)</a>""", RegexOption.IGNORE_CASE)
             .findAll(bodyHtml).forEach { match ->
                 val url = match.groupValues[1]
-                // Get surrounding context for quality info
-                val startPos = maxOf(0, match.range.first - 200)
-                val endPos = minOf(bodyHtml.length, match.range.last + 100)
-                val context = bodyHtml.substring(startPos, endPos)
-                    .replace(Regex("<[^>]+>"), " ")
-                    .replace(Regex("\\s+"), " ")
-                downloadPositions.add(Triple(match.range.first, url, context))
-            }
-        
-        // Also find hblinks/4khdhub links
-        Regex("""href=["'](https?://(?:hblinks|4khdhub)\.[a-z]+/[^"']+)["']""", RegexOption.IGNORE_CASE)
-            .findAll(bodyHtml).forEach { match ->
-                val url = match.groupValues[1]
-                val startPos = maxOf(0, match.range.first - 200)
-                val endPos = minOf(bodyHtml.length, match.range.last + 100)
-                val context = bodyHtml.substring(startPos, endPos)
-                    .replace(Regex("<[^>]+>"), " ")
-                    .replace(Regex("\\s+"), " ")
-                downloadPositions.add(Triple(match.range.first, url, context))
-            }
-        
-        // Sort by position
-        downloadPositions.sortBy { it.first }
-        
-        Log.d(TAG, "Episode positions: ${episodePositions.map { it.second }}")
-        Log.d(TAG, "Download links found: ${downloadPositions.size}")
-        
-        // Step 3: Map download links to episodes by position proximity
-        // For each download link, find the closest preceding episode number
-        downloadPositions.forEach { (pos, url, context) ->
-            // Skip if already added
-            if (downloadLinks.any { it.url == url }) return@forEach
-            
-            // Find the closest episode number BEFORE this link
-            var assignedEpisode: Int? = null
-            var minDistance = Int.MAX_VALUE
-            
-            for ((epPos, epNum) in episodePositions) {
-                val distance = pos - epPos
-                // Link should be AFTER episode text, within 2000 chars
-                if (distance > 0 && distance < 2000 && distance < minDistance) {
-                    minDistance = distance
-                    assignedEpisode = epNum
+                val linkText = match.groupValues[2]
+                
+                // Extract episode number from link text
+                val epMatch = EPISODE_NUMBER_REGEX.find(linkText)
+                val episodeNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                
+                val episodeContext = if (episodeNum != null) "EPiSODE $episodeNum" else linkText
+                
+                if (downloadLinks.none { it.url == url }) {
+                    downloadLinks.add(
+                        DownloadLink(
+                            url = url,
+                            quality = extractQuality(episodeContext),
+                            sizeMB = parseFileSize(episodeContext),
+                            originalText = episodeContext
+                        )
+                    )
+                    Log.d(TAG, "Found EP $episodeNum: $url")
                 }
             }
-            
-            // Build episode context
-            val episodeText = if (assignedEpisode != null) "EPiSODE $assignedEpisode" else ""
-            val fullContext = "$episodeText | $context"
-            
-            val quality = extractQuality(fullContext.ifBlank { url })
-            val size = parseFileSize(fullContext)
-            
-            downloadLinks.add(
-                DownloadLink(
-                    url = url,
-                    quality = quality,
-                    sizeMB = size,
-                    originalText = fullContext
-                )
-            )
-            
-            Log.d(TAG, "Mapped: EP $assignedEpisode -> $url")
-        }
         
-        // Step 4: Also extract direct hubdrive/hubcloud links (for movies/batch)
+        // Method 2: Find batch/quality links (4K, HEVC, etc.)
+        // Pattern: <a href="gadgetsweb.xyz/?id=xxx">4K | HDR | HEVC</a>
+        Regex("""<a[^>]*href=["'](https?://gadgetsweb\.xyz/\?id=[^"']+)["'][^>]*>([^<]*(?:4K|HEVC|HDR|1080p|720p|480p|x264|x265)[^<]*)</a>""", RegexOption.IGNORE_CASE)
+            .findAll(bodyHtml).forEach { match ->
+                val url = match.groupValues[1]
+                val linkText = match.groupValues[2].trim()
+                
+                // Skip if already added or if it's an episode link
+                if (downloadLinks.any { it.url == url }) return@forEach
+                if (EPISODE_NUMBER_REGEX.containsMatchIn(linkText)) return@forEach
+                
+                downloadLinks.add(
+                    DownloadLink(
+                        url = url,
+                        quality = extractQuality(linkText),
+                        sizeMB = parseFileSize(linkText),
+                        originalText = "BATCH | $linkText"
+                    )
+                )
+                Log.d(TAG, "Found BATCH: $linkText -> $url")
+            }
+        
+        // Method 3: Find hblinks/4khdhub links
+        Regex("""<a[^>]*href=["'](https?://(?:hblinks|4khdhub)\.[a-z]+/[^"']+)["'][^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
+            .findAll(bodyHtml).forEach { match ->
+                val url = match.groupValues[1]
+                val linkText = match.groupValues[2].trim()
+                
+                if (downloadLinks.any { it.url == url }) return@forEach
+                
+                // Check for episode number
+                val epMatch = EPISODE_NUMBER_REGEX.find(linkText)
+                val episodeContext = if (epMatch != null) {
+                    "EPiSODE ${epMatch.groupValues[1]}"
+                } else {
+                    linkText
+                }
+                
+                downloadLinks.add(
+                    DownloadLink(
+                        url = url,
+                        quality = extractQuality(episodeContext),
+                        sizeMB = parseFileSize(episodeContext),
+                        originalText = episodeContext
+                    )
+                )
+                Log.d(TAG, "Found hblinks: $episodeContext -> $url")
+            }
+        
+        // Method 4: Also extract direct hubdrive/hubcloud links (for movies)
         document.select("a[href]").forEach { element ->
             val href = element.attr("href")
             val text = element.text().trim()
@@ -575,11 +571,13 @@ class HDhub4uProvider : MainAPI() {
             // Only process valid download hosts (not gadgetsweb - already processed above)
             if (!isValidDownloadLink(href)) return@forEach
             if (href.contains("gadgetsweb", true)) return@forEach
+            if (href.contains("hblinks", true)) return@forEach
+            if (href.contains("4khdhub", true)) return@forEach
             
             val parentText = element.parent()?.text()?.trim() ?: ""
             val episodeContext: String = when {
-                text.contains("episode", true) || text.contains("ep", true) -> text
-                parentText.contains("episode", true) -> parentText
+                EPISODE_NUMBER_REGEX.containsMatchIn(text) -> text
+                EPISODE_NUMBER_REGEX.containsMatchIn(parentText) -> parentText
                 text.isNotBlank() -> text
                 parentText.isNotBlank() -> parentText
                 else -> href
