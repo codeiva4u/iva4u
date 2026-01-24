@@ -571,91 +571,84 @@ class HDhub4uProvider : MainAPI() {
             // Parse data format: "pageUrl|||episodeNum" or just "pageUrl" (for movies)
             val parts = data.split("|||")
             val pageUrl = parts[0]
-            val episodeIdentifier = if (parts.size > 1) parts[1] else null
+            val episodeNum = if (parts.size > 1) parts[1].toIntOrNull() else null
 
-            Log.d(TAG, "Page URL: $pageUrl, Episode: $episodeIdentifier")
+            Log.d(TAG, "Page URL: $pageUrl, Episode: $episodeNum")
 
             // Fetch page and extract all download links
             val document = app.get(pageUrl, headers = headers, timeout = 20).document
             val allLinks = extractDownloadLinks(document)
 
-            Log.d(TAG, "Total links extracted: ${allLinks.size}")
+            Log.d(TAG, "Total links: ${allLinks.size}")
 
-            // Filter links based on episode number
-            val linksToProcess = when {
-                // Movie (no episode identifier)
-                episodeIdentifier == null -> allLinks
+            // Filter by episode if needed
+            val targetLinks = when {
+                episodeNum == null -> allLinks  // Movie
+                episodeNum == 0 -> allLinks.filter { 
+                    !EPISODE_NUMBER_REGEX.containsMatchIn(it.originalText) 
+                }.ifEmpty { allLinks }  // Full season
+                else -> allLinks.filter { link ->
+                    val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
+                    epNum == episodeNum
+                }.ifEmpty { allLinks }  // Specific episode
+            }
 
-                // Full season (episode 0) - get all non-episode-specific links
-                episodeIdentifier == "0" -> {
-                    allLinks.filter { link ->
-                        !EPISODE_NUMBER_REGEX.containsMatchIn(link.originalText)
-                    }.ifEmpty { allLinks } // Fallback to all links if none match
-                }
+            Log.d(TAG, "Filtered links: ${targetLinks.size}")
 
-                // Specific episode number
-                else -> {
-                    val targetEpisode = episodeIdentifier.toIntOrNull() ?: 0
-                    if (targetEpisode > 0) {
-                        allLinks.filter { link ->
-                            val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                            epNum == targetEpisode
-                        }.ifEmpty { allLinks } // Fallback to all links if specific episode not found
-                    } else {
-                        allLinks
+            // Sort by priority: hubcloud > hblinks > hubdrive > gadgetsweb
+            // Then by quality: 1080p X264 > 1080p HEVC > 720p
+            val sortedLinks = targetLinks
+                .filter { !shouldBlockUrl(it.url) }  // Block streaming URLs
+                .sortedWith(
+                    compareByDescending<DownloadLink> {
+                        when {
+                            it.url.contains("hubcloud", true) -> 100
+                            it.url.contains("hblinks", true) -> 90
+                            it.url.contains("4khdhub", true) -> 85
+                            it.url.contains("hubdrive", true) -> 80
+                            it.url.contains("gadgetsweb", true) -> 50
+                            else -> 30
+                        }
+                    }.thenByDescending {
+                        // Quality priority: 1080p > 720p > 480p
+                        when (it.quality) {
+                            1080 -> 100
+                            720 -> 70
+                            480 -> 50
+                            else -> 30
+                        }
+                    }.thenByDescending {
+                        // X264 > HEVC
+                        val text = it.originalText.lowercase()
+                        when {
+                            text.contains("x264") || text.contains("h264") -> 100
+                            text.contains("hevc") || text.contains("x265") -> 50
+                            else -> 30
+                        }
+                    }.thenBy {
+                        // Smaller size = higher priority
+                        if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
                     }
-                }
-            }
+                )
 
-            Log.d(TAG, "Filtered links count: ${linksToProcess.size}")
-
-            // Sort links with priority: hubcloud > hblinks > hubdrive > gadgetsweb
-            val sortedLinks = linksToProcess.sortedByDescending { link ->
-                when {
-                    link.url.contains("hubcloud", true) -> 100
-                    link.url.contains("hblinks", true) -> 90
-                    link.url.contains("hubdrive", true) -> 80
-                    link.url.contains("gadgetsweb", true) -> 50
-                    else -> 30
-                }
-            }
-
-            // Take top 3 links for extraction
-            // FILTER: Skip streaming-only URLs (hubstream.art, hdstream4u.com)
-            val filteredLinks = sortedLinks.filter { downloadLink ->
-                val link = downloadLink.url
-                val isStreaming = link.contains("hubstream.art", true) || 
-                                  link.contains("hdstream4u.com", true) ||
-                                  link.contains(".m3u8", true)
-                if (isStreaming) {
-                    Log.d(TAG, "FILTERED streaming URL: $link")
-                }
-                !isStreaming
-            }
-            
-            filteredLinks.take(3).amap { downloadLink ->
+            // Process top 5 links (extractors do the heavy work)
+            sortedLinks.take(5).amap { downloadLink ->
                 try {
                     val link = downloadLink.url
                     Log.d(TAG, "Extracting: $link")
                     
                     when {
+                        link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+
+                        link.contains("hblinks", true) || link.contains("4khdhub", true) ->
+                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+
                         link.contains("hubdrive", true) ->
                             Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        link.contains("hubcloud", true) ||
-                                link.contains("gamerxyt", true) ||
-                                link.contains("gamester", true) ->
-                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                        link.contains("gadgetsweb", true) ->
+                        link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
                             HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                        link.contains("hubcdn", true) ->
-                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                        link.contains("hblinks", true) ||
-                                link.contains("4khdhub", true) ->
-                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
 
                         else -> Log.w(TAG, "No extractor for: $link")
                     }
