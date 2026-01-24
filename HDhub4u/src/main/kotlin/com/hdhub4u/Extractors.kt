@@ -338,8 +338,16 @@ class HubCloud : ExtractorApi() {
             }
             
             // Skip ZipDisk server (downloads ZIP files instead of video)
-            if (text.contains("ZipDisk", true) || link.contains("zipdisk", true)) {
+            if (text.contains("ZipDisk", true) || link.contains("zipdisk", true) || 
+                link.endsWith(".zip", true) || link.contains(".zip?", true) ||
+                link.contains("cloudserver", true)) {
                 Log.d(tag, "SKIPPED ZipDisk (ZIP not video): $link")
+                return@amap
+            }
+            
+            // Skip BuzzServer / Telegram fake links (bloggingvector.shop)
+            if (link.contains("bloggingvector", true) || text.contains("Telegram", true)) {
+                Log.d(tag, "SKIPPED BuzzServer/Telegram: $link")
                 return@amap
             }
 
