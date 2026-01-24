@@ -483,7 +483,8 @@ class HDhub4uProvider : MainAPI() {
         
         // Method 1: Find ALL gadgetsweb links first, then parse link text
         // Using Jsoup selectors (more reliable than regex in Kotlin)
-        document.select("a[href*=gadgetsweb.xyz]").forEach { element ->
+        // NOTE: Attribute value MUST be quoted for Jsoup when containing dots/special chars
+        document.select("a[href*='gadgetsweb.xyz']").forEach { element ->
             val url = element.attr("href")
             val linkText = element.text().trim()
             
@@ -496,7 +497,8 @@ class HDhub4uProvider : MainAPI() {
             val episodeContext = when {
                 episodeNum != null -> "EPiSODE $episodeNum"
                 linkText.contains("HEVC", true) || linkText.contains("4K", true) || 
-                linkText.contains("1080p", true) || linkText.contains("720p", true) -> "BATCH | $linkText"
+                linkText.contains("1080p", true) || linkText.contains("720p", true) ||
+                linkText.contains("480p", true) || linkText.contains("2160p", true) -> "BATCH | $linkText"
                 linkText.isNotBlank() -> linkText
                 else -> return@forEach
             }
@@ -513,7 +515,7 @@ class HDhub4uProvider : MainAPI() {
         }
         
         // Method 2: Find hblinks/4khdhub links
-        document.select("a[href*=hblinks], a[href*=4khdhub]").forEach { element ->
+        document.select("a[href*='hblinks'], a[href*='4khdhub']").forEach { element ->
             val url = element.attr("href")
             val linkText = element.text().trim()
             
@@ -539,7 +541,7 @@ class HDhub4uProvider : MainAPI() {
         }
         
         // Method 3: Find hubdrive/hubcloud links (for movies/batch)
-        document.select("a[href*=hubdrive], a[href*=hubcloud]").forEach { element ->
+        document.select("a[href*='hubdrive'], a[href*='hubcloud']").forEach { element ->
             val url = element.attr("href")
             val linkText = element.text().trim()
             
@@ -612,6 +614,11 @@ class HDhub4uProvider : MainAPI() {
             val allLinks = extractDownloadLinks(document)
 
             Log.d(TAG, "Total links: ${allLinks.size}")
+            
+            // Debug: Log all found links
+            allLinks.forEachIndexed { index, link ->
+                Log.d(TAG, "Link[$index]: ${link.originalText} -> ${link.url.take(60)}...")
+            }
 
             // Filter by episode if needed
             val targetLinks = when {
@@ -626,6 +633,11 @@ class HDhub4uProvider : MainAPI() {
             }
 
             Log.d(TAG, "Filtered links: ${targetLinks.size}")
+            
+            // Debug: Log filtered links
+            targetLinks.forEachIndexed { index, link ->
+                Log.d(TAG, "Target[$index]: ${link.originalText}")
+            }
 
             // Sort by priority: HEVC 1080p (small) > X264 1080p (small) > 720p
             // STRICT ORDER: Prefer smaller files, avoid HQ/large files
