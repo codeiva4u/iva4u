@@ -602,13 +602,30 @@ class HDhub4uProvider : MainAPI() {
                 .filter { 
                     // Skip HQ files (usually 5GB+) - prefer standard quality
                     val text = it.originalText.lowercase()
-                    val isHQ = text.contains("hq ") || text.contains("hq-") || text.contains("[hq]")
-                    val isTooLarge = it.sizeMB > 4000  // Skip files > 4GB
+                    // Comprehensive HQ detection patterns
+                    val isHQ = text.contains("hq ") || text.contains("hq-") || 
+                               text.contains("[hq]") || text.contains(" hq") ||
+                               text.startsWith("hq") || text.contains("hq:") ||
+                               text.contains("hq|") || text.contains("(hq)") ||
+                               Regex("""hq\s*1080""").containsMatchIn(text) ||
+                               Regex("""hq\s*2160""").containsMatchIn(text) ||
+                               Regex("""hq\s*4k""").containsMatchIn(text)
+                    // Skip files > 4GB (HQ files are usually 5-8GB)
+                    val isTooLarge = it.sizeMB > 4000
+                    
+                    if (isHQ) Log.d(TAG, "SKIPPED HQ: ${it.originalText}")
+                    if (isTooLarge) Log.d(TAG, "SKIPPED large file (${it.sizeMB}MB): ${it.originalText}")
+                    
                     !isHQ && !isTooLarge
                 }
                 .ifEmpty { 
-                    // Fallback to all links if nothing remains after filtering
-                    targetLinks.filter { !shouldBlockUrl(it.url) }
+                    // Fallback: still exclude HQ but allow larger files
+                    Log.w(TAG, "All standard links filtered, trying larger files (excluding HQ)")
+                    targetLinks.filter { link ->
+                        val text = link.originalText.lowercase()
+                        val isHQ = text.contains("hq") && (text.contains("1080") || text.contains("2160") || text.contains("4k"))
+                        !shouldBlockUrl(link.url) && !isHQ
+                    }
                 }
                 .sortedWith(
                     compareByDescending<DownloadLink> {

@@ -119,6 +119,39 @@ fun shouldBlockUrl(url: String): Boolean {
     return isBlocked || isM3u8
 }
 
+/**
+ * Validate URL returns actual video content (not ZIP/HTML/expired)
+ * Uses HEAD request to check Content-Type without downloading
+ * Returns true if valid video, false otherwise
+ */
+suspend fun isValidVideoUrl(url: String): Boolean {
+    return try {
+        val response = com.lagradost.cloudstream3.app.head(url, timeout = 5)
+        val contentType = response.headers["content-type"]?.lowercase() ?: ""
+        val contentDisposition = response.headers["content-disposition"]?.lowercase() ?: ""
+        
+        // Check for invalid content types
+        val isZip = contentType.contains("zip") || 
+                    contentType.contains("octet-stream") && url.contains(".zip") ||
+                    contentDisposition.contains(".zip")
+        val isHtml = contentType.contains("text/html")
+        val isError = response.code >= 400
+        
+        // Valid if video/* or application/octet-stream (for mkv/mp4)
+        val isVideo = contentType.contains("video/") || 
+                      (contentType.contains("octet-stream") && !isZip)
+        
+        if (isZip) Log.d("URLValidator", "BLOCKED ZIP: $url")
+        if (isHtml) Log.d("URLValidator", "BLOCKED HTML response: $url")
+        if (isError) Log.d("URLValidator", "BLOCKED HTTP error ${response.code}: $url")
+        
+        !isZip && !isHtml && !isError && (isVideo || contentType.isEmpty())
+    } catch (e: Exception) {
+        Log.d("URLValidator", "Validation failed (allowing): ${e.message}")
+        true  // Allow if validation fails (don't block on timeout)
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // EXTRACTOR CLASSES
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -357,22 +390,27 @@ class HubCloud : ExtractorApi() {
                 when {
                     // Instant DL - Fastest
                     text.contains("Instant", true) || text.contains("🚀") -> {
-                        callback(newExtractorLink(
-                            "$referer [Instant DL]",
-                            "$referer [Instant DL] $labelExtras",
-                            link
-                        ) { this.quality = score + 50 })
+                        // Validate before adding
+                        if (isValidVideoUrl(link)) {
+                            callback(newExtractorLink(
+                                "$referer [Instant DL]",
+                                "$referer [Instant DL] $labelExtras",
+                                link
+                            ) { this.quality = score + 50 })
+                        }
                     }
 
                     // FSL Server
                     link.contains("fsl.gigabytes", true) || 
                     link.contains("fsl-lover.buzz", true) ||
                     (link.contains("gigabytes.icu", true) && !link.contains("gdboka")) -> {
-                        callback(newExtractorLink(
-                            "$referer [FSL]",
-                            "$referer [FSL] $labelExtras",
-                            link
-                        ) { this.quality = score + 15 })
+                        if (isValidVideoUrl(link)) {
+                            callback(newExtractorLink(
+                                "$referer [FSL]",
+                                "$referer [FSL] $labelExtras",
+                                link
+                            ) { this.quality = score + 15 })
+                        }
                     }
 
                     // FSLv2 - R2/CDN
@@ -380,20 +418,24 @@ class HubCloud : ExtractorApi() {
                     link.contains("gdboka.buzz", true) ||
                     link.contains("fukggl.buzz", true) ||
                     link.contains("carnewz.site", true) -> {
-                        callback(newExtractorLink(
-                            "$referer [FSLv2]",
-                            "$referer [FSLv2] $labelExtras",
-                            link
-                        ) { this.quality = score + 20 })
+                        if (isValidVideoUrl(link)) {
+                            callback(newExtractorLink(
+                                "$referer [FSLv2]",
+                                "$referer [FSLv2] $labelExtras",
+                                link
+                            ) { this.quality = score + 20 })
+                        }
                     }
 
                     // Download File button
                     text.contains("Download", true) -> {
-                        callback(newExtractorLink(
-                            "$referer",
-                            "$referer $labelExtras",
-                            link
-                        ) { this.quality = score })
+                        if (isValidVideoUrl(link)) {
+                            callback(newExtractorLink(
+                                "$referer",
+                                "$referer $labelExtras",
+                                link
+                            ) { this.quality = score })
+                        }
                     }
 
                     // PixelDrain
@@ -413,6 +455,7 @@ class HubCloud : ExtractorApi() {
                             }
                             else -> link
                         }
+                        // PixelDrain URLs are usually reliable, skip validation
                         callback(newExtractorLink(
                             "Pixeldrain",
                             "Pixeldrain $labelExtras",
@@ -427,11 +470,14 @@ class HubCloud : ExtractorApi() {
                             val response = app.get(currentLink, allowRedirects = false)
                             val redirectUrl = response.headers["location"] ?: return@amap
                             if ("link=" in redirectUrl) {
-                                callback(newExtractorLink(
-                                    "10Gbps",
-                                    "10Gbps $labelExtras",
-                                    redirectUrl.substringAfter("link=")
-                                ) { this.quality = score })
+                                val finalLink = redirectUrl.substringAfter("link=")
+                                if (isValidVideoUrl(finalLink)) {
+                                    callback(newExtractorLink(
+                                        "10Gbps",
+                                        "10Gbps $labelExtras",
+                                        finalLink
+                                    ) { this.quality = score })
+                                }
                                 return@amap
                             }
                             currentLink = redirectUrl
@@ -440,11 +486,13 @@ class HubCloud : ExtractorApi() {
 
                     // Other direct download links
                     link.startsWith("http") && isDirectDownloadUrl(link) -> {
-                        callback(newExtractorLink(
-                            "$referer [Direct]",
-                            "$referer [Direct] $labelExtras",
-                            link
-                        ) { this.quality = score })
+                        if (isValidVideoUrl(link)) {
+                            callback(newExtractorLink(
+                                "$referer [Direct]",
+                                "$referer [Direct] $labelExtras",
+                                link
+                            ) { this.quality = score })
+                        }
                     }
                 }
             } catch (e: Exception) {
