@@ -1,0 +1,68 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "status": 1,
+        "version": 6,
+        "name": "HDhub4u",
+        "internalName": "HDhub4u",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "HDhub4u - Download HD Movies & Web Series",
+        "fileSize": 57386,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-40b8a4b1151310c0d6f599e657fdf5fcf6efe2ee81e3e80b1a13d6057009833a"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "status": 1,
+        "version": 15,
+        "name": "MoviesDrive",
+        "internalName": "MoviesDrive",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "MoviesDrive - Download HD Movies & Web Series in 4K",
+        "fileSize": 67127,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new1.moviesdrive.surf/wp-content/uploads/2026/01/cropped-Gemini_Generated_Image_qt93aqt93aqt93aq-1-192x192.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-76526f0b010ac8cc10970f89ca6695ba4722d066c532fd85ce7c35dc4bb190cf"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "status": 1,
+        "version": 28,
+        "name": "MultiMoviesProvider",
+        "internalName": "MultiMoviesProvider",
+        "authors": [
+            "Phisher98"
+        ],
+        "description": "Indian Multi-language HD Provider",
+        "fileSize": 65905,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-dbfd487e86e2e68637ea309ae4e7b0e0be1b7199e32394255ae78b620c65dd5c",
+        "jarFileSize": 285542,
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "jarHash": "sha256-e2554cc24eb6a65ddbffe91ff56099dbb1ea670d13c2b8619b7f1849a3152b67"
+    }
+]
