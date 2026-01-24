@@ -534,7 +534,7 @@ class HDhub4uProvider : MainAPI() {
             }
         }
 
-        // Smart sort: 1080p priority → H264 codec → Smallest Size → Fastest Server
+        // Smart sort: 1080p priority → HEVC/X265 → X264 → Smallest Size → Fastest Server
         return downloadLinks.sortedWith(
             compareByDescending<DownloadLink> {
                 when (it.quality) {
@@ -545,10 +545,11 @@ class HDhub4uProvider : MainAPI() {
                     else -> 30
                 }
             }.thenByDescending {
+                // PRIORITY: HEVC/X265 > X264 (HEVC = smaller files, better compression)
                 val text = it.originalText.lowercase() + it.url.lowercase()
                 when {
+                    text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 150
                     text.contains("x264") || text.contains("h264") || text.contains("h.264") -> 100
-                    text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 10
                     else -> 50
                 }
             }.thenBy {
@@ -596,7 +597,7 @@ class HDhub4uProvider : MainAPI() {
             Log.d(TAG, "Filtered links: ${targetLinks.size}")
 
             // Sort by priority: hubcloud > hblinks > hubdrive > gadgetsweb
-            // Then by quality: 1080p X264 > 1080p HEVC > 720p
+            // Then by quality: HEVC 1080p > X264 1080p > 720p
             val sortedLinks = targetLinks
                 .filter { !shouldBlockUrl(it.url) }  // Block streaming URLs
                 .sortedWith(
@@ -618,11 +619,11 @@ class HDhub4uProvider : MainAPI() {
                             else -> 30
                         }
                     }.thenByDescending {
-                        // X264 > HEVC
+                        // HEVC/X265 > X264 (HEVC = smaller files, better compression)
                         val text = it.originalText.lowercase()
                         when {
+                            text.contains("hevc") || text.contains("x265") || text.contains("h265") -> 150
                             text.contains("x264") || text.contains("h264") -> 100
-                            text.contains("hevc") || text.contains("x265") -> 50
                             else -> 30
                         }
                     }.thenBy {

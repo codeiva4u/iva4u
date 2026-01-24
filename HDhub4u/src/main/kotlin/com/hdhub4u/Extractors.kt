@@ -15,29 +15,6 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 
-/**
- * ═══════════════════════════════════════════════════════════════════════════════════
- * HDhub4u Extractors - DOWNLOAD ONLY (No Streaming)
- * ═══════════════════════════════════════════════════════════════════════════════════
- * 
- * PRIORITY ORDER:
- * 1. X264 1080p quality
- * 2. Smallest file size
- * 3. Fastest server (Instant > FSL > Pixeldrain)
- * 
- * ACTIVE EXTRACTORS (Direct Downloads):
- * - HubCloud: Main extractor → gamerxyt.com CDN links
- * - Hubdrive: Redirects to HubCloud
- * - Hblinks/4KHDHub: Download aggregator pages
- * - HUBCDN: hubcdn.fans instant downloads
- * - PixelDrainDev: pixeldrain.dev direct downloads
- * 
- * REMOVED EXTRACTORS (Streaming Only - Causes Buffering):
- * - Hubstream: hubstream.art (M3U8 only)
- * - HDStream4u: hdstream4u.com (M3U8 + reCAPTCHA)
- * ═══════════════════════════════════════════════════════════════════════════════════
- */
-
 // ═══════════════════════════════════════════════════════════════════════════════════
 // UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -66,18 +43,23 @@ fun parseSizeToMB(sizeStr: String): Double {
 fun getServerPriority(serverName: String): Int = when {
     serverName.contains("Instant", true) -> 100
     serverName.contains("Direct", true) -> 90
-    serverName.contains("FSLv2", true) -> 85
     serverName.contains("10Gbps", true) -> 88
+    serverName.contains("FSLv2", true) -> 85
     serverName.contains("FSL", true) -> 80
     serverName.contains("Download", true) -> 70
     serverName.contains("Pixel", true) -> 60
-    serverName.contains("Buzz", true) -> 55
     else -> 50
 }
 
-// Calculate quality score: 1080p X264 > 1080p HEVC > 720p > 480p
-// Also considers file size (smaller = better for same quality)
+/**
+ * Calculate quality score with STRICT priority order:
+ * 1. X265/HEVC 1080p (highest priority - smaller files, better quality)
+ * 2. X264 1080p (good compatibility)
+ * 3. Smallest file size within same quality
+ * 4. Fastest server (Instant > FSL > Pixeldrain)
+ */
 fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, codec: String = ""): Int {
+    // Base score by resolution
     var score = when (quality) {
         1080 -> 1000
         2160 -> 900  // 4K lower priority (larger files)
@@ -86,26 +68,30 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
         else -> 300
     }
     
-    // X264 codec bonus (better compatibility)
-    if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
+    // PRIORITY 1: X265/HEVC gets highest codec bonus (smaller files, better compression)
+    if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
+        score += 150  // HEVC highest priority
+    } 
+    // PRIORITY 2: X264 gets medium codec bonus (better compatibility)
+    else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
         score += 100
-    } else if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true)) {
-        score += 10  // HEVC is smaller but less compatible
     }
     
-    // Size bonus for 1080p (smaller = higher priority)
+    // PRIORITY 3: Size bonus (smaller = higher priority)
     if (quality == 1080) {
         val sizeMB = parseSizeToMB(sizeStr)
         score += when {
-            sizeMB <= 800 -> 80   // Ultra compressed
-            sizeMB <= 1200 -> 60  // Highly compressed
-            sizeMB <= 1800 -> 40
-            sizeMB <= 2500 -> 20
+            sizeMB <= 600 -> 90   // Ultra HEVC compressed
+            sizeMB <= 900 -> 75   // Highly compressed
+            sizeMB <= 1200 -> 60
+            sizeMB <= 1600 -> 45
+            sizeMB <= 2000 -> 30
+            sizeMB <= 2500 -> 15
             else -> 0
         }
     }
     
-    // Server speed bonus
+    // PRIORITY 4: Server speed bonus
     score += getServerPriority(serverName)
     
     return score
@@ -116,7 +102,7 @@ fun isDirectDownloadUrl(url: String): Boolean {
     val downloadIndicators = listOf(
         "gamerxyt.com", "pixeldrain", "r2.dev", "gdboka.buzz", 
         "fukggl.buzz", "carnewz.site", "fsl.gigabytes", "fsl-lover.buzz",
-        "gigabytes.icu", "bloggingvector.shop", "acek-cdn.com",
+        "gigabytes.icu", "acek-cdn.com",
         "/download", ".mkv", ".mp4", ".avi"
     )
     return downloadIndicators.any { url.contains(it, ignoreCase = true) }
@@ -255,18 +241,6 @@ class Hubdrive : ExtractorApi() {
         }
     }
 }
-
-/**
- * HubCloud Extractor - Main Download Extractor
- * 
- * Flow: hubcloud.fyi/drive/XXX → gamerxyt.com/hubcloud.php → CDN download links
- * 
- * CDN Servers (Priority Order):
- * 1. Instant DL (fastest)
- * 2. FSL/FSLv2 (fast)
- * 3. Pixeldrain (reliable)
- * 4. BuzzServer (medium)
- */
 class HubCloud : ExtractorApi() {
     override val name = "Hub-Cloud"
     override val mainUrl = "https://hubcloud.*"
@@ -406,20 +380,6 @@ class HubCloud : ExtractorApi() {
                             "$referer $labelExtras",
                             link
                         ) { this.quality = score })
-                    }
-
-                    // BuzzServer
-                    link.contains("bloggingvector", true) ||
-                    text.contains("Buzz", true) -> {
-                        try {
-                            val buzzResp = app.get("$link/download", referer = link, allowRedirects = false)
-                            val dlink = buzzResp.headers["hx-redirect"] ?: link
-                            callback(newExtractorLink(
-                                "$referer [BuzzServer]",
-                                "$referer [BuzzServer] $labelExtras",
-                                dlink
-                            ) { this.quality = score })
-                        } catch (_: Exception) { }
                     }
 
                     // PixelDrain
