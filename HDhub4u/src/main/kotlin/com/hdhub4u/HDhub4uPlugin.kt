@@ -11,7 +11,7 @@ class HDhub4uPlugin: BasePlugin() {
         registerExtractorAPI(Hblinks())
         registerExtractorAPI(FourKHDHub())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(Hubcdnn())
+        // REMOVED: Hubcdnn() - duplicate of HUBCDN, returned M3U8 streaming URLs
         registerExtractorAPI(Hubdrive())
         registerExtractorAPI(HUBCDN())
         registerExtractorAPI(PixelDrainDev())
