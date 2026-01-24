@@ -1,0 +1,110 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/HDhub4u.cs3",
+        "status": 1,
+        "version": 7,
+        "name": "HDhub4u",
+        "internalName": "HDhub4u",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "HDhub4u - Download HD Movies & Web Series",
+        "fileSize": 58698,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new2.hdhub4u.fo/wp-content/uploads/2021/05/hdhub4ulogo.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-99ca3fa5e5159f72c2285cfb3ee56a59e836ff415c318b7ed5cc6248ade7f737"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Movies4u.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "Movies4u",
+        "internalName": "Movies4u",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "Movies4u - Download HD Movies & Web Series",
+        "fileSize": 72635,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://pub-7552829be8684482812b2b7bbeb7088c.r2.dev/appicon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-2a2b26e0261ad603a828bc2ebd950b34d1ab9a752a2a105788fbc7c0f842b445"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MoviesDrive.cs3",
+        "status": 1,
+        "version": 16,
+        "name": "MoviesDrive",
+        "internalName": "MoviesDrive",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "MoviesDrive - Download HD Movies & Web Series in 4K",
+        "fileSize": 67161,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://new1.moviesdrive.surf/wp-content/uploads/2026/01/cropped-Gemini_Generated_Image_qt93aqt93aqt93aq-1-192x192.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-4de0fadeef2ad34fbb153c8eabee109d19e6b723e74389a9abca64227f5d8a50"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.cs3",
+        "status": 1,
+        "version": 29,
+        "name": "MultiMoviesProvider",
+        "internalName": "MultiMoviesProvider",
+        "authors": [
+            "Phisher98"
+        ],
+        "description": "Indian Multi-language HD Provider",
+        "fileSize": 71866,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/LikDev-256/likdev256-tamil-providers/master/MultiMoviesProvider/icon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-c3c62dce16343927f6a7e60fbf60d0bb94755187845b237484783386a798ca25",
+        "jarFileSize": 305605,
+        "jarUrl": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/MultiMoviesProvider.jar",
+        "jarHash": "sha256-f86b7cd2e640a884b26daf47514e541b88922a4f188a2cfdffef8813270775ad"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/codeiva4u/iva4u/builds/Skymovies.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "Skymovies",
+        "internalName": "Skymovies",
+        "authors": [
+            "codeiva4u"
+        ],
+        "description": "Skymovies - Download HD Movies & Web Series",
+        "fileSize": 78235,
+        "repositoryUrl": "https://github.com/codeiva4u/iva4u",
+        "language": "hi",
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "iconUrl": "https://skymovieshd.ceo/images/logo2.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-9890070579210a657137ea7f5039769d6d12a38c2235347fb33900fe9609429b"
+    }
+]
