@@ -595,12 +595,43 @@ class HDhub4uProvider : MainAPI() {
 
             Log.d(TAG, "Filtered links: ${targetLinks.size}")
 
-            // Sort by priority: hubcloud > hblinks > hubdrive > gadgetsweb
-            // Then by quality: HEVC 1080p > X264 1080p > 720p
+            // Sort by priority: HEVC 1080p (small) > X264 1080p (small) > 720p
+            // STRICT ORDER: Prefer smaller files, avoid HQ/large files
             val sortedLinks = targetLinks
                 .filter { !shouldBlockUrl(it.url) }  // Block streaming URLs
+                .filter { 
+                    // Skip HQ files (usually 5GB+) - prefer standard quality
+                    val text = it.originalText.lowercase()
+                    val isHQ = text.contains("hq ") || text.contains("hq-") || text.contains("[hq]")
+                    val isTooLarge = it.sizeMB > 4000  // Skip files > 4GB
+                    !isHQ && !isTooLarge
+                }
+                .ifEmpty { 
+                    // Fallback to all links if nothing remains after filtering
+                    targetLinks.filter { !shouldBlockUrl(it.url) }
+                }
                 .sortedWith(
                     compareByDescending<DownloadLink> {
+                        // PRIORITY 1: HEVC/X265 > X264 (HEVC = smaller files, better compression)
+                        val text = it.originalText.lowercase() + it.url.lowercase()
+                        when {
+                            text.contains("hevc") || text.contains("x265") || text.contains("h265") -> 200
+                            text.contains("x264") || text.contains("h264") -> 150
+                            else -> 50
+                        }
+                    }.thenByDescending {
+                        // PRIORITY 2: Quality priority: 1080p > 720p > 480p
+                        when (it.quality) {
+                            1080 -> 100
+                            720 -> 70
+                            480 -> 50
+                            else -> 30
+                        }
+                    }.thenBy {
+                        // PRIORITY 3: Smaller size = higher priority (CRITICAL)
+                        if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+                    }.thenByDescending {
+                        // PRIORITY 4: Server preference
                         when {
                             it.url.contains("hubcloud", true) -> 100
                             it.url.contains("hblinks", true) -> 90
@@ -609,25 +640,6 @@ class HDhub4uProvider : MainAPI() {
                             it.url.contains("gadgetsweb", true) -> 50
                             else -> 30
                         }
-                    }.thenByDescending {
-                        // Quality priority: 1080p > 720p > 480p
-                        when (it.quality) {
-                            1080 -> 100
-                            720 -> 70
-                            480 -> 50
-                            else -> 30
-                        }
-                    }.thenByDescending {
-                        // HEVC/X265 > X264 (HEVC = smaller files, better compression)
-                        val text = it.originalText.lowercase()
-                        when {
-                            text.contains("hevc") || text.contains("x265") || text.contains("h265") -> 150
-                            text.contains("x264") || text.contains("h264") -> 100
-                            else -> 30
-                        }
-                    }.thenBy {
-                        // Smaller size = higher priority
-                        if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
                     }
                 )
 
