@@ -336,6 +336,12 @@ class HubCloud : ExtractorApi() {
                 Log.d(tag, "SKIPPED streaming: $link")
                 return@amap
             }
+            
+            // Skip ZipDisk server (downloads ZIP files instead of video)
+            if (text.contains("ZipDisk", true) || link.contains("zipdisk", true)) {
+                Log.d(tag, "SKIPPED ZipDisk (ZIP not video): $link")
+                return@amap
+            }
 
             val score = calculateQualityScore(quality, size, text, codec)
             
