@@ -62,13 +62,6 @@ fun getServerPriority(serverName: String): Int = when {
     else -> 50
 }
 
-/**
- * Calculate quality score with STRICT priority order:
- * 1. X265/HEVC 1080p (highest priority - smaller files, better quality)
- * 2. X264 1080p (good compatibility)
- * 3. Smallest file size within same quality
- * 4. Fastest server (Instant > FSL > Pixeldrain)
- */
 fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, codec: String = ""): Int {
     // Base score by resolution
     var score = when (quality) {
@@ -121,13 +114,7 @@ fun isDirectDownloadUrl(url: String): Boolean {
 
 // Check if URL should be blocked (streaming only)
 fun shouldBlockUrl(url: String): Boolean {
-    val blockedDomains = listOf(
-        "hubstream.art", "hubstream.com",
-        "hdstream4u.com", "hdstream4u.net"
-    )
-    val isBlocked = blockedDomains.any { url.contains(it, ignoreCase = true) }
-    val isM3u8 = url.contains(".m3u8", true) || url.contains("/hls/", true)
-    return isBlocked || isM3u8
+    return url.contains(".m3u8", true) || url.contains("/hls/", true)
 }
 
 /**
@@ -282,7 +269,7 @@ class Hubstreamdad : Hblinks() {
  * PixelDrain Dev - pixeldrain.dev direct downloads
  */
 class PixelDrainDev : PixelDrain() {
-    override var mainUrl = "https://pixeldrain.dev"
+    override var mainUrl = "https://pixeldrain.*"
 }
 
 /**
@@ -570,21 +557,9 @@ class HubCloud : ExtractorApi() {
     }
 }
 
-/**
- * HUBCDN Extractor - hubcdn.fans instant downloads + gadgetsweb.xyz
- * 
- * gadgetsweb.xyz flow (UPDATED - v2.0):
- * 1. gadgetsweb.xyz/?id=ENCRYPTED_BASE64 - Server returns JS with encoded data
- * 2. Extract s('o','ENCODED_DATA',...) from response HTML
- * 3. Decode chain: base64 → base64 → rot13 → base64 → JSON
- * 4. JSON contains: {"w":10, "l":"mediator_url", "o":"BASE64_FINAL_URL"}
- * 5. Decode 'o' field with base64 to get hblinks.dad/archives/XXXXX
- * 
- * This approach bypasses the JavaScript countdown completely!
- */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
-    override val mainUrl = "https://hubcdn.fans"
+    override val mainUrl = "https://hubcdn.*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -737,11 +712,6 @@ class HUBCDN : ExtractorApi() {
     }
 }
 
-/**
- * 4KHDHub Fans Extractor - 4khdhub.fans direct download page
- * Similar structure to hblinks but for 4K content
- * URL pattern: 4khdhub.fans/{series-name}-{id}/
- */
 class FourKHDHubFans : ExtractorApi() {
     override val name = "4KHDHubFans"
     override val mainUrl = "https://4khdhub.fans"
