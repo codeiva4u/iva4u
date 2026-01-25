@@ -698,31 +698,33 @@ class HDhub4uProvider : MainAPI() {
             // Process top 8 links (extractors do the heavy work)
             // Increased from 5 to 8 to handle more episode links
             sortedLinks.take(8).amap { downloadLink ->
-                try {
-                    val link = downloadLink.url
-                    Log.d(TAG, "Extracting: $link")
-                    
-                    when {
-                        // HubCloud direct links
-                        link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
-                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+                withTimeoutOrNull(9000L) { // Force timeout after 9s to prevent delays
+                    try {
+                        val link = downloadLink.url
+                        Log.d(TAG, "Extracting: $link")
+                        
+                        when {
+                            // HubCloud direct links
+                            link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                                HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Hblinks download pages (archives)
-                        link.contains("hblinks", true) && link.contains("/archives/", true) ->
-                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // Hblinks download pages (archives)
+                            link.contains("hblinks", true) && link.contains("/archives/", true) ->
+                                Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Hubdrive links
-                        link.contains("hubdrive", true) ->
-                            Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // Hubdrive links
+                            link.contains("hubdrive", true) ->
+                                Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // gadgetsweb mediator and hubcdn instant download
-                        link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
-                            HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // gadgetsweb mediator and hubcdn instant download
+                            link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
+                                HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        else -> Log.w(TAG, "No extractor for: $link")
+                            else -> Log.w(TAG, "No extractor for: $link")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                 }
             }
         } catch (e: Exception) {
