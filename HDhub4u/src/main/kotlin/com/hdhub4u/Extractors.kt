@@ -72,13 +72,13 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
         else -> 300
     }
     
-    // PRIORITY 1: X265/HEVC gets highest codec bonus (smaller files, better compression)
-    if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
-        score += 150  // HEVC highest priority
-    } 
-    // PRIORITY 2: X264 gets medium codec bonus (better compatibility)
-    else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
-        score += 100
+    // PRIORITY 1: X264 gets highest priority (most compatible and preferred)
+    if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true) || codec.contains("avc", true)) {
+        score += 150
+    }
+    // PRIORITY 2: HEVC/X265 gets lower priority
+    else if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
+        score += 50
     }
     
     // PRIORITY 3: Size bonus (smaller = higher priority)
