@@ -202,11 +202,24 @@ suspend fun isValidVideoUrl(url: String): Boolean {
  * 
  * Structure: hblinks.dad/archives/XXXXX
  * Contains links to: hubdrive, hubcloud, hubcdn.fans
+ * 
+ * SMART PRIORITY ORDER (for faster loading):
+ * 1. hubcdn.fans (Instant) - Fastest, direct CDN links
+ * 2. hubcloud (Direct) - Good speed
+ * 3. hubdrive (Drive) - Slower, requires redirect chain
  */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
     override val mainUrl = "https://hblinks.*"
     override val requiresReferer = true
+
+    // Data class to hold link info with priority
+    data class LinkInfo(
+        val url: String,
+        val quality: String,
+        val serverType: String, // instant, direct, drive
+        val priority: Int
+    )
 
     override suspend fun getUrl(
         url: String,
@@ -219,39 +232,129 @@ open class Hblinks : ExtractorApi() {
         
         try {
             val doc = app.get(url, timeout = 30).document
-            val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
+            val contentDiv = doc.selectFirst("div.entry-content") ?: doc
             
-            Log.d(tag, "Found ${links.size} links")
+            // Parse links with quality info from parent elements
+            val linkInfoList = mutableListOf<LinkInfo>()
             
-            links.amap { element ->
-                val href = element.absUrl("href").ifBlank { element.attr("href") }
-                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
-                if (shouldBlockUrl(href)) {
-                    Log.d(tag, "BLOCKED: $href")
-                    return@amap
+            // Parse h3 and h5 elements which contain quality info
+            contentDiv.select("h3, h5").forEach { header ->
+                val headerText = header.text().lowercase()
+                val quality = when {
+                    headerText.contains("1080p") && headerText.contains("hevc", true) -> "1080p-HEVC"
+                    headerText.contains("1080p") -> "1080p"
+                    headerText.contains("720p") && headerText.contains("hevc", true) -> "720p-HEVC"
+                    headerText.contains("720p") -> "720p"
+                    headerText.contains("4k") -> "4K"
+                    headerText.contains("480p") -> "480p"
+                    else -> "Unknown"
                 }
                 
-                Log.d(tag, "Processing: $href")
-                
-                try {
-                    when {
-                        href.contains("hubdrive", true) -> 
-                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcloud", true) -> 
-                            HubCloud().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcdn.fans", true) -> 
-                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("pixeldrain", true) -> 
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                        href.startsWith("http") && isDirectDownloadUrl(href) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
+                header.select("a[href]").forEach { link ->
+                    val href = link.absUrl("href").ifBlank { link.attr("href") }
+                    if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@forEach
+                    if (shouldBlockUrl(href)) return@forEach
+                    
+                    val linkText = link.text().lowercase()
+                    val serverType = when {
+                        href.contains("hubcdn.fans", true) || linkText.contains("instant") -> "instant"
+                        href.contains("hubcloud", true) || linkText.contains("direct") -> "direct"
+                        href.contains("hubdrive", true) || linkText.contains("drive") -> "drive"
+                        else -> "other"
                     }
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed: ${e.message}")
+                    
+                    // Calculate priority (lower = higher priority)
+                    val priority = calculateLinkPriority(quality, serverType)
+                    
+                    linkInfoList.add(LinkInfo(href, quality, serverType, priority))
                 }
             }
+            
+            // Sort by priority (lowest first = highest priority)
+            val sortedLinks = linkInfoList.sortedBy { it.priority }
+            
+            Log.d(tag, "Found ${sortedLinks.size} links, sorted by priority")
+            sortedLinks.take(5).forEach { 
+                Log.d(tag, "  Priority ${it.priority}: ${it.quality} ${it.serverType} - ${it.url.take(50)}...")
+            }
+            
+            // Process links - Instant/hubcdn first, then others
+            // Phase 1: Process high-priority links first (instant/1080p)
+            val highPriorityLinks = sortedLinks.filter { it.priority <= 20 }
+            val lowPriorityLinks = sortedLinks.filter { it.priority > 20 }
+            
+            // Process high priority first (sequentially for faster first result)
+            highPriorityLinks.forEach { linkInfo ->
+                try {
+                    processLink(linkInfo.url, linkInfo.quality, linkInfo.serverType, subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed high priority: ${e.message}")
+                }
+            }
+            
+            // Then process low priority in parallel
+            lowPriorityLinks.amap { linkInfo ->
+                try {
+                    processLink(linkInfo.url, linkInfo.quality, linkInfo.serverType, subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed low priority: ${e.message}")
+                }
+            }
+            
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")
+        }
+    }
+    
+    private fun calculateLinkPriority(quality: String, serverType: String): Int {
+        // Priority calculation: lower = higher priority
+        var priority = 100
+        
+        // Quality priority (1080p HEVC best)
+        priority += when (quality) {
+            "1080p-HEVC" -> 0
+            "1080p" -> 5
+            "720p-HEVC" -> 10
+            "720p" -> 15
+            "4K" -> 20  // 4K lower priority (big files)
+            "480p" -> 25
+            else -> 30
+        }
+        
+        // Server priority (instant fastest)
+        priority += when (serverType) {
+            "instant" -> 0   // hubcdn.fans - fastest
+            "direct" -> 10   // hubcloud - good
+            "drive" -> 20    // hubdrive - slow
+            else -> 30
+        }
+        
+        // Combine: 1080p-HEVC + instant = 100+0+0 = 100 (highest)
+        // 480p + drive = 100+25+20 = 145 (lowest)
+        return priority - 100  // Normalize to start from 0
+    }
+    
+    private suspend fun processLink(
+        href: String,
+        quality: String,
+        serverType: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "Hblinks"
+        Log.d(tag, "Processing [$quality/$serverType]: $href")
+        
+        when {
+            href.contains("hubcdn.fans", true) -> 
+                HUBCDN().getUrl(href, name, subtitleCallback, callback)
+            href.contains("hubcloud", true) -> 
+                HubCloud().getUrl(href, name, subtitleCallback, callback)
+            href.contains("hubdrive", true) -> 
+                Hubdrive().getUrl(href, name, subtitleCallback, callback)
+            href.contains("pixeldrain", true) -> 
+                loadExtractor(href, name, subtitleCallback, callback)
+            href.startsWith("http") && isDirectDownloadUrl(href) ->
+                loadExtractor(href, name, subtitleCallback, callback)
         }
     }
 }
