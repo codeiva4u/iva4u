@@ -254,11 +254,7 @@ open class Hblinks : ExtractorApi() {
     }
 }
 
-// 4khdhub uses same structure as hblinks
-class FourKHDHub : Hblinks() {
-    override var mainUrl = "https://4khdhub.*"
-    override val name = "4KHDHub"
-}
+
 
 // Hubstreamdad extends Hblinks
 class Hubstreamdad : Hblinks() {
@@ -712,55 +708,4 @@ class HUBCDN : ExtractorApi() {
     }
 }
 
-class FourKHDHubFans : ExtractorApi() {
-    override val name = "4KHDHubFans"
-    override val mainUrl = "https://4khdhub.fans"
-    override val requiresReferer = true
 
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "4KHDHubFans"
-        Log.d(tag, "Processing: $url")
-        
-        try {
-            val doc = app.get(url).document
-            val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
-            
-            Log.d(tag, "Found ${links.size} links")
-            
-            links.amap { element ->
-                val href = element.absUrl("href").ifBlank { element.attr("href") }
-                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
-                if (shouldBlockUrl(href)) {
-                    Log.d(tag, "BLOCKED: $href")
-                    return@amap
-                }
-                
-                Log.d(tag, "Processing: $href")
-                
-                try {
-                    when {
-                        href.contains("hubdrive", true) -> 
-                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcloud", true) -> 
-                            HubCloud().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcdn.fans", true) -> 
-                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("pixeldrain", true) -> 
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                        href.startsWith("http") && isDirectDownloadUrl(href) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error: ${e.message}")
-        }
-    }
-}

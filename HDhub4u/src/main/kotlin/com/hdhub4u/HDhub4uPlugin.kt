@@ -14,7 +14,7 @@ class HDhub4uPlugin: BasePlugin() {
         registerExtractorAPI(HubCloud())      // Main: gamerxyt.com CDN links
         registerExtractorAPI(Hubdrive())      // Redirects to HubCloud
         registerExtractorAPI(Hblinks())       // Download aggregator
-        registerExtractorAPI(FourKHDHub())    // 4khdhub aggregator
+
         registerExtractorAPI(HUBCDN())        // hubcdn.fans instant downloads
         registerExtractorAPI(PixelDrainDev()) // pixeldrain.dev
         registerExtractorAPI(Hubstreamdad())  // hblinks variant
