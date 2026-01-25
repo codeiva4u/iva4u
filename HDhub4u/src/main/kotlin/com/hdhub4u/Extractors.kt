@@ -158,11 +158,6 @@ fun decodeGadgetswebData(encodedData: String): String? {
     }
 }
 
-/**
- * Validate URL returns actual video content (not ZIP/HTML/expired)
- * Uses HEAD request to check Content-Type without downloading
- * Returns true if valid video, false otherwise
- */
 suspend fun isValidVideoUrl(url: String): Boolean {
     return try {
         val response = com.lagradost.cloudstream3.app.head(url)
@@ -256,10 +251,7 @@ open class Hblinks : ExtractorApi() {
 
 
 
-// Hubstreamdad extends Hblinks
-class Hubstreamdad : Hblinks() {
-    override var mainUrl = "https://hblinks.*"
-}
+
 
 /**
  * PixelDrain Dev - pixeldrain.dev direct downloads
