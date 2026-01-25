@@ -120,6 +120,47 @@ fun shouldBlockUrl(url: String): Boolean {
 }
 
 /**
+ * ROT13 decode function for gadgetsweb.xyz URL obfuscation
+ * Used in the decode chain: base64 -> base64 -> rot13 -> base64
+ */
+fun rot13(input: String): String {
+    return input.map { char ->
+        when (char) {
+            in 'a'..'z' -> ((char - 'a' + 13) % 26 + 'a'.code).toChar()
+            in 'A'..'Z' -> ((char - 'A' + 13) % 26 + 'A'.code).toChar()
+            else -> char
+        }
+    }.joinToString("")
+}
+
+/**
+ * Decode gadgetsweb localStorage data to extract final hblinks URL
+ * Decode chain: base64 -> base64 -> rot13 -> base64 -> JSON parse -> base64 decode 'o' field
+ */
+fun decodeGadgetswebData(encodedData: String): String? {
+    return try {
+        // Decode chain: base64 -> base64 -> rot13 -> base64
+        val step1 = base64Decode(encodedData)  // First base64 decode
+        val step2 = base64Decode(step1)         // Second base64 decode
+        val step3 = rot13(step2)                // ROT13 decode
+        val step4 = base64Decode(step3)         // Third base64 decode
+        
+        // Parse JSON: {"w":10,"l":"...","o":"BASE64_URL"}
+        val oFieldPattern = Regex(""""o"\s*:\s*"([^"]+)"""")
+        val oMatch = oFieldPattern.find(step4)
+        
+        if (oMatch != null) {
+            val encodedUrl = oMatch.groupValues[1]
+            base64Decode(encodedUrl)  // Final URL
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/**
  * Validate URL returns actual video content (not ZIP/HTML/expired)
  * Uses HEAD request to check Content-Type without downloading
  * Returns true if valid video, false otherwise
@@ -521,11 +562,14 @@ class HubCloud : ExtractorApi() {
 /**
  * HUBCDN Extractor - hubcdn.fans instant downloads + gadgetsweb.xyz
  * 
- * gadgetsweb.xyz flow:
- * 1. gadgetsweb.xyz/?id=BASE64 → redirects to → gadgetsweb.xyz/homelander/
- * 2. Mediator page has JavaScript countdown (10 seconds)
- * 3. After countdown, button href changes to hblinks.dad/archives/XXXXX
- * 4. The hblinks URL is set via JavaScript, so we need to extract it from scripts
+ * gadgetsweb.xyz flow (UPDATED - v2.0):
+ * 1. gadgetsweb.xyz/?id=ENCRYPTED_BASE64 - Server returns JS with encoded data
+ * 2. Extract s('o','ENCODED_DATA',...) from response HTML
+ * 3. Decode chain: base64 → base64 → rot13 → base64 → JSON
+ * 4. JSON contains: {"w":10, "l":"mediator_url", "o":"BASE64_FINAL_URL"}
+ * 5. Decode 'o' field with base64 to get hblinks.dad/archives/XXXXX
+ * 
+ * This approach bypasses the JavaScript countdown completely!
  */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
@@ -543,77 +587,79 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
-                // gadgetsweb.xyz/?id=BASE64 - Follow redirect and find hblinks URL
+                // gadgetsweb.xyz/?id=ENCRYPTED - NEW v2.0 approach
                 url.contains("gadgetsweb.xyz") && url.contains("?id=") -> {
-                    Log.d(tag, "Gadgetsweb mediator - following redirect chain")
+                    Log.d(tag, "Gadgetsweb v2.0 - extracting encoded data from response")
                     
                     var hblinksUrl: String? = null
                     
-                    // Step 1: Follow redirect to mediator page (e.g., /homelander/)
-                    val response = app.get(url, timeout = 30, allowRedirects = true)
-                    val finalUrl = response.url
-                    val doc = response.document
-                    val html = doc.html()
+                    // Step 1: Fetch WITHOUT following redirects to get the JS with encoded data
+                    val response = app.get(url, timeout = 30, allowRedirects = false)
+                    val html = response.text
                     
-                    Log.d(tag, "Redirected to: $finalUrl")
+                    Log.d(tag, "Response status: ${response.code}, length: ${html.length}")
                     
-                    // Step 2: Search for hblinks URL in page content
-                    // The URL is typically set in JavaScript like: href = "https://hblinks.dad/archives/XXXXX"
-                    val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                    // Step 2: Extract encoded data from s('o','ENCODED_DATA',...)
+                    // Pattern: s('o','Y214WE0xWjNZbXRh....',180*1000);
+                    val sPattern = Regex("""s\s*\(\s*['"]o['"]\s*,\s*['"]([A-Za-z0-9+/=]+)['"]""")
+                    val sMatch = sPattern.find(html)
                     
-                    // Check in scripts
-                    doc.select("script").forEach { script ->
-                        val scriptData = script.data()
-                        val match = hblinksPattern.find(scriptData)
-                        if (match != null && hblinksUrl == null) {
-                            hblinksUrl = match.value
-                            Log.d(tag, "Found hblinks in script: $hblinksUrl")
-                        }
-                    }
-                    
-                    // Check in full HTML (sometimes embedded in data attributes or inline)
-                    if (hblinksUrl == null) {
-                        val match = hblinksPattern.find(html)
-                        if (match != null) {
-                            hblinksUrl = match.value
-                            Log.d(tag, "Found hblinks in HTML: $hblinksUrl")
-                        }
-                    }
-                    
-                    // Check button href
-                    if (hblinksUrl == null) {
-                        hblinksUrl = doc.selectFirst("a#verify_btn[href*=hblinks], a#verify_btn[href*=4khdhub], a.get-link[href*=hblinks]")
-                            ?.attr("href")?.takeIf { it.startsWith("http") }
+                    if (sMatch != null) {
+                        val encodedData = sMatch.groupValues[1]
+                        Log.d(tag, "✓ Found encoded data (${encodedData.length} chars)")
+                        
+                        // Step 3: Decode using the chain: base64 → base64 → rot13 → base64 → JSON → base64
+                        hblinksUrl = decodeGadgetswebData(encodedData)
+                        
                         if (hblinksUrl != null) {
-                            Log.d(tag, "Found hblinks in button: $hblinksUrl")
+                            Log.d(tag, "✓ Decoded hblinks URL: $hblinksUrl")
+                        } else {
+                            Log.w(tag, "✗ Failed to decode data")
                         }
-                    }
-                    
-                    // Check for any hblinks/4khdhub links on page
-                    if (hblinksUrl == null) {
-                        doc.select("a[href*=hblinks], a[href*=4khdhub]").forEach { link ->
-                            val href = link.attr("href")
-                            if (href.contains("/archives/") && hblinksUrl == null) {
-                                hblinksUrl = href
-                                Log.d(tag, "Found hblinks link: $hblinksUrl")
+                    } else {
+                        Log.d(tag, "s() function not found, trying legacy redirect method")
+                        
+                        // Fallback: Follow redirect and try legacy extraction
+                        val redirectResponse = app.get(url, timeout = 30, allowRedirects = true)
+                        val finalUrl = redirectResponse.url
+                        val doc = redirectResponse.document
+                        val fullHtml = doc.html()
+                        
+                        Log.d(tag, "Redirected to: $finalUrl")
+                        
+                        // Try regex patterns in HTML
+                        val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
+                        
+                        doc.select("script").forEach { script ->
+                            val scriptData = script.data()
+                            val match = hblinksPattern.find(scriptData)
+                            if (match != null && hblinksUrl == null) {
+                                hblinksUrl = match.value
+                                Log.d(tag, "✓ Found hblinks in script: $hblinksUrl")
+                            }
+                        }
+                        
+                        if (hblinksUrl == null) {
+                            val match = hblinksPattern.find(fullHtml)
+                            if (match != null) {
+                                hblinksUrl = match.value
+                                Log.d(tag, "✓ Found hblinks in HTML: $hblinksUrl")
                             }
                         }
                     }
                     
-                    // Step 3: If found, process hblinks
+                    // Step 4: Process hblinks URL
                     if (!hblinksUrl.isNullOrBlank()) {
-                        Log.d(tag, "Processing hblinks: $hblinksUrl")
+                        Log.d(tag, "→ Processing hblinks: $hblinksUrl")
                         Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
                     } else {
-                        Log.w(tag, "Could not find hblinks URL - gadgetsweb requires JavaScript execution")
-                        // Note: gadgetsweb.xyz uses JavaScript countdown to reveal hblinks URL
-                        // CloudStream cannot execute JavaScript, so this may fail for some links
+                        Log.w(tag, "✗ Failed to extract hblinks URL from gadgetsweb")
                     }
                 }
                 
                 // gadgetsweb.xyz/homelander/ or similar mediator pages (direct access)
                 url.contains("gadgetsweb.xyz") && !url.contains("?id=") -> {
-                    Log.d(tag, "Gadgetsweb mediator page (direct)")
+                    Log.d(tag, "Gadgetsweb mediator page (direct access)")
                     val doc = app.get(url, timeout = 30).document
                     val html = doc.html()
                     
@@ -622,8 +668,10 @@ class HUBCDN : ExtractorApi() {
                     
                     if (match != null) {
                         val hblinksUrl = match.value
-                        Log.d(tag, "Found hblinks: $hblinksUrl")
+                        Log.d(tag, "✓ Found hblinks: $hblinksUrl")
                         Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
+                    } else {
+                        Log.w(tag, "✗ No hblinks URL found in mediator page")
                     }
                 }
                 
