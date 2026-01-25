@@ -16,8 +16,5 @@ class HDhub4uPlugin: BasePlugin() {
         registerExtractorAPI(Hblinks())       // Download aggregator
         registerExtractorAPI(HUBCDN())        // hubcdn.fans instant downloads
         registerExtractorAPI(PixelDrainDev()) // pixeldrain.dev
-
-        
-     
     }
 }

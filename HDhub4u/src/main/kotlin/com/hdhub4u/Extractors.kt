@@ -247,12 +247,6 @@ open class Hblinks : ExtractorApi() {
             Log.e(tag, "Error: ${e.message}")
         }
     }
-}
-
-
-
-
-
 /**
  * PixelDrain Dev - pixeldrain.dev direct downloads
  */
