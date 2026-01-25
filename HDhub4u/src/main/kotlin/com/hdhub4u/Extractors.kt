@@ -396,7 +396,11 @@ class HubCloud : ExtractorApi() {
         Log.d(tag, "Quality: ${quality}p, Codec: $codec, Size: $size")
 
         // Process each download button
-        document.select("div.card-body a.btn").amap { element ->
+        // UPDATED: HubCloud structure changed, buttons are outside card-body in container
+        // Use broader selector to catch buttons anywhere in container or main div
+        val buttons = document.select("div.card-body a.btn, div.container a.btn, div.main a.btn, a#download, a#fsl")
+        
+        buttons.amap { element ->
             val link = element.attr("href")
             val text = element.text()
             
@@ -669,13 +673,16 @@ class HUBCDN : ExtractorApi() {
                     
                     val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
                     
-                    val finalUrl = decodedUrl ?: url
-                    callback(newExtractorLink(
-                        "Instant DL",
-                        "Instant DL [hubcdn.fans]",
-                        finalUrl,
-                        INFER_TYPE
-                    ) { this.quality = Qualities.Unknown.value })
+                    if (decodedUrl != null) {
+                        callback(newExtractorLink(
+                            "Instant DL",
+                            "Instant DL [hubcdn.fans]",
+                            decodedUrl,
+                            INFER_TYPE
+                        ) { this.quality = Qualities.Unknown.value })
+                    } else {
+                        Log.w(tag, "Failed to decode hubcdn.fans URL")
+                    }
                 }
                 
                 // Legacy hubcdn format
