@@ -473,16 +473,9 @@ class HDhub4uProvider : MainAPI() {
         val downloadLinks = mutableListOf<DownloadLink>()
         
         // ═══════════════════════════════════════════════════════════════════
-        // WEB SERIES EPISODE MAPPING
-        // HDhub4u structure: <a href="gadgetsweb.xyz">EPiSODE 01</a> | <a href="hubstream">WATCH</a>
-        // Episode text is INSIDE the gadgetsweb link!
-        // ═══════════════════════════════════════════════════════════════════
         
         Log.d(TAG, "=== extractDownloadLinks START ===")
-        
-        // Method 1: Find ALL gadgetsweb links first, then parse link text
-        // Using Jsoup selectors (more reliable than regex in Kotlin)
-        // NOTE: Attribute value MUST be quoted for Jsoup when containing dots/special chars
+
         document.select("a[href*='gadgetsweb.xyz']").forEach { element ->
             val url = element.attr("href")
             val linkText = element.text().trim()
@@ -718,18 +711,6 @@ class HDhub4uProvider : MainAPI() {
                         // Hblinks download pages (archives)
                         link.contains("hblinks", true) && link.contains("/archives/", true) ->
                             Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                        
-                        // 4khdhub.fans series pages (not archives - different structure)
-                        link.contains("4khdhub.fans", true) && !link.contains("/archives/", true) ->
-                            FourKHDHubFans().getUrl(link, mainUrl, subtitleCallback, callback)
-                        
-                        // 4khdhub archives (same as hblinks)
-                        link.contains("4khdhub", true) && link.contains("/archives/", true) ->
-                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
-                        
-                        // 4khdhub general (fallback to FourKHDHub class)
-                        link.contains("4khdhub", true) ->
-                            FourKHDHub().getUrl(link, mainUrl, subtitleCallback, callback)
 
                         // Hubdrive links
                         link.contains("hubdrive", true) ->
