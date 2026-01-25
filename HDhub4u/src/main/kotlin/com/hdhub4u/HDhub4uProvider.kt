@@ -144,15 +144,63 @@ class HDhub4uProvider : MainAPI() {
             "$mainUrl/${request.data}page/$page/"
         }
 
-        Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, headers = headers).document
+        Log.d(TAG, "Loading main page (Regex): $url")
+        // Get raw text instead of Jsoup document for speed
+        val responseText = app.get(url, headers = headers).text
 
-        // Correct selector: li.thumb contains movie items
-        val home = document.select("li.thumb").mapNotNull {
-            it.toSearchResult()
+        val home = mutableListOf<SearchResponse>()
+        
+        // Regex extraction - much faster than Jsoup for lists
+        // Split by list item to process each movie block
+        val blocks = responseText.split("<li class=\"thumb").drop(1)
+        
+        blocks.forEach { block ->
+            // Extract Link
+            val linkMatch = Regex("""href="([^"]+)"""").find(block)
+            val href = linkMatch?.groupValues?.get(1) ?: return@forEach
+            
+            if (href.isBlank() || href.contains("category") || href.contains("page/")) return@forEach
+            val fixedUrl = fixUrl(href)
+
+            // Extract Poster
+            // Look for src, data-src, or data-lazy-src
+            val imgBlock = block.substringBefore("</a>", "") // Limit search to image area
+            val srcMatch = Regex("""src="([^"]+)"""").find(imgBlock)
+            val dataSrcMatch = Regex("""data-src="([^"]+)"""").find(imgBlock)
+            val lazySrcMatch = Regex("""data-lazy-src="([^"]+)"""").find(imgBlock)
+            
+            val posterUrl = when {
+                srcMatch != null && !srcMatch.groupValues[1].contains("data:image") -> srcMatch.groupValues[1]
+                dataSrcMatch != null -> dataSrcMatch.groupValues[1]
+                lazySrcMatch != null -> lazySrcMatch.groupValues[1]
+                else -> null
+            }?.let { fixUrlNull(it) }
+
+            // Extract Title
+            val titleMatch = Regex("""alt="([^"]+)"""").find(imgBlock)
+            val titleText = titleMatch?.groupValues?.get(1) 
+                ?: Regex("""<p>(.*?)</p>""").find(block)?.groupValues?.get(1)
+                ?: ""
+            
+            val title = cleanTitle(titleText)
+            if (title.isBlank()) return@forEach
+
+            // Determine type
+            val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
+
+            val searchResponse = if (isSeries) {
+                newTvSeriesSearchResponse(title, fixedUrl, TvType.TvSeries) {
+                    this.posterUrl = posterUrl
+                }
+            } else {
+                newMovieSearchResponse(title, fixedUrl, TvType.Movie) {
+                    this.posterUrl = posterUrl
+                }
+            }
+            home.add(searchResponse)
         }
 
-        Log.d(TAG, "Found ${home.size} items")
+        Log.d(TAG, "Found ${home.size} items (Regex)")
 
         return newHomePageResponse(request.name, home)
     }
@@ -223,26 +271,29 @@ class HDhub4uProvider : MainAPI() {
             val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
             Log.d(TAG, "Search URL: $searchUrl")
             
-            val document = app.get(searchUrl, headers = headers).document
+            val responseText = app.get(searchUrl, headers = headers).text
 
             // Search page uses different structure: li.movie-card
-            document.select("li.movie-card").forEach { card ->
-                val link = card.selectFirst("a[href]")
-                val img = card.selectFirst("img")
+            // Use Regex for speed
+            val blocks = responseText.split("<li class=\"movie-card").drop(1)
+            
+            blocks.forEach { block ->
+                val linkMatch = Regex("""href="([^"]+)"""").find(block)
+                val href = linkMatch?.groupValues?.get(1) ?: return@forEach
                 
-                val href = link?.attr("href") ?: return@forEach
                 if (href.isBlank() || href.contains("category")) return@forEach
-                
                 val fixedUrl = fixUrl(href)
-                val titleText = img?.attr("alt") ?: img?.attr("title") ?: ""
+                
+                val imgMatch = Regex("""src="([^"]+)"""").find(block)
+                val posterUrl = fixUrlNull(imgMatch?.groupValues?.get(1))
+                
+                val titleMatch = Regex("""alt="([^"]+)"""").find(block) 
+                               ?: Regex("""title="([^"]+)"""").find(block)
+                val titleText = titleMatch?.groupValues?.get(1) ?: ""
+                
                 if (titleText.isBlank()) return@forEach
-                
                 val title = cleanTitle(titleText)
-                if (title.isBlank()) return@forEach
                 
-                val posterUrl = fixUrlNull(img?.attr("src"))
-                
-                // Determine type using Regex pattern for series detection
                 val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
                 
                 val searchResult = if (isSeries) {
@@ -267,17 +318,27 @@ class HDhub4uProvider : MainAPI() {
                 
                 for (page in 1..3) {
                     val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-                    val doc = app.get(url, headers = headers).document
-
-                    doc.select("li.thumb").forEach { element ->
-                        val searchResult = element.toSearchResult()
-                        if (searchResult != null) {
-                            val title = searchResult.name.lowercase()
-                            val matches = searchTerms.any { term -> title.contains(term) }
-
-                            if (matches && results.none { it.url == searchResult.url }) {
-                                results.add(searchResult)
-                            }
+                    // Use Regex logic here too by calling getMainPage logic manually or extracting
+                    val html = app.get(url, headers = headers).text
+                    val fallbackBlocks = html.split("<li class=\"thumb").drop(1)
+                    
+                    fallbackBlocks.forEach { block ->
+                        // ... simplified regex extraction for fallback ...
+                        val link = Regex("""href="([^"]+)"""").find(block)?.groupValues?.get(1) ?: return@forEach
+                        val titleText = Regex("""alt="([^"]+)"""").find(block)?.groupValues?.get(1) ?: ""
+                        val title = cleanTitle(titleText)
+                        
+                        if (title.isBlank()) return@forEach
+                        
+                        // Check match
+                        val matches = searchTerms.any { term -> title.lowercase().contains(term) }
+                        if (matches && results.none { it.url == link }) {
+                             val poster = Regex("""src="([^"]+)"""").find(block)?.groupValues?.get(1)
+                             val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
+                             
+                             val res = if(isSeries) newTvSeriesSearchResponse(title, link, TvType.TvSeries){ this.posterUrl = poster }
+                                       else newMovieSearchResponse(title, link, TvType.Movie){ this.posterUrl = poster }
+                             results.add(res)
                         }
                     }
 
