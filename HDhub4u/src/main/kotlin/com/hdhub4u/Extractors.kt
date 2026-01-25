@@ -2,6 +2,7 @@ package com.hdhub4u
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import org.json.JSONObject
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
@@ -23,6 +24,16 @@ fun getBaseUrl(url: String): String {
     return try {
         URI(url).let { "${it.scheme}://${it.host}" }
     } catch (_: Exception) { "" }
+}
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    val link = JSONObject(
+        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+    ).optString(source)
+    if(link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
 }
 
 // Parse file size to MB (e.g., "1.8GB" → 1843, "500MB" → 500)
@@ -167,7 +178,7 @@ fun decodeGadgetswebData(encodedData: String): String? {
  */
 suspend fun isValidVideoUrl(url: String): Boolean {
     return try {
-        val response = com.lagradost.cloudstream3.app.head(url, timeout = 5)
+        val response = com.lagradost.cloudstream3.app.head(url)
         val contentType = response.headers["content-type"]?.lowercase() ?: ""
         val contentDisposition = response.headers["content-disposition"]?.lowercase() ?: ""
         
@@ -202,24 +213,11 @@ suspend fun isValidVideoUrl(url: String): Boolean {
  * 
  * Structure: hblinks.dad/archives/XXXXX
  * Contains links to: hubdrive, hubcloud, hubcdn.fans
- * 
- * SMART PRIORITY ORDER (for faster loading):
- * 1. hubcdn.fans (Instant) - Fastest, direct CDN links
- * 2. hubcloud (Direct) - Good speed
- * 3. hubdrive (Drive) - Slower, requires redirect chain
  */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
     override val mainUrl = "https://hblinks.*"
     override val requiresReferer = true
-
-    // Data class to hold link info with priority
-    data class LinkInfo(
-        val url: String,
-        val quality: String,
-        val serverType: String, // instant, direct, drive
-        val priority: Int
-    )
 
     override suspend fun getUrl(
         url: String,
@@ -231,130 +229,40 @@ open class Hblinks : ExtractorApi() {
         Log.d(tag, "Processing: $url")
         
         try {
-            val doc = app.get(url, timeout = 30).document
-            val contentDiv = doc.selectFirst("div.entry-content") ?: doc
+            val doc = app.get(url).document
+            val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
             
-            // Parse links with quality info from parent elements
-            val linkInfoList = mutableListOf<LinkInfo>()
+            Log.d(tag, "Found ${links.size} links")
             
-            // Parse h3 and h5 elements which contain quality info
-            contentDiv.select("h3, h5").forEach { header ->
-                val headerText = header.text().lowercase()
-                val quality = when {
-                    headerText.contains("1080p") && headerText.contains("hevc", true) -> "1080p-HEVC"
-                    headerText.contains("1080p") -> "1080p"
-                    headerText.contains("720p") && headerText.contains("hevc", true) -> "720p-HEVC"
-                    headerText.contains("720p") -> "720p"
-                    headerText.contains("4k") -> "4K"
-                    headerText.contains("480p") -> "480p"
-                    else -> "Unknown"
+            links.amap { element ->
+                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
+                if (shouldBlockUrl(href)) {
+                    Log.d(tag, "BLOCKED: $href")
+                    return@amap
                 }
                 
-                header.select("a[href]").forEach { link ->
-                    val href = link.absUrl("href").ifBlank { link.attr("href") }
-                    if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@forEach
-                    if (shouldBlockUrl(href)) return@forEach
-                    
-                    val linkText = link.text().lowercase()
-                    val serverType = when {
-                        href.contains("hubcdn.fans", true) || linkText.contains("instant") -> "instant"
-                        href.contains("hubcloud", true) || linkText.contains("direct") -> "direct"
-                        href.contains("hubdrive", true) || linkText.contains("drive") -> "drive"
-                        else -> "other"
+                Log.d(tag, "Processing: $href")
+                
+                try {
+                    when {
+                        href.contains("hubdrive", true) -> 
+                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("hubcloud", true) -> 
+                            HubCloud().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("hubcdn.fans", true) -> 
+                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
+                        href.contains("pixeldrain", true) -> 
+                            loadExtractor(href, referer, subtitleCallback, callback)
+                        href.startsWith("http") && isDirectDownloadUrl(href) ->
+                            loadExtractor(href, referer, subtitleCallback, callback)
                     }
-                    
-                    // Calculate priority (lower = higher priority)
-                    val priority = calculateLinkPriority(quality, serverType)
-                    
-                    linkInfoList.add(LinkInfo(href, quality, serverType, priority))
-                }
-            }
-            
-            // Sort by priority (lowest first = highest priority)
-            val sortedLinks = linkInfoList.sortedBy { it.priority }
-            
-            Log.d(tag, "Found ${sortedLinks.size} links, sorted by priority")
-            sortedLinks.take(5).forEach { 
-                Log.d(tag, "  Priority ${it.priority}: ${it.quality} ${it.serverType} - ${it.url.take(50)}...")
-            }
-            
-            // Process links - Instant/hubcdn first, then others
-            // Phase 1: Process high-priority links first (instant/1080p)
-            val highPriorityLinks = sortedLinks.filter { it.priority <= 20 }
-            val lowPriorityLinks = sortedLinks.filter { it.priority > 20 }
-            
-            // Process high priority first (sequentially for faster first result)
-            highPriorityLinks.forEach { linkInfo ->
-                try {
-                    processLink(linkInfo.url, linkInfo.quality, linkInfo.serverType, subtitleCallback, callback)
                 } catch (e: Exception) {
-                    Log.e(tag, "Failed high priority: ${e.message}")
+                    Log.e(tag, "Failed: ${e.message}")
                 }
             }
-            
-            // Then process low priority in parallel
-            lowPriorityLinks.amap { linkInfo ->
-                try {
-                    processLink(linkInfo.url, linkInfo.quality, linkInfo.serverType, subtitleCallback, callback)
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed low priority: ${e.message}")
-                }
-            }
-            
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")
-        }
-    }
-    
-    private fun calculateLinkPriority(quality: String, serverType: String): Int {
-        // Priority calculation: lower = higher priority
-        var priority = 100
-        
-        // Quality priority (1080p HEVC best)
-        priority += when (quality) {
-            "1080p-HEVC" -> 0
-            "1080p" -> 5
-            "720p-HEVC" -> 10
-            "720p" -> 15
-            "4K" -> 20  // 4K lower priority (big files)
-            "480p" -> 25
-            else -> 30
-        }
-        
-        // Server priority (instant fastest)
-        priority += when (serverType) {
-            "instant" -> 0   // hubcdn.fans - fastest
-            "direct" -> 10   // hubcloud - good
-            "drive" -> 20    // hubdrive - slow
-            else -> 30
-        }
-        
-        // Combine: 1080p-HEVC + instant = 100+0+0 = 100 (highest)
-        // 480p + drive = 100+25+20 = 145 (lowest)
-        return priority - 100  // Normalize to start from 0
-    }
-    
-    private suspend fun processLink(
-        href: String,
-        quality: String,
-        serverType: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "Hblinks"
-        Log.d(tag, "Processing [$quality/$serverType]: $href")
-        
-        when {
-            href.contains("hubcdn.fans", true) -> 
-                HUBCDN().getUrl(href, name, subtitleCallback, callback)
-            href.contains("hubcloud", true) -> 
-                HubCloud().getUrl(href, name, subtitleCallback, callback)
-            href.contains("hubdrive", true) -> 
-                Hubdrive().getUrl(href, name, subtitleCallback, callback)
-            href.contains("pixeldrain", true) -> 
-                loadExtractor(href, name, subtitleCallback, callback)
-            href.startsWith("http") && isDirectDownloadUrl(href) ->
-                loadExtractor(href, name, subtitleCallback, callback)
         }
     }
 }
@@ -397,7 +305,7 @@ class Hubdrive : ExtractorApi() {
         Log.d(tag, "Processing: $url")
         
         try {
-            val doc = app.get(url, timeout = 30000, interceptor = cfKiller).documentLarge
+            val doc = app.get(url, interceptor = cfKiller).documentLarge
             
             // Find hubcloud link
             var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -453,7 +361,7 @@ class HubCloud : ExtractorApi() {
             when {
                 "hubcloud.php" in url || "gamerxyt.com" in url -> url
                 "/drive/" in url -> {
-                    val driveDoc = app.get(url, interceptor = cfKiller, timeout = 30).document
+                    val driveDoc = app.get(url, interceptor = cfKiller).document
                     driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
@@ -464,7 +372,7 @@ class HubCloud : ExtractorApi() {
                         ?: ""
                 }
                 else -> {
-                    val rawHref = app.get(url, interceptor = cfKiller, timeout = 30)
+                    val rawHref = app.get(url, interceptor = cfKiller)
                         .document.select("#download").attr("href")
                     if (rawHref.startsWith("http")) rawHref
                     else getBaseUrl(url).trimEnd('/') + "/" + rawHref.trimStart('/')
@@ -483,7 +391,7 @@ class HubCloud : ExtractorApi() {
         Log.d(tag, "PHP URL: $phpUrl")
 
         // Parse gamerxyt.com download page
-        val document = app.get(phpUrl, interceptor = cfKiller, timeout = 30).document
+        val document = app.get(phpUrl, interceptor = cfKiller).document
         val size = document.selectFirst("i#size")?.text() ?: ""
         val header = document.selectFirst("div.card-header")?.text() ?: ""
         
@@ -697,7 +605,7 @@ class HUBCDN : ExtractorApi() {
                     var hblinksUrl: String? = null
                     
                     // Step 1: Fetch WITHOUT following redirects to get the JS with encoded data
-                    val response = app.get(url, timeout = 30, allowRedirects = false)
+                    val response = app.get(url, allowRedirects = false)
                     val html = response.text
                     
                     Log.d(tag, "Response status: ${response.code}, length: ${html.length}")
@@ -723,7 +631,7 @@ class HUBCDN : ExtractorApi() {
                         Log.d(tag, "s() function not found, trying legacy redirect method")
                         
                         // Fallback: Follow redirect and try legacy extraction
-                        val redirectResponse = app.get(url, timeout = 30, allowRedirects = true)
+                        val redirectResponse = app.get(url, allowRedirects = true)
                         val finalUrl = redirectResponse.url
                         val doc = redirectResponse.document
                         val fullHtml = doc.html()
@@ -763,7 +671,7 @@ class HUBCDN : ExtractorApi() {
                 // gadgetsweb.xyz/homelander/ or similar mediator pages (direct access)
                 url.contains("gadgetsweb.xyz") && !url.contains("?id=") -> {
                     Log.d(tag, "Gadgetsweb mediator page (direct access)")
-                    val doc = app.get(url, timeout = 30).document
+                    val doc = app.get(url).document
                     val html = doc.html()
                     
                     val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
@@ -781,7 +689,7 @@ class HUBCDN : ExtractorApi() {
                 // hubcdn.fans/file/XXX - Instant download
                 url.contains("hubcdn.fans/file/") -> {
                     Log.d(tag, "Instant download")
-                    val doc = app.get(url, timeout = 30).document
+                    val doc = app.get(url).document
                     
                     val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
                     val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
@@ -849,7 +757,7 @@ class FourKHDHubFans : ExtractorApi() {
         Log.d(tag, "Processing: $url")
         
         try {
-            val doc = app.get(url, timeout = 30).document
+            val doc = app.get(url).document
             val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
             
             Log.d(tag, "Found ${links.size} links")
