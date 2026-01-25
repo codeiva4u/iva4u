@@ -636,70 +636,51 @@ class HDhub4uProvider : MainAPI() {
             val sortedLinks = targetLinks
                 .filter { !shouldBlockUrl(it.url) }  // Block streaming URLs
                 .filter { 
-                    // Skip HQ files (usually 5GB+) - prefer standard quality
                     val text = it.originalText.lowercase()
-                    // Comprehensive HQ detection patterns
+                    
+                    // 1. REMOVE SAMPLES & TRAILERS
+                    val isSample = text.contains("sample") || text.contains("trailer")
+                    
+                    // 2. REMOVE SMALL FILES (Prevents playing 67MB clips instead of full movies)
+                    // Threshold: 150MB for movies. Episodes might be smaller but usually >100MB for 720p
+                    val isTooSmall = it.sizeMB > 0 && it.sizeMB < 150
+                    
+                    // 3. REMOVE HQ/LARGE FILES (> 4GB)
                     val isHQ = text.contains("hq ") || text.contains("hq-") || 
                                text.contains("[hq]") || text.contains(" hq") ||
                                text.startsWith("hq") || text.contains("hq:") ||
-                               text.contains("hq|") || text.contains("(hq)") ||
                                Regex("""hq\s*1080""").containsMatchIn(text) ||
-                               Regex("""hq\s*2160""").containsMatchIn(text) ||
-                               Regex("""hq\s*4k""").containsMatchIn(text)
-                    // Skip files > 4GB (HQ files are usually 5-8GB)
+                               Regex("""hq\s*2160""").containsMatchIn(text)
                     val isTooLarge = it.sizeMB > 4000
                     
-                    if (isHQ) Log.d(TAG, "SKIPPED HQ: ${it.originalText}")
-                    if (isTooLarge) Log.d(TAG, "SKIPPED large file (${it.sizeMB}MB): ${it.originalText}")
+                    if (isSample) Log.d(TAG, "SKIPPED Sample: ${it.originalText}")
+                    if (isTooSmall) Log.d(TAG, "SKIPPED Too Small (${it.sizeMB}MB): ${it.originalText}")
                     
-                    !isHQ && !isTooLarge
-                }
-                .ifEmpty { 
-                    // Fallback: still exclude HQ but allow larger files
-                    Log.w(TAG, "All standard links filtered, trying larger files (excluding HQ)")
-                    targetLinks.filter { link ->
-                        val text = link.originalText.lowercase()
-                        val isHQ = text.contains("hq") && (text.contains("1080") || text.contains("2160") || text.contains("4k"))
-                        !shouldBlockUrl(link.url) && !isHQ
-                    }
+                    !isSample && !isTooSmall && !isHQ && !isTooLarge
                 }
                 .sortedWith(
                     compareByDescending<DownloadLink> {
-                        // PRIORITY 1: HEVC/X265 > X264 (HEVC = smaller files, better compression)
-                        val text = it.originalText.lowercase() + it.url.lowercase()
+                        // PRIORITY 1 & 2: Quality + Codec Combination
+                        val text = it.originalText.lowercase()
+                        val isHevc = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("10bit")
+                        
                         when {
-                            text.contains("hevc") || text.contains("x265") || text.contains("h265") -> 200
-                            text.contains("x264") || text.contains("h264") -> 150
-                            else -> 50
+                            // 1st Priority: 1080p HEVC
+                            it.quality == 1080 && isHevc -> 400
+                            // 2nd Priority: 1080p x264 (or standard)
+                            it.quality == 1080 -> 300
+                            // 3rd Priority: 720p
+                            it.quality == 720 -> 200
+                            // Lower priority: 480p etc
+                            else -> 100
                         }
+                    }.thenBy {
+                        // PRIORITY 4 & 5: Smallest Size within that quality
+                        // Since we filtered garbage < 150MB, smallest here means "most efficient encode"
+                        if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
                     }.thenByDescending {
-                        // PRIORITY 2: Quality priority: 1080p > 720p > 480p
-                        when (it.quality) {
-                            1080 -> 100
-                            720 -> 70
-                            480 -> 50
-                            else -> 30
-                        }
-                    }.thenByDescending {
-                        // PRIORITY 3: Size Preference
-                        // Logic: Prefer files > 200MB (real content) but < 3GB (buffer-free streaming)
-                        // This prevents picking 60MB samples/trailers as top priority
-                        val size = it.sizeMB
-                        when {
-                            size in 200.0..3000.0 -> 100  // Ideal streaming range
-                            size > 3000.0 -> 50           // Too large (might buffer)
-                            size > 0.0 -> 10              // Too small (likely sample/trailer)
-                            else -> 0                     // Unknown size
-                        }
-                    }.thenByDescending {
-                        // PRIORITY 4: Server preference
-                        when {
-                            it.url.contains("hubcloud", true) -> 100
-                            it.url.contains("hblinks", true) -> 90
-                            it.url.contains("hubdrive", true) -> 80
-                            it.url.contains("gadgetsweb", true) -> 50
-                            else -> 30
-                        }
+                        // PRIORITY 6: Fastest Server
+                        getServerPriority(it.originalText)
                     }
                 )
 
