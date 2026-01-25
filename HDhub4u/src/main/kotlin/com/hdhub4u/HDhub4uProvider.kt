@@ -680,9 +680,17 @@ class HDhub4uProvider : MainAPI() {
                             480 -> 50
                             else -> 30
                         }
-                    }.thenBy {
-                        // PRIORITY 3: Smaller size = higher priority (CRITICAL)
-                        if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+                    }.thenByDescending {
+                        // PRIORITY 3: Size Preference
+                        // Logic: Prefer files > 200MB (real content) but < 3GB (buffer-free streaming)
+                        // This prevents picking 60MB samples/trailers as top priority
+                        val size = it.sizeMB
+                        when {
+                            size in 200.0..3000.0 -> 100  // Ideal streaming range
+                            size > 3000.0 -> 50           // Too large (might buffer)
+                            size > 0.0 -> 10              // Too small (likely sample/trailer)
+                            else -> 0                     // Unknown size
+                        }
                     }.thenByDescending {
                         // PRIORITY 4: Server preference
                         when {
