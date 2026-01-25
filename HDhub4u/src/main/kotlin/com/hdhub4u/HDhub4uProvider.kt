@@ -688,7 +688,7 @@ class HDhub4uProvider : MainAPI() {
                         when {
                             it.url.contains("hubcloud", true) -> 100
                             it.url.contains("hblinks", true) -> 90
-                            it.url.contains("4khdhub", true) -> 85
+
                             it.url.contains("hubdrive", true) -> 80
                             it.url.contains("gadgetsweb", true) -> 50
                             else -> 30
