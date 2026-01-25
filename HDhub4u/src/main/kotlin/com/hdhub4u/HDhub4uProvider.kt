@@ -721,23 +721,26 @@ class HDhub4uProvider : MainAPI() {
                 }
                 .sortedWith(
                     compareByDescending<DownloadLink> {
-                        // PRIORITY 1 & 2: Quality + Codec Combination
+                        // PRIORITY 1, 2, 3: Quality + Codec Combination
                         val text = it.originalText.lowercase()
                         val isHevc = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("10bit")
+                        val isX264 = text.contains("x264") || text.contains("h264") || text.contains("avc") || !isHevc // Assume x264 if not HEVC
                         
                         when {
-                            // 1st Priority: 1080p HEVC
-                            it.quality == 1080 && isHevc -> 400
-                            // 2nd Priority: 1080p x264 (or standard)
-                            it.quality == 1080 -> 300
-                            // 3rd Priority: 720p
-                            it.quality == 720 -> 200
+                            // 1st Priority: 1080p x264
+                            it.quality == 1080 && isX264 -> 400
+                            // 2nd Priority: 720p x264
+                            it.quality == 720 && isX264 -> 300
+                            // 3rd Priority: 1080p HEVC (x265)
+                            it.quality == 1080 && isHevc -> 200
+                            // 4th Priority: 720p HEVC
+                            it.quality == 720 && isHevc -> 100
                             // Lower priority: 480p etc
-                            else -> 100
+                            else -> 50
                         }
                     }.thenBy {
                         // PRIORITY 4 & 5: Smallest Size within that quality
-                        // Since we filtered garbage < 150MB, smallest here means "most efficient encode"
+                        // Smallest size = Ascending order (it.sizeMB)
                         if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
                     }.thenByDescending {
                         // PRIORITY 6: Fastest Server
