@@ -94,8 +94,7 @@ class HDhub4uProvider : MainAPI() {
         try {
             val result = withTimeoutOrNull(3_000L) {  // Reduced from 10s to 3s
                 val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json",
-                    timeout = 3  // Reduced timeout
+                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
                 )
                 val json = response.text
                 val jsonObject = JSONObject(json)
@@ -146,7 +145,7 @@ class HDhub4uProvider : MainAPI() {
         }
 
         Log.d(TAG, "Loading main page: $url")
-        val document = app.get(url, headers = headers, timeout = 10).document  // Reduced from 20s to 10s
+        val document = app.get(url, headers = headers).document
 
         // Correct selector: li.thumb contains movie items
         val home = document.select("li.thumb").mapNotNull {
@@ -224,7 +223,7 @@ class HDhub4uProvider : MainAPI() {
             val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
             Log.d(TAG, "Search URL: $searchUrl")
             
-            val document = app.get(searchUrl, headers = headers, timeout = 30).document
+            val document = app.get(searchUrl, headers = headers).document
 
             // Search page uses different structure: li.movie-card
             document.select("li.movie-card").forEach { card ->
@@ -268,7 +267,7 @@ class HDhub4uProvider : MainAPI() {
                 
                 for (page in 1..3) {
                     val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-                    val doc = app.get(url, headers = headers, timeout = 30).document
+                    val doc = app.get(url, headers = headers).document
 
                     doc.select("li.thumb").forEach { element ->
                         val searchResult = element.toSearchResult()
@@ -298,7 +297,7 @@ class HDhub4uProvider : MainAPI() {
         // Fetch latest mainUrl (async, cached)
         fetchMainUrl()
 
-        val document = app.get(url, headers = headers, timeout = 20).document
+        val document = app.get(url, headers = headers).document
 
         // Extract title using Regex
         val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1")?.text()?.trim()
@@ -610,7 +609,7 @@ class HDhub4uProvider : MainAPI() {
             Log.d(TAG, "Page URL: $pageUrl, Episode: $episodeNum")
 
             // Fetch page and extract all download links
-            val document = app.get(pageUrl, headers = headers, timeout = 20).document
+            val document = app.get(pageUrl, headers = headers).document
             val allLinks = extractDownloadLinks(document)
 
             Log.d(TAG, "Total links: ${allLinks.size}")
