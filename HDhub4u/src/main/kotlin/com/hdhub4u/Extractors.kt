@@ -236,8 +236,12 @@ open class Hblinks : ExtractorApi() {
                             HUBCDN().getUrl(href, name, subtitleCallback, callback)
                         href.contains("pixeldrain", true) -> 
                             loadExtractor(href, referer, subtitleCallback, callback)
-                        href.startsWith("http") && isDirectDownloadUrl(href) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
+                        href.startsWith("http") && isDirectDownloadUrl(href) -> {
+                             // Validate direct links strictly before passing to player
+                             if (isValidVideoUrl(href)) {
+                                 loadExtractor(href, referer, subtitleCallback, callback)
+                             }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(tag, "Failed: ${e.message}")
@@ -290,6 +294,16 @@ class Hubdrive : ExtractorApi() {
             
             if (href.contains("hubcloud", true)) {
                 HubCloud().getUrl(href, "Hubdrive", subtitleCallback, callback)
+            } else {
+                 // Fallback: Check if it's a direct video link if no HubCloud link found
+                 if (href.startsWith("http") && isDirectDownloadUrl(href) && isValidVideoUrl(href)) {
+                     callback(newExtractorLink(
+                        "Hubdrive Direct",
+                        "Hubdrive Direct",
+                        href,
+                        INFER_TYPE
+                     ))
+                 }
             }
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")
