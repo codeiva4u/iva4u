@@ -478,6 +478,27 @@ class HubCloud : ExtractorApi() {
                         }
                     }
 
+                    // 10Gbps Server - PRIORITY: Check this BEFORE PixelDrain/HubCDN check
+                    text.contains("10Gbps", true) -> {
+                        var currentLink = link
+                        repeat(3) {
+                            val response = app.get(currentLink, allowRedirects = false)
+                            val redirectUrl = response.headers["location"] ?: return@amap
+                            if ("link=" in redirectUrl) {
+                                val finalLink = redirectUrl.substringAfter("link=")
+                                if (isValidVideoUrl(finalLink)) {
+                                    callback(newExtractorLink(
+                                        "10Gbps",
+                                        "10Gbps $labelExtras",
+                                        finalLink
+                                    ) { this.quality = score })
+                                }
+                                return@amap
+                            }
+                            currentLink = redirectUrl
+                        }
+                    }
+
                     // PixelDrain
                     link.contains("pixeldrain", true) ||
                     link.contains("hubcdn.fans", true) -> {
@@ -501,27 +522,6 @@ class HubCloud : ExtractorApi() {
                             "Pixeldrain $labelExtras",
                             finalURL
                         ) { this.quality = score })
-                    }
-
-                    // 10Gbps Server
-                    text.contains("10Gbps", true) -> {
-                        var currentLink = link
-                        repeat(3) {
-                            val response = app.get(currentLink, allowRedirects = false)
-                            val redirectUrl = response.headers["location"] ?: return@amap
-                            if ("link=" in redirectUrl) {
-                                val finalLink = redirectUrl.substringAfter("link=")
-                                if (isValidVideoUrl(finalLink)) {
-                                    callback(newExtractorLink(
-                                        "10Gbps",
-                                        "10Gbps $labelExtras",
-                                        finalLink
-                                    ) { this.quality = score })
-                                }
-                                return@amap
-                            }
-                            currentLink = redirectUrl
-                        }
                     }
 
                     // Other direct download links
