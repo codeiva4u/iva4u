@@ -673,7 +673,7 @@ class HUBCDN : ExtractorApi() {
                     
                     val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
                     
-                    if (decodedUrl != null) {
+                    if (decodedUrl != null && isValidVideoUrl(decodedUrl)) {
                         callback(newExtractorLink(
                             "Instant DL",
                             "Instant DL [hubcdn.fans]",
@@ -681,7 +681,7 @@ class HUBCDN : ExtractorApi() {
                             INFER_TYPE
                         ) { this.quality = Qualities.Unknown.value })
                     } else {
-                        Log.w(tag, "Failed to decode hubcdn.fans URL")
+                        Log.w(tag, "Failed to decode hubcdn.fans URL or invalid video")
                     }
                 }
                 
@@ -694,7 +694,7 @@ class HUBCDN : ExtractorApi() {
                     
                     val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
                     
-                    if (decodedUrl != null) {
+                    if (decodedUrl != null && isValidVideoUrl(decodedUrl)) {
                         callback(newExtractorLink(
                             this.name,
                             this.name,
