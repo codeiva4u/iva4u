@@ -413,8 +413,7 @@ class HDhub4uProvider : MainAPI() {
     )
 
     // ═══════════════════════════════════════════════════════════════════
-    // Detect episode numbers from HTML text (without extracting download links)
-    // This allows load() to create episode list without parsing links
+    // Detect episode numbers by extracting links first (More accurate)
     // ═══════════════════════════════════════════════════════════════════
     private fun detectEpisodesFromHtml(document: org.jsoup.nodes.Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
@@ -422,28 +421,20 @@ class HDhub4uProvider : MainAPI() {
         
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
         
-        // Get full page text for episode detection
-        val bodyText = document.body().text()
-        val bodyHtml = document.body().html()
+        // Use the existing link extraction logic to find valid episode numbers
+        // This avoids false positives from sidebar text or unrelated numbers
+        val links = extractDownloadLinks(document)
         
-        // Method 1: Find all episode numbers from text using EPISODE_NUMBER_REGEX
-        // Matches: "EPiSODE 1", "Episode 2", "EP-03", "EP 4", "E05"
-        EPISODE_NUMBER_REGEX.findAll(bodyText).forEach { match ->
-            val epNum = match.groupValues[1].toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum < 500) { // Reasonable episode range
+        links.forEach { link ->
+            val match = EPISODE_NUMBER_REGEX.find(link.originalText)
+            val epNum = match?.groupValues?.get(1)?.toIntOrNull()
+            
+            if (epNum != null && epNum > 0) {
                 detectedEpisodes.add(epNum)
             }
         }
         
-        // Method 2: Also check HTML for episode patterns (in case text extraction missed some)
-        EPISODE_NUMBER_REGEX.findAll(bodyHtml).forEach { match ->
-            val epNum = match.groupValues[1].toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum < 500) {
-                detectedEpisodes.add(epNum)
-            }
-        }
-        
-        Log.d(TAG, "Detected episode numbers: $detectedEpisodes")
+        Log.d(TAG, "Detected episode numbers from links: $detectedEpisodes")
         
         // Create episodes from detected numbers
         if (detectedEpisodes.isNotEmpty()) {
@@ -458,8 +449,9 @@ class HDhub4uProvider : MainAPI() {
             }
         }
         
-        // Fallback: If no episodes detected, check for batch/complete season indicators
+        // Fallback: If no episodes detected via links, check for batch/complete season
         if (episodes.isEmpty()) {
+            val bodyText = document.body().text()
             val hasBatchIndicator = BATCH_DOWNLOAD_REGEX.containsMatchIn(bodyText) || 
                                     bodyText.contains("Complete", true) ||
                                     bodyText.contains("All Episodes", true)
