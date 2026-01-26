@@ -426,10 +426,12 @@ class HDhub4uProvider : MainAPI() {
         val links = extractDownloadLinks(document)
         
         links.forEach { link ->
+            // Match "E01", "Ep 1", "Episode 1" patterns strictly within the link text
             val match = EPISODE_NUMBER_REGEX.find(link.originalText)
             val epNum = match?.groupValues?.get(1)?.toIntOrNull()
             
-            if (epNum != null && epNum > 0) {
+            // Validate: Must be positive. Also prevents insanely high numbers (e.g. "2024" as ep number)
+            if (epNum != null && epNum > 0 && epNum < 2000) {
                 detectedEpisodes.add(epNum)
             }
         }
@@ -450,18 +452,20 @@ class HDhub4uProvider : MainAPI() {
         }
         
         // Fallback: If no episodes detected via links, check for batch/complete season
+        // This handles cases where links are just named "720p Pack" or "Season 1 Zip"
         if (episodes.isEmpty()) {
             val bodyText = document.body().text()
             val hasBatchIndicator = BATCH_DOWNLOAD_REGEX.containsMatchIn(bodyText) || 
                                     bodyText.contains("Complete", true) ||
-                                    bodyText.contains("All Episodes", true)
+                                    bodyText.contains("All Episodes", true) ||
+                                    links.any { it.originalText.contains("Pack", true) || it.originalText.contains("Zip", true) }
             
             if (hasBatchIndicator) {
                 // Add a single "Full Season" episode
                 val data = "$pageUrl|||0"
                 episodes.add(
                     newEpisode(data) {
-                        this.name = "Full Season"
+                        this.name = "Full Season / All Episodes"
                         this.episode = 1
                     }
                 )
