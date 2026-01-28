@@ -72,13 +72,13 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
         else -> 300
     }
     
-    // PRIORITY 1: X264 gets highest priority (most compatible and preferred)
-    if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true) || codec.contains("avc", true)) {
-        score += 150
-    }
-    // PRIORITY 2: HEVC/X265 gets lower priority
-    else if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
-        score += 50
+    // PRIORITY 1: X265/HEVC gets highest codec bonus (smaller files, better compression)
+    if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
+        score += 150  // HEVC highest priority
+    } 
+    // PRIORITY 2: X264 gets medium codec bonus (better compatibility)
+    else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
+        score += 100
     }
     
     // PRIORITY 3: Size bonus (smaller = higher priority)
@@ -236,12 +236,8 @@ open class Hblinks : ExtractorApi() {
                             HUBCDN().getUrl(href, name, subtitleCallback, callback)
                         href.contains("pixeldrain", true) -> 
                             loadExtractor(href, referer, subtitleCallback, callback)
-                        href.startsWith("http") && isDirectDownloadUrl(href) -> {
-                             // Validate direct links strictly before passing to player
-                             if (isValidVideoUrl(href)) {
-                                 loadExtractor(href, referer, subtitleCallback, callback)
-                             }
-                        }
+                        href.startsWith("http") && isDirectDownloadUrl(href) ->
+                            loadExtractor(href, referer, subtitleCallback, callback)
                     }
                 } catch (e: Exception) {
                     Log.e(tag, "Failed: ${e.message}")
@@ -294,16 +290,6 @@ class Hubdrive : ExtractorApi() {
             
             if (href.contains("hubcloud", true)) {
                 HubCloud().getUrl(href, "Hubdrive", subtitleCallback, callback)
-            } else {
-                 // Fallback: Check if it's a direct video link if no HubCloud link found
-                 if (href.startsWith("http") && isDirectDownloadUrl(href) && isValidVideoUrl(href)) {
-                     callback(newExtractorLink(
-                        "Hubdrive Direct",
-                        "Hubdrive Direct",
-                        href,
-                        INFER_TYPE
-                     ))
-                 }
             }
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")
@@ -396,11 +382,7 @@ class HubCloud : ExtractorApi() {
         Log.d(tag, "Quality: ${quality}p, Codec: $codec, Size: $size")
 
         // Process each download button
-        // UPDATED: HubCloud structure changed, buttons are outside card-body in container
-        // Use broader selector to catch buttons anywhere in container or main div
-        val buttons = document.select("div.card-body a.btn, div.container a.btn, div.main a.btn, a#download, a#fsl")
-        
-        buttons.amap { element ->
+        document.select("div.card-body a.btn").amap { element ->
             val link = element.attr("href")
             val text = element.text()
             
@@ -478,27 +460,6 @@ class HubCloud : ExtractorApi() {
                         }
                     }
 
-                    // 10Gbps Server - PRIORITY: Check this BEFORE PixelDrain/HubCDN check
-                    text.contains("10Gbps", true) -> {
-                        var currentLink = link
-                        repeat(3) {
-                            val response = app.get(currentLink, allowRedirects = false)
-                            val redirectUrl = response.headers["location"] ?: return@amap
-                            if ("link=" in redirectUrl) {
-                                val finalLink = redirectUrl.substringAfter("link=")
-                                if (isValidVideoUrl(finalLink)) {
-                                    callback(newExtractorLink(
-                                        "10Gbps",
-                                        "10Gbps $labelExtras",
-                                        finalLink
-                                    ) { this.quality = score })
-                                }
-                                return@amap
-                            }
-                            currentLink = redirectUrl
-                        }
-                    }
-
                     // PixelDrain
                     link.contains("pixeldrain", true) ||
                     link.contains("hubcdn.fans", true) -> {
@@ -522,6 +483,27 @@ class HubCloud : ExtractorApi() {
                             "Pixeldrain $labelExtras",
                             finalURL
                         ) { this.quality = score })
+                    }
+
+                    // 10Gbps Server
+                    text.contains("10Gbps", true) -> {
+                        var currentLink = link
+                        repeat(3) {
+                            val response = app.get(currentLink, allowRedirects = false)
+                            val redirectUrl = response.headers["location"] ?: return@amap
+                            if ("link=" in redirectUrl) {
+                                val finalLink = redirectUrl.substringAfter("link=")
+                                if (isValidVideoUrl(finalLink)) {
+                                    callback(newExtractorLink(
+                                        "10Gbps",
+                                        "10Gbps $labelExtras",
+                                        finalLink
+                                    ) { this.quality = score })
+                                }
+                                return@amap
+                            }
+                            currentLink = redirectUrl
+                        }
                     }
 
                     // Other direct download links
@@ -673,16 +655,13 @@ class HUBCDN : ExtractorApi() {
                     
                     val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
                     
-                    if (decodedUrl != null && isValidVideoUrl(decodedUrl)) {
-                        callback(newExtractorLink(
-                            "Instant DL",
-                            "Instant DL [hubcdn.fans]",
-                            decodedUrl,
-                            INFER_TYPE
-                        ) { this.quality = Qualities.Unknown.value })
-                    } else {
-                        Log.w(tag, "Failed to decode hubcdn.fans URL or invalid video")
-                    }
+                    val finalUrl = decodedUrl ?: url
+                    callback(newExtractorLink(
+                        "Instant DL",
+                        "Instant DL [hubcdn.fans]",
+                        finalUrl,
+                        INFER_TYPE
+                    ) { this.quality = Qualities.Unknown.value })
                 }
                 
                 // Legacy hubcdn format
@@ -694,7 +673,7 @@ class HUBCDN : ExtractorApi() {
                     
                     val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
                     
-                    if (decodedUrl != null && isValidVideoUrl(decodedUrl)) {
+                    if (decodedUrl != null) {
                         callback(newExtractorLink(
                             this.name,
                             this.name,

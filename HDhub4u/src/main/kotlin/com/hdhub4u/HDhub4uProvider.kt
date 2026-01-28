@@ -40,10 +40,11 @@ class HDhub4uProvider : MainAPI() {
         )
         
         // Episode Number Extraction Pattern
-        // Perfect regex for all websites: handles "EPiSODE 1", "Episode 2", "EP-03", "EP 4", "E05", "ep05", "ep 06"
-        // Also fixes "EPiSODE 1720p" → extracts episode 1, not 1720
+        // Website uses: "EPiSODE 1", "Episode 2", "EP-03", "EP 4", "E05", "ep05", "ep 06"
+        // FIXED: Added negative lookahead (?!\d+p) to prevent matching quality patterns like "1720p"
+        // When HTML text is extracted, "EPiSODE 1" + "720p" becomes "EPiSODE 1720p" without space
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?:[Ee][Pp][Ii][Ss][Oo][Dd][Ee]\s+(\d)(?=\d{3}p|[.\s-])|[Ee][Pp][Ii][Ss][Oo][Dd][Ee]\s+(\d+)|[Ee][Pp][Ii][Ss][Oo][Dd][Ee]\s+(\d+)|[Ee][Pp][Ii][Ss][Oo][Dd][Ee]\s+(\d+)|[Ee][Pp][Ii][Ss][Oo][Dd][Ee][-\s]*(\d+)|[Ee]pisode\s+(\d+)|[Ee][Pp][-\s]*(\d+)|[Ee](\d+))"""
+            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E)[-.\s]*(\d{1,3})(?!\d+p)"""
         )
         
         // Quality Extraction Pattern
@@ -362,47 +363,37 @@ class HDhub4uProvider : MainAPI() {
         
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
         
-        // Get full page text for episode detection
-        val bodyText = document.body().text()
-        val bodyHtml = document.body().html()
+        // ═══════════════════════════════════════════════════════════════════
+        // FIXED: Use HTML structure-based extraction instead of text-based
+        // HDhub4u format: <h4><strong>EPiSODE 1</strong></h4> followed by <h4>720p...</h4>
+        // Text extraction concatenates as "EPiSODE 1720p" causing false matches
+        // ═══════════════════════════════════════════════════════════════════
         
-        // Method 1: Find all episode numbers from text using EPISODE_NUMBER_REGEX
-        // Perfect regex handles all episode patterns from any website
-        EPISODE_NUMBER_REGEX.findAll(bodyText).forEach { match ->
-            // Find the first non-null group value (the episode number)
-            val episodeNumber = match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }
-            
-            episodeNumber?.let { epStr ->
-                // Fix for "EPiSODE 1720p" pattern - extract first digit only
-                val finalEpStr = if (epStr.length >= 4 && epStr.matches(Regex("""\d{4}"""))) {
-                    epStr.first().toString()
-                } else {
-                    epStr
-                }
-                
-                val epNum = finalEpStr.toIntOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) { // Reasonable episode range
-                    detectedEpisodes.add(epNum)
-                }
+        // Method 1: Extract from HTML structure (h4/h3 > strong with EPiSODE pattern)
+        // This is the PRIMARY and most reliable method for HDhub4u
+        document.select("h4 strong, h3 strong, h4 span strong, h3 span strong, h5 strong").forEach { element ->
+            val text = element.text().trim()
+            val match = EPISODE_NUMBER_REGEX.find(text)
+            val epNum = match?.groupValues?.get(1)?.toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum < 500) {
+                detectedEpisodes.add(epNum)
+                Log.d(TAG, "Found episode from HTML structure: $epNum (text: $text)")
             }
         }
         
-        // Method 2: Also check HTML for episode patterns (in case text extraction missed some)
-        EPISODE_NUMBER_REGEX.findAll(bodyHtml).forEach { match ->
-            // Find the first non-null group value (the episode number)
-            val episodeNumber = match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }
-            
-            episodeNumber?.let { epStr ->
-                // Fix for "EPiSODE 1720p" pattern - extract first digit only
-                val finalEpStr = if (epStr.length >= 4 && epStr.matches(Regex("""\d{4}"""))) {
-                    epStr.first().toString()
-                } else {
-                    epStr
-                }
-                
-                val epNum = finalEpStr.toIntOrNull()
+        // Method 2: Extract from anchor tags with EPiSODE text
+        // Some pages (like Beast Games) have: <a href="...">EPiSODE 1</a> pattern
+        // Run always to catch different page structures (hubstream.art, gadgetsweb, etc.)
+        document.select("a[href]").forEach { element ->
+            val linkText = element.text().trim()
+            // Only match explicit episode link text patterns (EPiSODE 1, EP-1, Episode 1)
+            if (linkText.matches(Regex("(?i)^EP(?:i|I)?SODE\\s*\\d+$")) ||
+                linkText.matches(Regex("(?i)^EP[-.\\s]?\\d+$"))) {
+                val match = EPISODE_NUMBER_REGEX.find(linkText)
+                val epNum = match?.groupValues?.get(1)?.toIntOrNull()
                 if (epNum != null && epNum > 0 && epNum < 500) {
                     detectedEpisodes.add(epNum)
+                    Log.d(TAG, "Found episode from link text: $epNum (text: $linkText)")
                 }
             }
         }
@@ -424,6 +415,7 @@ class HDhub4uProvider : MainAPI() {
         
         // Fallback: If no episodes detected, check for batch/complete season indicators
         if (episodes.isEmpty()) {
+            val bodyText = document.body().text()
             val hasBatchIndicator = BATCH_DOWNLOAD_REGEX.containsMatchIn(bodyText) || 
                                     bodyText.contains("Complete", true) ||
                                     bodyText.contains("All Episodes", true)
