@@ -145,16 +145,79 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
-        // Website uses search.html?q= endpoint, not /?s=
-        val searchUrl = if (page <= 1) {
-            "$mainUrl/search.html?q=$query"
-        } else {
-            "$mainUrl/search.html?q=$query&page=$page"
+        Log.d("MoviesDrive", "Searching for: $query")
+        
+        val baseUrl = ensureMainUrl()
+        val results = mutableListOf<SearchResponse>()
+        
+        // Create regex from search query (flexible matching)
+        val queryTerms = query.lowercase().split(Regex("\\s+")).filter { it.length > 2 }
+        val searchRegex = Regex(queryTerms.joinToString(".*") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+        
+        // Method 1: Try search.html endpoint first
+        try {
+            val searchUrl = if (page <= 1) {
+                "$baseUrl/search.html?q=${query.replace(" ", "+")}"
+            } else {
+                "$baseUrl/search.html?q=${query.replace(" ", "+")}&page=$page"
+            }
+            Log.d("MoviesDrive", "Search URL: $searchUrl")
+            
+            val document = app.get(searchUrl).document
+            
+            // Use multiple selectors with Jsoup's :matches() for regex
+            val selectors = listOf(
+                "a:has(div.poster-card)",
+                "li.movie-card a",
+                ".card a[href*='moviesdrive']",
+                "a:has(img):matches((?i)${Regex.escape(queryTerms.firstOrNull() ?: query)})"
+            )
+            
+            for (selector in selectors) {
+                try {
+                    val elements = document.select(selector)
+                    elements.mapNotNull { it.toSearchResult() }.forEach { result ->
+                        if (results.none { it.url == result.url }) {
+                            results.add(result)
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+        } catch (e: Exception) {
+            Log.e("MoviesDrive", "Search endpoint failed: ${e.message}")
         }
-        val document = app.get(searchUrl).document
-        val results = document.select("a:has(div.poster-card)").mapNotNull { it.toSearchResult() }
-        val hasNext = results.isNotEmpty()
-        return newSearchResponseList(results, hasNext)
+        
+        // Method 2: Fallback - search through homepage with regex matching
+        if (results.isEmpty() && page <= 1) {
+            Log.d("MoviesDrive", "Using fallback: scanning home pages with regex")
+            
+            // Scan first 5 pages of homepage
+            for (pageNum in 1..5) {
+                try {
+                    val homeUrl = if (pageNum == 1) baseUrl else "$baseUrl/page/$pageNum/"
+                    val doc = app.get(homeUrl).document
+                    
+                    doc.select("a:has(div.poster-card)").forEach { element ->
+                        val searchResult = element.toSearchResult()
+                        if (searchResult != null) {
+                            val title = searchResult.name
+                            // Use regex for flexible matching
+                            if (searchRegex.containsMatchIn(title) && 
+                                results.none { it.url == searchResult.url }) {
+                                results.add(searchResult)
+                            }
+                        }
+                    }
+                    
+                    if (results.size >= 20) break
+                } catch (e: Exception) {
+                    Log.e("MoviesDrive", "Home page scan error: ${e.message}")
+                }
+            }
+        }
+        
+        Log.d("MoviesDrive", "Found ${results.size} search results")
+        return newSearchResponseList(results, results.isNotEmpty())
     }
 
     override suspend fun load(url: String): LoadResponse {
