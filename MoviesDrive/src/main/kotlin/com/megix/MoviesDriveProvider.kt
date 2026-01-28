@@ -26,7 +26,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
@@ -44,25 +43,62 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         TvType.Anime
     )
 
-    init {
-        runBlocking {
-            basemainUrl?.let {
-                mainUrl = it
-            }
+    // ═══════════════════════════════════════════════════════════════════
+    // Link Priority Helper: Score links based on codec + quality
+    // Priority: X264 1080p > X264 720p > HEVC 1080p > HEVC 720p > Others
+    // ═══════════════════════════════════════════════════════════════════
+    private fun getLinkPriority(linkText: String): Int {
+        val text = linkText.lowercase()
+        
+        // Skip HQ files (usually very large 5GB+)
+        if (text.contains("hq ") || text.contains("hq-") || text.startsWith("hq")) return -100
+        // Skip Zip files
+        if (text.contains("zip")) return -200
+        
+        // Detect codec
+        val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
+        val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
+        
+        // Detect quality
+        val is1080p = text.contains("1080p")
+        val is720p = text.contains("720p")
+        val is480p = text.contains("480p")
+        
+        // Priority scoring: X264 1080p = 1000, X264 720p = 900, HEVC 1080p = 800...
+        return when {
+            isX264 && is1080p -> 1000  // 1st Priority: X264 1080p
+            isX264 && is720p -> 900    // 2nd Priority: X264 720p
+            isHEVC && is1080p -> 800   // 3rd Priority: HEVC 1080p
+            isHEVC && is720p -> 700    // 4th Priority: HEVC 720p
+            is1080p -> 600             // Unknown codec 1080p
+            is720p -> 500              // Unknown codec 720p
+            is480p -> 400              // 480p
+            else -> 300                // Unknown quality
         }
     }
 
+    // URL is fetched lazily in companion object - no blocking init needed
+
     companion object {
-        val basemainUrl: String? by lazy {
-            runBlocking {
-                try {
-                    val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
-                    val json = response.text
-                    val jsonObject = JSONObject(json)
-                    jsonObject.optString("moviesdrive")
-                } catch (_: Exception) {
-                    null
-                }
+        // Cached URL - fetched on first use, non-blocking
+        @Volatile
+        private var cachedMainUrl: String? = null
+        
+        val basemainUrl: String?
+            get() = cachedMainUrl
+        
+        // Call this in getMainPage to ensure URL is fetched
+        suspend fun ensureMainUrl(): String {
+            cachedMainUrl?.let { return it }
+            return try {
+                val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+                val json = response.text
+                val jsonObject = JSONObject(json)
+                val url = jsonObject.optString("moviesdrive")
+                cachedMainUrl = url.ifEmpty { null }
+                url.ifEmpty { "https://moviesdrive.forum" }
+            } catch (_: Exception) {
+                "https://moviesdrive.forum"
             }
         }
     }
@@ -82,7 +118,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get("${mainUrl}${request.data}${page}").document
+        // Ensure mainUrl is fetched (non-blocking, cached after first call)
+        val baseUrl = ensureMainUrl()
+        val document = app.get("${baseUrl}${request.data}${page}").document
         val home = document.select("a:has(div.poster-card)").mapNotNull {
             it.toSearchResult()
         }
@@ -276,7 +314,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 addImdbUrl(imdbUrl)
             }
         } else {
+            // Get all h5 > a links and sort by priority (X264 1080p first)
             val movieButtons = document.select("h5 > a")
+                .filter { getLinkPriority(it.text()) > 0 }  // Filter out Zip/HQ files
+                .sortedByDescending { getLinkPriority(it.text()) }  // X264 1080p first
+                .take(3)  // Only top 3 quality options for fast loading
+            
+            Log.d("MoviesDrive", "Selected quality links: ${movieButtons.map { it.text() }}")
+            
             val movieData = movieButtons.flatMap { button ->
                 val buttonLink = button.attr("href")
                 val buttonDoc = app.get(buttonLink).document

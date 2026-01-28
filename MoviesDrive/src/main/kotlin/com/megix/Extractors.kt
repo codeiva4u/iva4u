@@ -48,28 +48,44 @@ fun parseSizeToMB(sizeStr: String): Double {
     }
 }
 
-// Adjust quality to prioritize 1080p with smallest size and fastest server
-// Returns quality + bonus points based on: Quality -> Size -> Server Speed
-fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = ""): Int {
-    var adjustedQuality = quality
+// Adjust quality to prioritize: X264 1080p > X264 720p > HEVC 1080p
+// Returns quality score based on: Codec+Quality -> Size -> Server Speed
+fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", fileName: String = ""): Int {
+    var baseScore: Int
+    val text = (fileName + sizeStr + serverName).lowercase()
     
-    // 1080p gets size bonus (smaller = higher bonus)
-    if (quality == 1080) {
-        val sizeMB = parseSizeToMB(sizeStr)
-        val sizeBonus = when {
-            sizeMB <= 800 -> 50   // HEVC compressed
-            sizeMB <= 1200 -> 40
-            sizeMB <= 1500 -> 30
-            sizeMB <= 2000 -> 20
-            else -> 10
-        }
-        adjustedQuality += sizeBonus
+    // Detect codec: X264 vs HEVC
+    val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
+    val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
+    
+    // Priority order: X264 1080p (1000) > X264 720p (900) > HEVC 1080p (800) > HEVC 720p (700)
+    baseScore = when {
+        isX264 && quality >= 1080 -> 1000  // X264 1080p - HIGHEST PRIORITY
+        isX264 && quality >= 720 -> 900    // X264 720p
+        isHEVC && quality >= 1080 -> 800   // HEVC 1080p
+        isHEVC && quality >= 720 -> 700    // HEVC 720p
+        quality >= 1080 -> 850             // Unknown codec 1080p
+        quality >= 720 -> 750              // Unknown codec 720p
+        quality >= 480 -> 600              // 480p
+        else -> 500                        // Unknown
     }
     
-    // Add server speed bonus (faster servers = higher priority)
-    adjustedQuality += getServerPriority(serverName)
+    // Add size bonus: smaller = higher (max +50)
+    val sizeMB = parseSizeToMB(sizeStr)
+    val sizeBonus = when {
+        sizeMB <= 500 -> 50    // Very small (HEVC compressed)
+        sizeMB <= 800 -> 40
+        sizeMB <= 1200 -> 30
+        sizeMB <= 1500 -> 20
+        sizeMB <= 2000 -> 10
+        else -> 0
+    }
+    baseScore += sizeBonus
     
-    return adjustedQuality
+    // Add server speed bonus (max +100)
+    baseScore += getServerPriority(serverName)
+    
+    return baseScore
 }
 
 // Server speed priority (higher = faster/preferred)
@@ -141,7 +157,7 @@ open class HubCloud : ExtractorApi() {
         div?.select("h2 a.btn")?.amap {
             val btnLink = it.attr("href")
             val text = it.text()
-            val serverQuality = getAdjustedQuality(baseQuality, size, text)
+            val serverQuality = getAdjustedQuality(baseQuality, size, text, header)
 
             if (text.contains("[FSL Server]"))
             {
@@ -289,7 +305,7 @@ open class GDFlix : ExtractorApi() {
         document.select("div.text-center a").amap { anchor ->
             val text = anchor.select("a").text()
             val link = anchor.attr("href")
-            val serverQuality = getAdjustedQuality(baseQuality, fileSize, text)
+            val serverQuality = getAdjustedQuality(baseQuality, fileSize, text, fileName)
 
             when {
                 text.contains("DIRECT DL") -> {
