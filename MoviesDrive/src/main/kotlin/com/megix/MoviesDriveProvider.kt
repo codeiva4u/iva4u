@@ -220,7 +220,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     private fun Element.toSearchResult(): SearchResponse? {
         // ══════════════════════════════════════════════════════════════════════
-        // Fast Poster Parsing with Null-Safety and Validation
+        // Fast Poster Parsing with Null-Safety and Absolute URL Fix
         // ══════════════════════════════════════════════════════════════════════
         
         try {
@@ -233,9 +233,16 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             val title = titleElement?.text()?.replace("Download ", "")?.trim()
             if (title.isNullOrBlank()) return null
             
-            // Extract poster image (with fallback)
+            // Extract poster image with ABSOLUTE URL
             val imgElement = this.selectFirst("div.poster-image img")
-            val posterUrl = imgElement?.attr("src") ?: imgElement?.attr("data-src") ?: ""
+            val posterUrl = imgElement?.let {
+                // Use absUrl to get absolute URL
+                it.absUrl("src").ifEmpty { 
+                    it.absUrl("data-src").ifEmpty { 
+                        it.attr("src").ifEmpty { it.attr("data-src") }
+                    }
+                }
+            } ?: ""
             
             // Extract quality badge
             val qualityElement = this.selectFirst("span.poster-quality")
@@ -251,6 +258,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 qualityText.contains("FHD", ignoreCase = true) -> SearchQuality.HD
                 else -> null
             }
+            
+            Log.d("MoviesDrive", "Poster extracted: title='$title', posterUrl='$posterUrl'")
             
             // Return search response
             return newMovieSearchResponse(title, href, TvType.Movie) {
@@ -301,7 +310,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     if (filterByQuery && !matchesQuery(title)) return@forEach
                     
                     val img = element.selectFirst("div.poster-image img")
-                    val posterUrl = img?.attr("src") ?: img?.attr("data-src") ?: ""
+                    val posterUrl = img?.let {
+                        // Use absUrl to get absolute URL
+                        it.absUrl("src").ifEmpty { 
+                            it.absUrl("data-src").ifEmpty { 
+                                it.attr("src").ifEmpty { it.attr("data-src") }
+                            }
+                        }
+                    } ?: ""
                     val qualityText = element.selectFirst("span.poster-quality")?.text() ?: ""
                     
                     val quality = when {
