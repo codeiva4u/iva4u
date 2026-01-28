@@ -21,6 +21,7 @@ import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.newSearchResponseList
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
@@ -150,73 +151,142 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val baseUrl = ensureMainUrl()
         val results = mutableListOf<SearchResponse>()
         
-        // Create regex from search query (flexible matching)
-        val queryTerms = query.lowercase().split(Regex("\\s+")).filter { it.length > 2 }
-        val searchRegex = Regex(queryTerms.joinToString(".*") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+        // Create flexible search terms for matching
+        val searchTerms = query.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")  // Remove special chars
+            .split(Regex("\\s+"))
+            .filter { it.length >= 2 }
         
-        // Method 1: Try search.html endpoint first
-        try {
-            val searchUrl = if (page <= 1) {
-                "$baseUrl/search.html?q=${query.replace(" ", "+")}"
-            } else {
-                "$baseUrl/search.html?q=${query.replace(" ", "+")}&page=$page"
-            }
-            Log.d("MoviesDrive", "Search URL: $searchUrl")
-            
-            val document = app.get(searchUrl).document
-            
-            // Use multiple selectors with Jsoup's :matches() for regex
-            val selectors = listOf(
-                "a:has(div.poster-card)",
-                "li.movie-card a",
-                ".card a[href*='moviesdrive']",
-                "a:has(img):matches((?i)${Regex.escape(queryTerms.firstOrNull() ?: query)})"
-            )
-            
-            for (selector in selectors) {
+        // Regex for flexible matching - all terms must be present in any order
+        val matchesQuery: (String) -> Boolean = { title ->
+            val cleanTitle = title.lowercase()
+            searchTerms.all { term -> cleanTitle.contains(term) }
+        }
+        
+        // Helper function to extract results from a page
+        fun extractResults(doc: org.jsoup.nodes.Document, filterByQuery: Boolean = false) {
+            doc.select("a:has(div.poster-card)").forEach { element ->
                 try {
-                    val elements = document.select(selector)
-                    elements.mapNotNull { it.toSearchResult() }.forEach { result ->
-                        if (results.none { it.url == result.url }) {
-                            results.add(result)
+                    val href = element.attr("href")
+                    if (href.isBlank() || href.contains("category")) return@forEach
+                    
+                    val titleEl = element.selectFirst("p.poster-title")
+                    val title = titleEl?.text()?.replace("Download ", "")?.trim() ?: ""
+                    if (title.isBlank()) return@forEach
+                    
+                    // Apply filter if needed
+                    if (filterByQuery && !matchesQuery(title)) return@forEach
+                    
+                    val img = element.selectFirst("div.poster-image img")
+                    val posterUrl = img?.attr("src") ?: ""
+                    val qualityText = element.selectFirst("span.poster-quality")?.text() ?: ""
+                    
+                    val quality = when {
+                        title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
+                        qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
+                        qualityText.contains("Full HD", ignoreCase = true) || qualityText.contains("1080", ignoreCase = true) -> SearchQuality.HD
+                        else -> null
+                    }
+                    
+                    // Detect if it's a series
+                    val isSeries = title.contains(Regex("(?i)(season|s0?\\d|episode|ep\\s?\\d|web.?series)"))
+                    
+                    val result = if (isSeries) {
+                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                            this.posterUrl = posterUrl
+                            this.quality = quality
                         }
+                    } else {
+                        newMovieSearchResponse(title, href, TvType.Movie) {
+                            this.posterUrl = posterUrl
+                            this.quality = quality
+                        }
+                    }
+                    
+                    if (results.none { it.url == result.url }) {
+                        results.add(result)
                     }
                 } catch (_: Exception) { }
             }
-        } catch (e: Exception) {
-            Log.e("MoviesDrive", "Search endpoint failed: ${e.message}")
         }
         
-        // Method 2: Fallback - search through homepage with regex matching
-        if (results.isEmpty() && page <= 1) {
-            Log.d("MoviesDrive", "Using fallback: scanning home pages with regex")
-            
-            // Scan first 5 pages of homepage
-            for (pageNum in 1..5) {
+        // ═══════════════════════════════════════════════════════════════════
+        // SEARCH STRATEGY: Scan multiple pages from different categories
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // URLs to scan: Homepage + Category pages + Search-like pages
+        val pagesToScan = mutableListOf<String>()
+        
+        // Add homepage pages (first 3 pages)
+        for (i in 1..3) {
+            val url = if (i == 1) "$baseUrl/" else "$baseUrl/page/$i/"
+            pagesToScan.add(url)
+        }
+        
+        // Add category pages based on search query keywords
+        val queryLower = query.lowercase()
+        if (queryLower.contains("hollywood") || queryLower.contains("english")) {
+            pagesToScan.add("$baseUrl/category/hollywood/")
+        }
+        if (queryLower.contains("bollywood") || queryLower.contains("hindi")) {
+            pagesToScan.add("$baseUrl/category/bollywood/")
+            pagesToScan.add("$baseUrl/hindi-dubbed/")
+        }
+        if (queryLower.contains("south") || queryLower.contains("tamil") || queryLower.contains("telugu")) {
+            pagesToScan.add("$baseUrl/category/south/")
+        }
+        if (queryLower.contains("netflix")) {
+            pagesToScan.add("$baseUrl/category/netflix/")
+        }
+        if (queryLower.contains("prime") || queryLower.contains("amazon")) {
+            pagesToScan.add("$baseUrl/category/amzn-prime-video/")
+        }
+        
+        // Always add these main categories
+        pagesToScan.addAll(listOf(
+            "$baseUrl/category/hollywood/",
+            "$baseUrl/category/bollywood/",
+            "$baseUrl/category/south/",
+            "$baseUrl/hindi-dubbed/"
+        ))
+        
+        // Remove duplicates and limit to 8 pages max
+        val uniquePages = pagesToScan.distinct().take(8)
+        
+        Log.d("MoviesDrive", "Scanning ${uniquePages.size} pages for: $query")
+        
+        // Scan pages with parallel requests using amap
+        try {
+            uniquePages.amap { pageUrl ->
                 try {
-                    val homeUrl = if (pageNum == 1) baseUrl else "$baseUrl/page/$pageNum/"
-                    val doc = app.get(homeUrl).document
-                    
-                    doc.select("a:has(div.poster-card)").forEach { element ->
-                        val searchResult = element.toSearchResult()
-                        if (searchResult != null) {
-                            val title = searchResult.name
-                            // Use regex for flexible matching
-                            if (searchRegex.containsMatchIn(title) && 
-                                results.none { it.url == searchResult.url }) {
-                                results.add(searchResult)
-                            }
-                        }
+                    val doc = app.get(pageUrl, timeout = 10).document
+                    synchronized(results) {
+                        extractResults(doc, filterByQuery = true)
                     }
-                    
-                    if (results.size >= 20) break
                 } catch (e: Exception) {
-                    Log.e("MoviesDrive", "Home page scan error: ${e.message}")
+                    Log.e("MoviesDrive", "Error scanning $pageUrl: ${e.message}")
                 }
+            }
+        } catch (e: Exception) {
+            Log.e("MoviesDrive", "Parallel scan error: ${e.message}")
+        }
+        
+        // If still no results, scan more pages with fewer filters
+        if (results.isEmpty()) {
+            Log.d("MoviesDrive", "No results found, scanning more pages...")
+            try {
+                for (pageNum in 1..5) {
+                    val url = "$baseUrl/page/$pageNum/"
+                    val doc = app.get(url, timeout = 15).document
+                    extractResults(doc, filterByQuery = true)
+                    if (results.size >= 10) break
+                }
+            } catch (e: Exception) {
+                Log.e("MoviesDrive", "Extended scan error: ${e.message}")
             }
         }
         
-        Log.d("MoviesDrive", "Found ${results.size} search results")
+        Log.d("MoviesDrive", "Found ${results.size} search results for: $query")
         return newSearchResponseList(results, results.isNotEmpty())
     }
 
