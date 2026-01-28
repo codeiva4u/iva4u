@@ -350,7 +350,8 @@ class HDhub4uProvider : MainAPI() {
         val url: String,
         val quality: Int,
         val sizeMB: Double,
-        val originalText: String
+        val originalText: String,
+        val episodeNum: Int? = null  // Track which episode this link belongs to
     )
 
     // ═══════════════════════════════════════════════════════════════════
@@ -485,96 +486,79 @@ class HDhub4uProvider : MainAPI() {
     }
 
     // Helper function to extract download links from document
-    // UPDATED: Using Jsoup selectors (more reliable than regex)
+    // FIXED: Track episode context by parsing elements in document order
     private fun extractDownloadLinks(document: org.jsoup.nodes.Document): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
-        
-        // ═══════════════════════════════════════════════════════════════════
+        val seenUrls = mutableSetOf<String>()
         
         Log.d(TAG, "=== extractDownloadLinks START ===")
-
-        document.select("a[href*='gadgetsweb.xyz']").forEach { element ->
-            val url = element.attr("href")
-            val linkText = element.text().trim()
-            
-            if (url.isBlank() || downloadLinks.any { it.url == url }) return@forEach
-            
-            // Check if this is an episode link
-            val epMatch = EPISODE_NUMBER_REGEX.find(linkText)
-            val episodeNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
-            
-            val episodeContext = when {
-                episodeNum != null -> "EPiSODE $episodeNum"
-                linkText.contains("HEVC", true) || linkText.contains("4K", true) || 
-                linkText.contains("1080p", true) || linkText.contains("720p", true) ||
-                linkText.contains("480p", true) || linkText.contains("2160p", true) -> "BATCH | $linkText"
-                linkText.isNotBlank() -> linkText
-                else -> return@forEach
-            }
-            
-            downloadLinks.add(
-                DownloadLink(
-                    url = url,
-                    quality = extractQuality(episodeContext),
-                    sizeMB = parseFileSize(episodeContext),
-                    originalText = episodeContext
-                )
-            )
-            Log.d(TAG, "Found: $episodeContext -> $url")
-        }
         
-        // Method 2: Find hblinks/4khdhub links
-        document.select("a[href*='hblinks'], a[href*='4khdhub']").forEach { element ->
-            val url = element.attr("href")
-            val linkText = element.text().trim()
-            
-            if (url.isBlank() || downloadLinks.any { it.url == url }) return@forEach
-            if (shouldBlockUrl(url)) return@forEach
-            
-            val epMatch = EPISODE_NUMBER_REGEX.find(linkText)
-            val episodeContext = if (epMatch != null) {
-                "EPiSODE ${epMatch.groupValues[1]}"
-            } else {
-                linkText.ifBlank { "Download" }
-            }
-            
-            downloadLinks.add(
-                DownloadLink(
-                    url = url,
-                    quality = extractQuality(episodeContext),
-                    sizeMB = parseFileSize(episodeContext),
-                    originalText = episodeContext
-                )
-            )
-            Log.d(TAG, "Found hblinks: $episodeContext -> $url")
-        }
+        // ═══════════════════════════════════════════════════════════════════
+        // FIXED: Parse all elements in document order to track episode context
+        // This ensures links are correctly associated with their episode section
+        // ═══════════════════════════════════════════════════════════════════
+        var currentEpisode: Int? = null
         
-        // Method 3: Find hubdrive/hubcloud links (for movies/batch)
-        document.select("a[href*='hubdrive'], a[href*='hubcloud']").forEach { element ->
-            val url = element.attr("href")
-            val linkText = element.text().trim()
+        // Select all relevant elements: headers (for episode detection) and links
+        val relevantSelector = "h3, h4, h5, a[href*='gadgetsweb'], a[href*='hblinks'], " +
+                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubstream']"
+        
+        document.select(relevantSelector).forEach { element ->
+            val tagName = element.tagName().uppercase()
             
-            if (url.isBlank() || downloadLinks.any { it.url == url }) return@forEach
-            if (shouldBlockUrl(url)) return@forEach
-            
-            val epMatch = EPISODE_NUMBER_REGEX.find(linkText)
-            val episodeContext = when {
-                epMatch != null -> "EPiSODE ${epMatch.groupValues[1]}"
-                linkText.isNotBlank() -> linkText
-                else -> "Download"
+            // Check if this is an episode header
+            if (tagName in listOf("H3", "H4", "H5")) {
+                val headerText = element.text().trim()
+                val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
+                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                if (epNum != null && epNum > 0 && epNum < 500) {
+                    currentEpisode = epNum
+                    Log.d(TAG, "Episode section detected: $currentEpisode (from: $headerText)")
+                }
+                return@forEach
             }
             
-            downloadLinks.add(
-                DownloadLink(
-                    url = url,
-                    quality = extractQuality(episodeContext),
-                    sizeMB = parseFileSize(episodeContext),
-                    originalText = episodeContext
+            // This is a link element
+            if (tagName == "A") {
+                val url = element.attr("href")
+                val linkText = element.text().trim()
+                
+                // Skip if blank, already seen, or blocked
+                if (url.isBlank() || seenUrls.contains(url)) return@forEach
+                if (shouldBlockUrl(url)) return@forEach
+                
+                seenUrls.add(url)
+                
+                // Determine episode context from link text or current section
+                val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
+                val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
+                
+                // Build context text for quality detection
+                val episodeContext = when {
+                    linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
+                    currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
+                    linkText.isNotBlank() -> linkText
+                    else -> "Download"
+                }
+                
+                downloadLinks.add(
+                    DownloadLink(
+                        url = url,
+                        quality = extractQuality(episodeContext),
+                        sizeMB = parseFileSize(episodeContext),
+                        originalText = episodeContext,
+                        episodeNum = linkEpisode
+                    )
                 )
-            )
+                Log.d(TAG, "Found link: EP=$linkEpisode, text=$linkText, url=${url.take(50)}")
+            }
         }
         
         Log.d(TAG, "Total download links: ${downloadLinks.size}")
+        
+        // Log episode distribution for debugging
+        val episodeDistribution = downloadLinks.groupBy { it.episodeNum }.mapValues { it.value.size }
+        Log.d(TAG, "Episode distribution: $episodeDistribution")
 
         // Smart sort: 1080p priority → HEVC/X265 → X264 → Smallest Size → Fastest Server
         return downloadLinks.sortedWith(
@@ -629,16 +613,28 @@ class HDhub4uProvider : MainAPI() {
                 Log.d(TAG, "Link[$index]: ${link.originalText} -> ${link.url.take(60)}...")
             }
 
-            // Filter by episode if needed
+            // Filter by episode if needed (using new episodeNum field)
             val targetLinks = when {
-                episodeNum == null -> allLinks  // Movie
+                episodeNum == null -> allLinks  // Movie - return all
                 episodeNum == 0 -> allLinks.filter { 
-                    !EPISODE_NUMBER_REGEX.containsMatchIn(it.originalText) 
-                }.ifEmpty { allLinks }  // Full season
-                else -> allLinks.filter { link ->
-                    val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
-                    epNum == episodeNum
-                }.ifEmpty { allLinks }  // Specific episode
+                    it.episodeNum == null  // Full season - only batch/non-episode links
+                }.ifEmpty { allLinks }
+                else -> {
+                    // Specific episode - use episodeNum field (primary) then fallback to text
+                    val byField = allLinks.filter { it.episodeNum == episodeNum }
+                    if (byField.isNotEmpty()) {
+                        Log.d(TAG, "Matched ${byField.size} links by episodeNum field for EP$episodeNum")
+                        byField
+                    } else {
+                        // Fallback: try text-based matching
+                        val byText = allLinks.filter { link ->
+                            val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
+                            epNum == episodeNum
+                        }
+                        Log.d(TAG, "Matched ${byText.size} links by text for EP$episodeNum")
+                        byText.ifEmpty { allLinks }  // Last resort: all links
+                    }
+                }
             }
 
             Log.d(TAG, "Filtered links: ${targetLinks.size}")
