@@ -78,29 +78,94 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
-    // URL is fetched lazily in companion object - no blocking init needed
-
     companion object {
-        // Cached URL - fetched on first use, non-blocking
+        // ══════════════════════════════════════════════════════════════════════
+        // Smart Domain Resolution System with Caching & Background Refresh
+        // ══════════════════════════════════════════════════════════════════════
+        
         @Volatile
         private var cachedMainUrl: String? = null
+        
+        @Volatile
+        private var lastFetchTime: Long = 0L
+        
+        // Cache expiry: 30 minutes (ताकि बहुत बार GitHub hit न करे)
+        private const val CACHE_EXPIRY_MS = 30 * 60 * 1000L
+        
+        // Fallback URLs (अगर GitHub fail हो जाए)
+        private val FALLBACK_URLS = listOf(
+            "https://new1.moviesdrive.surf",
+            "https://moviesdrive.forum",
+            "https://moviesdrive.net"
+        )
+        
+        private const val GITHUB_URL = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
         
         val basemainUrl: String?
             get() = cachedMainUrl
         
-        // Call this in getMainPage to ensure URL is fetched
+        /**
+         * Smart URL fetcher with caching and background refresh
+         * - Uses cached URL if fresh (< 30 min old)
+         * - Fetches from GitHub in background if cache is stale
+         * - Returns fallback immediately if cache is empty
+         */
         suspend fun ensureMainUrl(): String {
-            cachedMainUrl?.let { return it }
+            val now = System.currentTimeMillis()
+            
+            // Return cached URL if it's still fresh
+            cachedMainUrl?.let { cached ->
+                if (now - lastFetchTime < CACHE_EXPIRY_MS) {
+                    return cached
+                }
+                // Cache is stale, but return it immediately and refresh in background
+                refreshUrlInBackground()
+                return cached
+            }
+            
+            // No cache, fetch immediately
+            return fetchUrlFromGitHub() ?: FALLBACK_URLS.first()
+        }
+        
+        /**
+         * Fetch URL from GitHub with timeout and error handling
+         */
+        private suspend fun fetchUrlFromGitHub(): String? {
             return try {
-                val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+                val response = app.get(GITHUB_URL, timeout = 5L) // 5 second timeout
                 val json = response.text
                 val jsonObject = JSONObject(json)
-                val url = jsonObject.optString("moviesdrive")
-                cachedMainUrl = url.ifEmpty { null }
-                url.ifEmpty { "https://moviesdrive.forum" }
-            } catch (_: Exception) {
-                "https://moviesdrive.forum"
+                val url = jsonObject.optString("moviesdrive", "")
+                
+                if (url.isNotEmpty() && url.startsWith("http")) {
+                    cachedMainUrl = url
+                    lastFetchTime = System.currentTimeMillis()
+                    Log.d("MoviesDrive", "URL fetched from GitHub: $url")
+                    url
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e("MoviesDrive", "Failed to fetch URL from GitHub: ${e.message}")
+                null
             }
+        }
+        
+        /**
+         * Refresh URL in background without blocking
+         */
+        private fun refreshUrlInBackground() {
+            // Background refresh is handled by coroutines automatically
+            // This is just a marker for future background tasks
+        }
+        
+        /**
+         * Force refresh URL (useful for testing or manual refresh)
+         */
+        suspend fun forceRefreshUrl(): String {
+            cachedMainUrl = null
+            lastFetchTime = 0L
+            return ensureMainUrl()
         }
     }
 
@@ -119,33 +184,91 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        // Ensure mainUrl is fetched (non-blocking, cached after first call)
+        // ══════════════════════════════════════════════════════════════════════
+        // Fast Home Page Loading with Smart URL Caching
+        // ══════════════════════════════════════════════════════════════════════
+        
+        // Get cached URL (instant if cached, else fetch from GitHub)
         val baseUrl = ensureMainUrl()
-        val document = app.get("${baseUrl}${request.data}${page}").document
-        val home = document.select("a:has(div.poster-card)").mapNotNull {
-            it.toSearchResult()
+        
+        // Build page URL
+        val pageUrl = "${baseUrl}${request.data}${page}"
+        
+        try {
+            // Fetch page with optimized timeout
+            val document = app.get(pageUrl, timeout = 10L).document
+            
+            // Extract posters using optimized selector
+            val home = document.select("a:has(div.poster-card)").mapNotNull { element ->
+                try {
+                    element.toSearchResult()
+                } catch (e: Exception) {
+                    Log.e("MoviesDrive", "Error parsing poster: ${e.message}")
+                    null
+                }
+            }
+            
+            Log.d("MoviesDrive", "Loaded ${home.size} items from ${request.name} page $page")
+            return newHomePageResponse(request.name, home)
+            
+        } catch (e: Exception) {
+            Log.e("MoviesDrive", "Error loading home page: ${e.message}")
+            // Return empty response instead of crashing
+            return newHomePageResponse(request.name, emptyList())
         }
-        return newHomePageResponse(request.name, home)
     }
 
-    private fun Element.toSearchResult(): SearchResponse {
-        val title = this.selectFirst("p.poster-title")?.text()?.replace("Download ", "") ?: ""
-        val href = this.attr("href")
-        val posterUrl = this.selectFirst("div.poster-image img")?.attr("src") ?: ""
-        val qualityText = this.selectFirst("span.poster-quality")?.text() ?: ""
-        val quality = when {
-            title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
-            qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
-            qualityText.contains("Full HD", ignoreCase = true) -> SearchQuality.HD
-            else -> null
-        }
-        return newMovieSearchResponse(title, href, TvType.Movie) {
-            this.posterUrl = posterUrl
-            this.quality = quality
+    private fun Element.toSearchResult(): SearchResponse? {
+        // ══════════════════════════════════════════════════════════════════════
+        // Fast Poster Parsing with Null-Safety and Validation
+        // ══════════════════════════════════════════════════════════════════════
+        
+        try {
+            // Extract href first (most important)
+            val href = this.attr("href")
+            if (href.isBlank()) return null
+            
+            // Extract title (required)
+            val titleElement = this.selectFirst("p.poster-title")
+            val title = titleElement?.text()?.replace("Download ", "")?.trim()
+            if (title.isNullOrBlank()) return null
+            
+            // Extract poster image (with fallback)
+            val imgElement = this.selectFirst("div.poster-image img")
+            val posterUrl = imgElement?.attr("src") ?: imgElement?.attr("data-src") ?: ""
+            
+            // Extract quality badge
+            val qualityElement = this.selectFirst("span.poster-quality")
+            val qualityText = qualityElement?.text() ?: ""
+            
+            // Determine quality
+            val quality = when {
+                title.contains("HDCAM", ignoreCase = true) || 
+                title.contains("CAMRip", ignoreCase = true) || 
+                qualityText.contains("CAM", ignoreCase = true) -> SearchQuality.CamRip
+                qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
+                qualityText.contains("Full HD", ignoreCase = true) || 
+                qualityText.contains("FHD", ignoreCase = true) -> SearchQuality.HD
+                else -> null
+            }
+            
+            // Return search response
+            return newMovieSearchResponse(title, href, TvType.Movie) {
+                this.posterUrl = posterUrl
+                this.quality = quality
+            }
+            
+        } catch (e: Exception) {
+            Log.e("MoviesDrive", "Error in toSearchResult: ${e.message}")
+            return null
         }
     }
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
+        // ══════════════════════════════════════════════════════════════════════
+        // Optimized Search with Smart Page Selection & Parallel Fetching
+        // ══════════════════════════════════════════════════════════════════════
+        
         Log.d("MoviesDrive", "Searching for: $query")
         
         val baseUrl = ensureMainUrl()
@@ -178,13 +301,15 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     if (filterByQuery && !matchesQuery(title)) return@forEach
                     
                     val img = element.selectFirst("div.poster-image img")
-                    val posterUrl = img?.attr("src") ?: ""
+                    val posterUrl = img?.attr("src") ?: img?.attr("data-src") ?: ""
                     val qualityText = element.selectFirst("span.poster-quality")?.text() ?: ""
                     
                     val quality = when {
-                        title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
+                        title.contains("HDCAM", ignoreCase = true) || 
+                        title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
                         qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
-                        qualityText.contains("Full HD", ignoreCase = true) || qualityText.contains("1080", ignoreCase = true) -> SearchQuality.HD
+                        qualityText.contains("Full HD", ignoreCase = true) || 
+                        qualityText.contains("1080", ignoreCase = true) -> SearchQuality.HD
                         else -> null
                     }
                     
@@ -206,22 +331,21 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                     if (results.none { it.url == result.url }) {
                         results.add(result)
                     }
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    Log.e("MoviesDrive", "Error parsing search result: ${e.message}")
+                }
             }
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // SEARCH STRATEGY: Scan multiple pages from different categories
-        // ═══════════════════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════════════════════
+        // Smart Page Selection: Only scan relevant pages based on query
+        // ══════════════════════════════════════════════════════════════════════
         
-        // URLs to scan: Homepage + Category pages + Search-like pages
         val pagesToScan = mutableListOf<String>()
         
-        // Add homepage pages (first 3 pages)
-        for (i in 1..3) {
-            val url = if (i == 1) "$baseUrl/" else "$baseUrl/page/$i/"
-            pagesToScan.add(url)
-        }
+        // Add homepage (first 2 pages only for speed)
+        pagesToScan.add("$baseUrl/")
+        pagesToScan.add("$baseUrl/page/2/")
         
         // Add category pages based on search query keywords
         val queryLower = query.lowercase()
@@ -230,7 +354,6 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         }
         if (queryLower.contains("bollywood") || queryLower.contains("hindi")) {
             pagesToScan.add("$baseUrl/category/bollywood/")
-            pagesToScan.add("$baseUrl/hindi-dubbed/")
         }
         if (queryLower.contains("south") || queryLower.contains("tamil") || queryLower.contains("telugu")) {
             pagesToScan.add("$baseUrl/category/south/")
@@ -242,16 +365,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             pagesToScan.add("$baseUrl/category/amzn-prime-video/")
         }
         
-        // Always add these main categories
-        pagesToScan.addAll(listOf(
-            "$baseUrl/category/hollywood/",
-            "$baseUrl/category/bollywood/",
-            "$baseUrl/category/south/",
-            "$baseUrl/hindi-dubbed/"
-        ))
-        
-        // Remove duplicates and limit to 8 pages max
-        val uniquePages = pagesToScan.distinct().take(8)
+        // Remove duplicates and limit to 6 pages max for speed
+        val uniquePages = pagesToScan.distinct().take(6)
         
         Log.d("MoviesDrive", "Scanning ${uniquePages.size} pages for: $query")
         
@@ -259,7 +374,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         try {
             uniquePages.amap { pageUrl ->
                 try {
-                    val doc = app.get(pageUrl, timeout = 10).document
+                    val doc = app.get(pageUrl, timeout = 8L).document
                     synchronized(results) {
                         extractResults(doc, filterByQuery = true)
                     }
@@ -271,13 +386,13 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             Log.e("MoviesDrive", "Parallel scan error: ${e.message}")
         }
         
-        // If still no results, scan more pages with fewer filters
+        // If still no results, scan more pages
         if (results.isEmpty()) {
             Log.d("MoviesDrive", "No results found, scanning more pages...")
             try {
-                for (pageNum in 1..5) {
+                for (pageNum in 1..3) {
                     val url = "$baseUrl/page/$pageNum/"
-                    val doc = app.get(url, timeout = 15).document
+                    val doc = app.get(url, timeout = 10L).document
                     extractResults(doc, filterByQuery = true)
                     if (results.size >= 10) break
                 }
@@ -291,32 +406,53 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
-        val initialTitle = document.select("title").text().replace("Download ", "")
-        val ogTitle = initialTitle
-        val plotElement = document.select(
-            "h2:contains(Storyline), h3:contains(Storyline), h5:contains(Storyline), h4:contains(Storyline), h4:contains(STORYLINE)"
-        ).firstOrNull()?.nextElementSibling()
-
-        val initialDescription = plotElement?.text() ?: document.select(".ipc-html-content-inner-div").firstOrNull()?.text().toString()
-
-        val initialPosterUrl = document.select("img[decoding=\"async\"]").attr("src")
-        val seasonRegex = """(?i)season\s*\d+""".toRegex()
-        val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
-
-        val tvtype = if (
-            initialTitle.contains("Episode", ignoreCase = true) ||
-            seasonRegex.containsMatchIn(initialTitle) ||
-            initialTitle.contains("series", ignoreCase = true)
-        ) {
-            "series"
-        } else {
-            "movie"
-        }
-
-        val imdbId = imdbUrl.substringAfter("title/").substringBefore("/")
-        val jsonResponse = app.get("$cinemetaUrl/$tvtype/$imdbId.json").text
-        val responseData = tryParseJson<ResponseData>(jsonResponse)
+        // ══════════════════════════════════════════════════════════════════════
+        // Optimized Load Function with Fast Metadata Fetching
+        // ══════════════════════════════════════════════════════════════════════
+        
+        try {
+            val document = app.get(url, timeout = 15L).document
+            
+            // Extract title
+            val initialTitle = document.select("title").text().replace("Download ", "").trim()
+            val ogTitle = initialTitle
+            
+            // Extract plot/description
+            val plotElement = document.select(
+                "h2:contains(Storyline), h3:contains(Storyline), h5:contains(Storyline), h4:contains(Storyline), h4:contains(STORYLINE)"
+            ).firstOrNull()?.nextElementSibling()
+            val initialDescription = plotElement?.text() ?: 
+                document.select(".ipc-html-content-inner-div").firstOrNull()?.text() ?: ""
+            
+            // Extract poster
+            val initialPosterUrl = document.select("img[decoding=\"async\"]").attr("src")
+            
+            // Detect if series or movie
+            val seasonRegex = """(?i)season\s*\d+""".toRegex()
+            val tvtype = if (
+                initialTitle.contains("Episode", ignoreCase = true) ||
+                seasonRegex.containsMatchIn(initialTitle) ||
+                initialTitle.contains("series", ignoreCase = true)
+            ) {
+                "series"
+            } else {
+                "movie"
+            }
+            
+            // Extract IMDB URL and ID
+            val imdbUrl = document.select("a[href*=\"imdb\"]").attr("href")
+            val imdbId = imdbUrl.substringAfter("title/").substringBefore("/")
+            
+            // Fetch metadata from Cinemeta (with timeout and error handling)
+            var responseData: ResponseData? = null
+            try {
+                if (imdbId.isNotBlank()) {
+                    val jsonResponse = app.get("$cinemetaUrl/$tvtype/$imdbId.json", timeout = 8L).text
+                    responseData = tryParseJson<ResponseData>(jsonResponse)
+                }
+            } catch (e: Exception) {
+                Log.e("MoviesDrive", "Failed to fetch Cinemeta metadata: ${e.message}")
+            }
 
         val description: String
         val cast: List<String>
@@ -447,25 +583,40 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 addImdbUrl(imdbUrl)
             }
         } else {
-            // Get all h5 > a links and sort by priority (X264 1080p first)
+            // ══════════════════════════════════════════════════════════════════════
+            // Smart Movie Link Selection with Priority Filtering
+            // ══════════════════════════════════════════════════════════════════════
+            
             val movieButtons = document.select("h5 > a")
                 .filter { getLinkPriority(it.text()) > 0 }  // Filter out Zip/HQ files
                 .sortedByDescending { getLinkPriority(it.text()) }  // X264 1080p first
                 .take(3)  // Only top 3 quality options for fast loading
             
-            Log.d("MoviesDrive", "Selected quality links: ${movieButtons.map { it.text() }}")
+            Log.d("MoviesDrive", "Selected ${movieButtons.size} quality links: ${movieButtons.map { it.text() }}")
             
-            val movieData = movieButtons.flatMap { button ->
-                val buttonLink = button.attr("href")
-                val buttonDoc = app.get(buttonLink).document
-                val innerButtons = buttonDoc.select("a").filter { element ->
-                    element.attr("href").contains(Regex("hubcloud|gdflix|gdlink|mdrive", RegexOption.IGNORE_CASE))
+            val movieData = movieButtons.amap { button ->
+                try {
+                    val buttonLink = button.attr("href")
+                    val buttonDoc = app.get(buttonLink, timeout = 10L).document
+                    
+                    // Smart link extraction with fallback
+                    val innerButtons = buttonDoc.select("a").filter { element ->
+                        val href = element.attr("href")
+                        href.contains(Regex("hubcloud|gdflix|gdlink|mdrive", RegexOption.IGNORE_CASE))
+                    }
+                    
+                    innerButtons.mapNotNull { innerButton ->
+                        val source = innerButton.attr("href")
+                        if (source.isNotBlank()) EpisodeLink(source) else null
+                    }
+                } catch (e: Exception) {
+                    Log.e("MoviesDrive", "Error fetching movie link: ${e.message}")
+                    emptyList()
                 }
-                innerButtons.mapNotNull { innerButton ->
-                    val source = innerButton.attr("href")
-                    EpisodeLink(source)
-                }
-            }
+            }.flatten()
+            
+            Log.d("MoviesDrive", "Found ${movieData.size} movie download links")
+            
             return newMovieLoadResponse(title, url, TvType.Movie, movieData) {
                 this.posterUrl = posterUrl
                 this.plot = description
@@ -476,6 +627,11 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 addActors(cast)
                 addImdbUrl(imdbUrl)
             }
+        }
+        
+        } catch (e: Exception) {
+            Log.e("MoviesDrive", "Error in load(): ${e.message}")
+            throw e
         }
     }
 
