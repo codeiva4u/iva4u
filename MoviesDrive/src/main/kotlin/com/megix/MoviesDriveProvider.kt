@@ -316,13 +316,29 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 addImdbUrl(imdbUrl)
             }
         } else {
-            // Get all h5 > a links and sort by priority (X264 1080p first)
+            // ═══════════════════════════════════════════════════════════════════
+            // Multi-Level Sorting for Movie Links (Strict Priority Order):
+            // 1. X264 1080p > X264 720p > HEVC 1080p (codec + quality)
+            // 2. Smallest file size within same quality
+            // 3. Fastest server (Instant DL > Direct > FSL)
+            // ═══════════════════════════════════════════════════════════════════
             val movieButtons = document.select("h5 > a")
                 .filter { getLinkPriority(it.text()) > 0 }  // Filter out Zip/HQ files
-                .sortedByDescending { getLinkPriority(it.text()) }  // X264 1080p first
+                .sortedWith(
+                    compareByDescending<org.jsoup.nodes.Element> { 
+                        // Priority 1: Codec + Quality (X264 1080p = 1000, X264 720p = 900, HEVC 1080p = 800)
+                        getLinkPriority(it.text())
+                    }.thenBy {
+                        // Priority 2: File size (smaller = better)
+                        parseSizeToMB(it.text())
+                    }.thenByDescending {
+                        // Priority 3: Server speed (Instant > Direct > FSL)
+                        getServerPriority(it.text())
+                    }
+                )
                 .take(3)  // Only top 3 quality options for fast loading
             
-            Log.d("MoviesDrive", "Selected quality links: ${movieButtons.map { it.text() }}")
+            Log.d("MoviesDrive", "Selected quality links (X264 1080p > X264 720p > HEVC 1080p + smallest size): ${movieButtons.map { it.text() }}")
             
             val movieData = movieButtons.flatMap { button ->
                 val buttonLink = button.attr("href")
