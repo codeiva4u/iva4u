@@ -49,52 +49,64 @@ fun parseSizeToMB(sizeStr: String): Double {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CRITICAL FIX: Cloudstream sorts by quality NUMBER (higher = shown first)
-// Priority: X264 1080p > X264 720p > HEVC 1080p
-// Smaller file size = HIGHER quality score (shown first in player)
+// SAHI PRIORITY ORDER (Cloudstream - higher number = shown first):
+// 
+// 1️⃣ पहली: Codec + Quality (X264 1080p > X264 720p > HEVC 1080p)
+// 2️⃣ दूसरी: उस quality group के भीतर सबसे छोटी file
+// 3️⃣ तीसरी: उस quality+size के भीतर सबसे तेज़ server
+//
+// Example correct order:
+//   X264 1080p 400MB Instant = 30000 + 250 + 100 = 30350 ✅ #1
+//   X264 1080p 800MB Direct  = 30000 + 200 + 90  = 30290    #2
+//   X264 1080p 1.5GB FSL     = 30000 + 100 + 80  = 30180    #3
+//   X264 720p 300MB Instant  = 20000 + 260 + 100 = 20360    #4
+//   X264 720p 600MB Direct   = 20000 + 220 + 90  = 20310    #5
+//   HEVC 1080p 400MB Instant = 10000 + 250 + 100 = 10350    #6
+//   HEVC 1080p 800MB Direct  = 10000 + 200 + 90  = 10290    #7
 // ═══════════════════════════════════════════════════════════════════
 fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", fileName: String = ""): Int {
-    var baseScore: Int
     val text = (fileName + sizeStr + serverName).lowercase()
     
     // Detect codec: X264 vs HEVC
     val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
     val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
     
-    // ★★★ PRIORITY ORDER (HIGHER NUMBER = SHOWN FIRST IN CLOUDSTREAM) ★★★
-    // X264 1080p small = 2000+ (HIGHEST - shown first)
-    // X264 720p small = 1900+
-    // HEVC 1080p small = 1800+
-    baseScore = when {
-        isX264 && quality >= 1080 -> 2000  // ✅ X264 1080p - HIGHEST PRIORITY
-        isX264 && quality >= 720 -> 1900   // ✅ X264 720p - 2nd priority
-        isHEVC && quality >= 1080 -> 1800  // ✅ HEVC 1080p - 3rd priority
-        isHEVC && quality >= 720 -> 1700   // HEVC 720p
-        quality >= 1080 -> 1850            // Unknown codec 1080p
-        quality >= 720 -> 1750             // Unknown codec 720p
-        quality >= 480 -> 1600             // 480p
-        else -> 1500                       // Unknown
+    // ★★★ PRIORITY 1: Codec + Quality Group (10,000 points per group) ★★★
+    val codecQualityScore = when {
+        isX264 && quality >= 1080 -> 30000  // ✅ Group 1: X264 1080p (30000-30999)
+        isX264 && quality >= 720  -> 20000  // ✅ Group 2: X264 720p (20000-20999)
+        isHEVC && quality >= 1080 -> 10000  // ✅ Group 3: HEVC 1080p (10000-10999)
+        isHEVC && quality >= 720  -> 9000   //    Group 4: HEVC 720p
+        quality >= 1080 -> 8000             //    Unknown 1080p
+        quality >= 720  -> 7000             //    Unknown 720p
+        quality >= 480  -> 6000             //    480p
+        else -> 5000                        //    Unknown
     }
     
-    // ★★★ CRITICAL: Smaller file = HIGHER bonus (up to +150 points) ★★★
+    // ★★★ PRIORITY 2: File Size (max 300 points within group) ★★★
+    // Smaller file = HIGHER score (inverse of file size)
     val sizeMB = parseSizeToMB(sizeStr)
-    val sizeBonus = when {
-        sizeMB <= 400 -> 150   // Very small 400MB = +150 (X264 1080p 400MB = 2150)
-        sizeMB <= 600 -> 130   // 600MB = +130
-        sizeMB <= 800 -> 110   // 800MB = +110
-        sizeMB <= 1000 -> 90   // 1GB = +90
-        sizeMB <= 1200 -> 70   // 1.2GB = +70
-        sizeMB <= 1500 -> 50   // 1.5GB = +50
-        sizeMB <= 2000 -> 30   // 2GB = +30
-        sizeMB <= 3000 -> 10   // 3GB = +10
-        else -> -50            // >3GB = PENALTY -50 (shown LAST)
+    val sizeScore = when {
+        sizeMB <= 300  -> 260  // 300MB = +260
+        sizeMB <= 400  -> 250  // 400MB = +250
+        sizeMB <= 500  -> 240  // 500MB = +240
+        sizeMB <= 600  -> 230  // 600MB = +230
+        sizeMB <= 700  -> 220  // 700MB = +220
+        sizeMB <= 800  -> 210  // 800MB = +210
+        sizeMB <= 900  -> 200  // 900MB = +200
+        sizeMB <= 1000 -> 190  // 1GB = +190
+        sizeMB <= 1200 -> 170  // 1.2GB = +170
+        sizeMB <= 1500 -> 140  // 1.5GB = +140
+        sizeMB <= 2000 -> 100  // 2GB = +100
+        sizeMB <= 2500 -> 60   // 2.5GB = +60
+        sizeMB <= 3000 -> 20   // 3GB = +20
+        else -> 0              // >3GB = no bonus
     }
-    baseScore += sizeBonus
     
-    // Server speed bonus (max +100)
-    baseScore += getServerPriority(serverName)
+    // ★★★ PRIORITY 3: Server Speed (max 100 points) ★★★
+    val serverScore = getServerPriority(serverName)
     
-    return baseScore
+    return codecQualityScore + sizeScore + serverScore
 }
 
 // Server speed priority (higher = faster/preferred)

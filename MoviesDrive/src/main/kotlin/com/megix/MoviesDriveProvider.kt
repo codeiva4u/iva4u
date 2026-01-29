@@ -45,10 +45,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     )
 
     // ═══════════════════════════════════════════════════════════════════
-    // Link Priority Helper: Score links based on codec + quality
-    // Priority: X264 1080p > X264 720p > HEVC 1080p > HEVC 720p > Others
+    // CODEC+QUALITY GROUP (returns group number for sorting)
+    // Group 3 = X264 1080p (highest priority)
+    // Group 2 = X264 720p
+    // Group 1 = HEVC 1080p
     // ═══════════════════════════════════════════════════════════════════
-    private fun getLinkPriority(linkText: String): Int {
+    private fun getCodecQualityGroup(linkText: String): Int {
         val text = linkText.lowercase()
         
         // Skip HQ files (usually very large 5GB+)
@@ -65,16 +67,16 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val is720p = text.contains("720p")
         val is480p = text.contains("480p")
         
-        // Priority scoring: X264 1080p = 1000, X264 720p = 900, HEVC 1080p = 800...
+        // Return group number (higher = better)
         return when {
-            isX264 && is1080p -> 1000  // 1st Priority: X264 1080p
-            isX264 && is720p -> 900    // 2nd Priority: X264 720p
-            isHEVC && is1080p -> 800   // 3rd Priority: HEVC 1080p
-            isHEVC && is720p -> 700    // 4th Priority: HEVC 720p
-            is1080p -> 600             // Unknown codec 1080p
-            is720p -> 500              // Unknown codec 720p
-            is480p -> 400              // 480p
-            else -> 300                // Unknown quality
+            isX264 && is1080p -> 3  // ✅ Group 3: X264 1080p (shown first)
+            isX264 && is720p -> 2   // ✅ Group 2: X264 720p
+            isHEVC && is1080p -> 1  // ✅ Group 1: HEVC 1080p
+            isHEVC && is720p -> 0   //    HEVC 720p
+            is1080p -> -1           //    Unknown 1080p
+            is720p -> -2            //    Unknown 720p
+            is480p -> -3            //    480p
+            else -> -4              //    Unknown
         }
     }
 
@@ -317,28 +319,28 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             }
         } else {
             // ═══════════════════════════════════════════════════════════════════
-            // Multi-Level Sorting for Movie Links (Strict Priority Order):
-            // 1. X264 1080p > X264 720p > HEVC 1080p (codec + quality)
-            // 2. Smallest file size within same quality
-            // 3. Fastest server (Instant DL > Direct > FSL)
+            // SAHI 3-LEVEL SORTING (Strict Priority Order):
+            // 1️⃣ Codec+Quality Group (X264 1080p > X264 720p > HEVC 1080p)
+            // 2️⃣ File Size (छोटी file पहले - within same group)
+            // 3️⃣ Server Speed (तेज़ server पहले - within same group+size)
             // ═══════════════════════════════════════════════════════════════════
             val movieButtons = document.select("h5 > a")
-                .filter { getLinkPriority(it.text()) > 0 }  // Filter out Zip/HQ files
+                .filter { getCodecQualityGroup(it.text()) > 0 }  // Filter out Zip/HQ/bad files
                 .sortedWith(
                     compareByDescending<org.jsoup.nodes.Element> { 
-                        // Priority 1: Codec + Quality (X264 1080p = 1000, X264 720p = 900, HEVC 1080p = 800)
-                        getLinkPriority(it.text())
+                        // ✅ Priority 1: Codec+Quality Group (3=X264 1080p, 2=X264 720p, 1=HEVC 1080p)
+                        getCodecQualityGroup(it.text())
                     }.thenBy {
-                        // Priority 2: File size (smaller = better)
+                        // ✅ Priority 2: File Size (smaller = better, within same group)
                         parseSizeToMB(it.text())
                     }.thenByDescending {
-                        // Priority 3: Server speed (Instant > Direct > FSL)
+                        // ✅ Priority 3: Server Speed (faster = better, within same group+size)
                         getServerPriority(it.text())
                     }
                 )
-                .take(3)  // Only top 3 quality options for fast loading
+                .take(5)  // Top 5 quality options for fast loading
             
-            Log.d("MoviesDrive", "Selected quality links (X264 1080p > X264 720p > HEVC 1080p + smallest size): ${movieButtons.map { it.text() }}")
+            Log.d("MoviesDrive", "Selected links (Group→Size→Server): ${movieButtons.map { "${getCodecQualityGroup(it.text())} | ${it.text().take(50)}" }}")
             
             val movieData = movieButtons.flatMap { button ->
                 val buttonLink = button.attr("href")
