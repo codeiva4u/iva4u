@@ -130,8 +130,8 @@ class MoviesDriveProvider : MainAPI() {
         "category/south/" to "South Indian",
         "category/netflix/" to "Netflix",
         "category/amzn-prime-video/" to "Amazon Prime",
-		"category/search.html?q=jiohotstar/" to "JioHotStar",
-		"category/web/" to "Web Series"
+        "?s=jiohotstar" to "JioHotStar",
+        "category/web/" to "Web Series"
     )
 
     private val headers = mapOf(
