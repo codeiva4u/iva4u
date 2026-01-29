@@ -134,14 +134,21 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val title = this.selectFirst("p.poster-title")?.text()?.replace("Download ", "") ?: ""
         val href = this.attr("href")
         val imgElement = this.selectFirst("div.poster-image img")
+        
+        // ✅ FIXED: Handle lazy-loaded images properly
+        // Priority: src -> data-src -> data-lazy-src
         val posterUrl = fixUrlNull(imgElement?.getImageAttr())
+        
         val qualityText = this.selectFirst("span.poster-quality")?.text() ?: ""
         val quality = when {
             title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
             qualityText.contains("4K", ignoreCase = true) -> SearchQuality.UHD
-            qualityText.contains("Full HD", ignoreCase = true) -> SearchQuality.HD
+            qualityText.contains("Full HD", ignoreCase = true) || qualityText.contains("HD", ignoreCase = true) -> SearchQuality.HD
             else -> null
         }
+        
+        Log.d("MoviesDrive", "📺 Found: $title | Poster: ${posterUrl?.take(50)}")
+        
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = quality
@@ -157,8 +164,19 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         } else {
             "$baseUrl/search.html?q=$query&page=$page"
         }
+        
+        Log.d("MoviesDrive", "🔍 Searching: $searchUrl")
+        
         val document = app.get(searchUrl).document
-        val results = document.select("a:has(div.poster-card)").mapNotNull { it.toSearchResult() }
+        
+        // ✅ FIXED: Check both possible structures
+        // Homepage: a:has(div.poster-card)
+        // Search page: div.movies-grid > a (with poster-card inside)
+        val results = document.select("a:has(div.poster-card), div.movies-grid > a, div#results-grid > a")
+            .mapNotNull { it.toSearchResult() }
+        
+        Log.d("MoviesDrive", "✅ Found ${results.size} search results")
+        
         val hasNext = results.isNotEmpty()
         return newSearchResponseList(results, hasNext)
     }
@@ -377,53 +395,51 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         // ═══════════════════════════════════════════════════════════════════
-        // FIX: Extract ALL links first, then sort and take ONLY top 3-5
-        // This prevents 40-second "Skip loading" delay in Cloudstream player
-        // Priority: X264 1080p small > X264 720p small > HEVC 1080p small
+        // ✅ INSTANT PLAYBACK FIX:
+        // Extract ONLY the first (best) source immediately
+        // This eliminates 2+ minute delay
         // ═══════════════════════════════════════════════════════════════════
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
-        val allExtractedLinks = mutableListOf<ExtractorLink>()
         
-        // Collect all links from all sources
-        sources.amap { episodeLink ->
-            val url = episodeLink.source
-            try {
-                // Create temporary callback to collect links
-                val tempCallback: (ExtractorLink) -> Unit = { link ->
-                    allExtractedLinks.add(link)
+        // ✅ Take only FIRST source (already sorted by priority in load function)
+        val bestSource = sources.firstOrNull()
+        if (bestSource == null) {
+            Log.d("MoviesDrive", "No sources available")
+            return false
+        }
+        
+        val url = bestSource.source
+        Log.d("MoviesDrive", "⚡ INSTANT PLAY: Extracting best source only: $url")
+        
+        try {
+            when {
+                url.contains("hubcloud", true) -> {
+                    HubCloud().getUrl(url, null, subtitleCallback, callback)
                 }
-                
-                when {
-                    url.contains("hubcloud", true) -> HubCloud().getUrl(url, null, subtitleCallback, tempCallback)
-                    url.contains("gdflix", true) || url.contains("gdlink", true) -> GDFlix().getUrl(url, null, subtitleCallback, tempCallback)
-                    url.contains("mdrive", true) -> {
-                        val doc = app.get(url).document
-                        doc.select("a").filter { 
-                            it.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
-                        }.amap { link ->
-                            val linkUrl = link.attr("href")
-                            when {
-                                linkUrl.contains("hubcloud", true) -> HubCloud().getUrl(linkUrl, null, subtitleCallback, tempCallback)
-                                linkUrl.contains("gdflix", true) || linkUrl.contains("gdlink", true) -> GDFlix().getUrl(linkUrl, null, subtitleCallback, tempCallback)
-                            }
+                url.contains("gdflix", true) || url.contains("gdlink", true) -> {
+                    GDFlix().getUrl(url, null, subtitleCallback, callback)
+                }
+                url.contains("mdrive", true) -> {
+                    val doc = app.get(url).document
+                    val innerLinks = doc.select("a").filter { 
+                        it.attr("href").contains(Regex("hubcloud|gdflix|gdlink", RegexOption.IGNORE_CASE))
+                    }
+                    
+                    // Extract ONLY first inner link
+                    val firstInnerLink = innerLinks.firstOrNull()
+                    if (firstInnerLink != null) {
+                        val linkUrl = firstInnerLink.attr("href")
+                        when {
+                            linkUrl.contains("hubcloud", true) -> HubCloud().getUrl(linkUrl, null, subtitleCallback, callback)
+                            linkUrl.contains("gdflix", true) || linkUrl.contains("gdlink", true) -> GDFlix().getUrl(linkUrl, null, subtitleCallback, callback)
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.d("MoviesDrive", "Error extracting: ${e.message}")
             }
-        }
-        
-        // ★★★ CRITICAL: Sort all collected links by quality (higher = better) ★★★
-        // Take only top 5 best links to avoid 40-second delay
-        val bestLinks = allExtractedLinks
-            .sortedByDescending { it.quality }  // Highest quality first (X264 1080p small = 2200+)
-            .take(5)  // ✅ ONLY top 5 links - prevents loading delay
-        
-        Log.d("MoviesDrive", "Total links collected: ${allExtractedLinks.size}, Sending top ${bestLinks.size} to player")
-        bestLinks.forEachIndexed { index, link ->
-            Log.d("MoviesDrive", "Link ${index+1}: ${link.name} quality=${link.quality}")
-            callback.invoke(link)  // Send to Cloudstream player
+            Log.d("MoviesDrive", "✅ Extraction completed - ready for instant playback")
+        } catch (e: Exception) {
+            Log.d("MoviesDrive", "❌ Error extracting: ${e.message}")
+            return false
         }
         
         return true
