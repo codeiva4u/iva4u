@@ -534,40 +534,47 @@ class MoviesDriveProvider : MainAPI() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // EXTRACT LINKS USING EXTRACTORS (PARALLEL PROCESSING)
-            // Use mdrive.lol extractor (similar to HubCloud/GDFlix architecture)
+            // EXTRACT LINKS USING EXTRACTORS (PARALLEL + 10s TIMEOUT)
+            // Strategy: Process only TOP 3 links for instant playback (<10s)
             // amap = Async Map = सभी links parallel में process होते हैं
             // ═══════════════════════════════════════════════════════════════════
             
-            sortedLinks.take(10).amap { downloadLink ->
-                try {
-                    val link = downloadLink.url
-                    Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
-                    
-                    when {
-                        // mdrive.lol uses MDriveExtractor which scrapes the page
-                        link.contains("mdrive.lol", ignoreCase = true) -> {
-                            MDriveExtractor().getUrl(link, pageUrl, subtitleCallback, callback)
-                        }
-                        
-                        // Fallback: Direct extractors if other hosts found
-                        link.contains("hubcloud", ignoreCase = true) || 
-                        link.contains("gamerxyt", ignoreCase = true) -> {
-                            HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
-                        }
-                        
-                        link.contains("gdflix", ignoreCase = true) || 
-                        link.contains("gdlink", ignoreCase = true) -> {
-                            GDFlix().getUrl(link, pageUrl, subtitleCallback, callback)
-                        }
-                        
-                        else -> {
-                            Log.w(TAG, "⚠️ No extractor for: ${link.take(50)}")
+            // Process only top 3 links for instant results (10s max)
+            try {
+                withTimeoutOrNull(10_000L) {  // 10 second timeout
+                    sortedLinks.take(3).amap { downloadLink ->
+                        try {
+                            val link = downloadLink.url
+                            Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
+                            
+                            when {
+                                // mdrive.lol uses MDriveExtractor which scrapes the page
+                                link.contains("mdrive.lol", ignoreCase = true) -> {
+                                    MDriveExtractor().getUrl(link, pageUrl, subtitleCallback, callback)
+                                }
+                                
+                                // Fallback: Direct extractors if other hosts found
+                                link.contains("hubcloud", ignoreCase = true) || 
+                                link.contains("gamerxyt", ignoreCase = true) -> {
+                                    HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
+                                }
+                                
+                                link.contains("gdflix", ignoreCase = true) || 
+                                link.contains("gdlink", ignoreCase = true) -> {
+                                    GDFlix().getUrl(link, pageUrl, subtitleCallback, callback)
+                                }
+                                
+                                else -> {
+                                    Log.w(TAG, "⚠️ No extractor for: ${link.take(50)}")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error extracting ${downloadLink.url.take(50)}: ${e.message}")
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error extracting ${downloadLink.url.take(50)}: ${e.message}")
-                }
+                } ?: Log.w(TAG, "⏱️ Timeout reached (10s), showing available links")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Link extraction error: ${e.message}")
             }
             
             Log.d(TAG, "✅ LoadLinks completed successfully")
