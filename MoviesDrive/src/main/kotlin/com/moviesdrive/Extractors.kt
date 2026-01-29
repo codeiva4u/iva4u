@@ -572,12 +572,51 @@ class MDriveExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
+            // Extract episode number from referer (format: "pageUrl|||episodeNum")
+            val episodeNum = referer?.split("|||")?.getOrNull(1)?.toIntOrNull()
+            
+            Log.d("MDriveExtractor", "🎯 Target Episode: ${episodeNum ?: "Movie/All"} from $url")
+            
             // Fetch the mdrive.lol page
             val document = app.get(url).document
             
-            // Extract all download links from the page
-            // mdrive.lol pages contain direct links to hubcloud, gdflix, etc.
-            val downloadLinks = document.select("a[href]").mapNotNull { element ->
+            // If episode number is provided, filter content by episode section
+            val relevantContent = if (episodeNum != null) {
+                // Find all headers and links
+                val allElements = document.select("h5, a[href]")
+                val episodeLinks = mutableListOf<org.jsoup.nodes.Element>()
+                var isTargetEpisode = false
+                
+                // Episode header patterns: "Ep01", "EP 01", "Episode 1", etc.
+                val episodeRegex = Regex("(?i)(?:EP|Episode)[\\s-]*(\\d+)", RegexOption.IGNORE_CASE)
+                
+                allElements.forEach { element ->
+                    if (element.tagName() == "h5") {
+                        val headerText = element.text()
+                        val match = episodeRegex.find(headerText)
+                        val foundEpNum = match?.groupValues?.get(1)?.toIntOrNull()
+                        
+                        // Check if this header matches our target episode
+                        isTargetEpisode = foundEpNum == episodeNum
+                        
+                        if (isTargetEpisode) {
+                            Log.d("MDriveExtractor", "✅ Found episode header: $headerText")
+                        }
+                    } else if (isTargetEpisode && element.tagName() == "a") {
+                        // Collect links under the target episode header
+                        episodeLinks.add(element)
+                    }
+                }
+                
+                Log.d("MDriveExtractor", "📋 Filtered to ${episodeLinks.size} links for Episode $episodeNum")
+                episodeLinks
+            } else {
+                // No episode filtering - process all links (movies)
+                document.select("a[href]")
+            }
+            
+            // Extract download links from relevant content
+            val downloadLinks = relevantContent.mapNotNull { element ->
                 val href = element.attr("href")
                 when {
                     href.contains("hubcloud", ignoreCase = true) -> Pair("hubcloud", href)
@@ -588,7 +627,7 @@ class MDriveExtractor : ExtractorApi() {
                 }
             }
             
-            Log.d("MDriveExtractor", "Found ${downloadLinks.size} download links from $url")
+            Log.d("MDriveExtractor", "Found ${downloadLinks.size} download links")
             
             // Process each link with its corresponding extractor
             downloadLinks.amap { (type, link) ->

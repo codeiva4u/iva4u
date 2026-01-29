@@ -128,10 +128,10 @@ class MoviesDriveProvider : MainAPI() {
         "category/bollywood/" to "Bollywood",
         "category/hollywood/" to "Hollywood",
         "category/south/" to "South Indian",
-        "category/web/" to "Web Series",
         "category/netflix/" to "Netflix",
         "category/amzn-prime-video/" to "Amazon Prime",
-        "category/2160p-4k/" to "4K Movies"
+		"category/search.html?q=jiohotstar/" to "JioHotStar",
+		"category/web/" to "Web Series"
     )
 
     private val headers = mapOf(
@@ -327,12 +327,13 @@ class MoviesDriveProvider : MainAPI() {
         val episodeNum: Int? = null
     )
 
-    // Detect episode numbers using smart pattern matching
-    private fun detectEpisodesFromDownloadLinks(
+    // Detect actual episode count from mdrive.lol page (SMART & ACCURATE)
+    private suspend fun detectEpisodesFromDownloadLinks(
         document: org.jsoup.nodes.Document, 
         pageUrl: String
     ): List<com.lagradost.cloudstream3.Episode> {
         val detectedEpisodes = mutableSetOf<Int>()
+        var singleEpisodeLink: String? = null
         
         // Extract from headings using regex
         document.select("h5, h4").forEach { element ->
@@ -343,21 +344,19 @@ class MoviesDriveProvider : MainAPI() {
             }
         }
         
-        // Extract from download links using regex  
+        // Find "Single Episode" link to detect actual count
         document.select("a[href*='mdrive.lol']").forEach { element ->
             val linkText = element.text()
+            val href = element.attr("href")
             
-            // Check for "Single Episode" pattern
-            if (linkText.contains("Single Episode", ignoreCase = true)) {
-                // Standard web series have 8-10 episodes
-                // Create placeholder episodes that will load from mdrive.lol
-                Log.d(TAG, "📺 Detected 'Single Episode' link - creating 8 episodes")
-                for (i in 1..8) {
-                    detectedEpisodes.add(i)
-                }
+            // Find first "Single Episode" link (prefer highest quality - 1080p)
+            if (linkText.contains("Single Episode", ignoreCase = true) && 
+                singleEpisodeLink == null &&
+                (linkText.contains("1080p") || linkText.contains("720p") || linkText.contains("480p"))) {
+                singleEpisodeLink = href
             }
             
-            // Regular episode detection
+            // Regular episode detection from link text
             EPISODE_NUMBER_REGEX.find(linkText)?.let { match ->
                 match.groupValues[1].toIntOrNull()?.let { epNum ->
                     if (epNum in 1..499) detectedEpisodes.add(epNum)
@@ -365,7 +364,29 @@ class MoviesDriveProvider : MainAPI() {
             }
         }
         
-        Log.d(TAG, "📺 Episodes: $detectedEpisodes")
+        // If "Single Episode" link found, fetch mdrive page to get actual count
+        if (singleEpisodeLink != null && detectedEpisodes.isEmpty()) {
+            try {
+                Log.d(TAG, "📡 Fetching mdrive page to detect actual episode count...")
+                val mdriveDoc = app.get(singleEpisodeLink!!).document
+                
+                // Detect episodes from mdrive page (Ep01, Ep02, etc.)
+                mdriveDoc.select("h5, h4").forEach { elem ->
+                    EPISODE_NUMBER_REGEX.find(elem.text())?.let { match ->
+                        match.groupValues[1].toIntOrNull()?.let { epNum ->
+                            if (epNum in 1..499) detectedEpisodes.add(epNum)
+                        }
+                    }
+                }
+                Log.d(TAG, "✅ Detected ${detectedEpisodes.size} episodes from mdrive.lol")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to fetch mdrive page: ${e.message}")
+                // Fallback: assume 8 episodes (standard)
+                for (i in 1..8) detectedEpisodes.add(i)
+            }
+        }
+        
+        Log.d(TAG, "📺 Final Episodes: $detectedEpisodes")
         
         return if (detectedEpisodes.isNotEmpty()) {
             detectedEpisodes.sorted().map { episodeNum ->
@@ -558,22 +579,33 @@ class MoviesDriveProvider : MainAPI() {
             
             // ═══════════════════════════════════════════════════════════════════
             // EXTRACT LINKS USING EXTRACTORS (PARALLEL + 10s TIMEOUT)
-            // Strategy: Process only TOP 3 links for instant playback (<10s)
+            // Strategy: Process only TOP 1 link for episodes, TOP 3 for movies
+            // Reason: Episodes = faster (single video), Movies = backup links needed
             // amap = Async Map = सभी links parallel में process होते हैं
             // ═══════════════════════════════════════════════════════════════════
             
-            // Process only top 3 links for instant results (10s max)
+            // Optimize: For series, process only 1 link; for movies, process 3
+            val linksToProcess = if (episodeNum != null) 1 else 3
+            Log.d(TAG, "⚡ Processing top $linksToProcess link(s) for ${if (episodeNum != null) "Episode $episodeNum" else "Movie"}")
+            
+            // Process only top links for instant results (10s max)
             try {
                 withTimeoutOrNull(10_000L) {  // 10 second timeout
-                    sortedLinks.take(3).amap { downloadLink ->
+                    sortedLinks.take(linksToProcess).amap { downloadLink ->
                         try {
                             val link = downloadLink.url
                             Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
                             
                             when {
                                 // mdrive.lol uses MDriveExtractor which scrapes the page
+                                // Pass episode number via referer in format: "pageUrl|||episodeNum"
                                 link.contains("mdrive.lol", ignoreCase = true) -> {
-                                    MDriveExtractor().getUrl(link, pageUrl, subtitleCallback, callback)
+                                    val refererWithEpisode = if (episodeNum != null) {
+                                        "$pageUrl|||$episodeNum"
+                                    } else {
+                                        pageUrl
+                                    }
+                                    MDriveExtractor().getUrl(link, refererWithEpisode, subtitleCallback, callback)
                                 }
                                 
                                 // Fallback: Direct extractors if other hosts found
