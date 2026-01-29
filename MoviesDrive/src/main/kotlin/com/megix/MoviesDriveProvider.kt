@@ -370,13 +370,26 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // ═══════════════════════════════════════════════════════════════════
+        // FIX: Extract ALL links first, then sort and take ONLY top 3-5
+        // This prevents 40-second "Skip loading" delay in Cloudstream player
+        // Priority: X264 1080p small > X264 720p small > HEVC 1080p small
+        // ═══════════════════════════════════════════════════════════════════
         val sources = parseJson<ArrayList<EpisodeLink>>(data)
+        val allExtractedLinks = mutableListOf<ExtractorLink>()
+        
+        // Collect all links from all sources
         sources.amap { episodeLink ->
             val url = episodeLink.source
             try {
+                // Create temporary callback to collect links
+                val tempCallback: (ExtractorLink) -> Unit = { link ->
+                    allExtractedLinks.add(link)
+                }
+                
                 when {
-                    url.contains("hubcloud", true) -> HubCloud().getUrl(url, null, subtitleCallback, callback)
-                    url.contains("gdflix", true) || url.contains("gdlink", true) -> GDFlix().getUrl(url, null, subtitleCallback, callback)
+                    url.contains("hubcloud", true) -> HubCloud().getUrl(url, null, subtitleCallback, tempCallback)
+                    url.contains("gdflix", true) || url.contains("gdlink", true) -> GDFlix().getUrl(url, null, subtitleCallback, tempCallback)
                     url.contains("mdrive", true) -> {
                         val doc = app.get(url).document
                         doc.select("a").filter { 
@@ -384,8 +397,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                         }.amap { link ->
                             val linkUrl = link.attr("href")
                             when {
-                                linkUrl.contains("hubcloud", true) -> HubCloud().getUrl(linkUrl, null, subtitleCallback, callback)
-                                linkUrl.contains("gdflix", true) || linkUrl.contains("gdlink", true) -> GDFlix().getUrl(linkUrl, null, subtitleCallback, callback)
+                                linkUrl.contains("hubcloud", true) -> HubCloud().getUrl(linkUrl, null, subtitleCallback, tempCallback)
+                                linkUrl.contains("gdflix", true) || linkUrl.contains("gdlink", true) -> GDFlix().getUrl(linkUrl, null, subtitleCallback, tempCallback)
                             }
                         }
                     }
@@ -394,6 +407,19 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
                 Log.d("MoviesDrive", "Error extracting: ${e.message}")
             }
         }
+        
+        // ★★★ CRITICAL: Sort all collected links by quality (higher = better) ★★★
+        // Take only top 5 best links to avoid 40-second delay
+        val bestLinks = allExtractedLinks
+            .sortedByDescending { it.quality }  // Highest quality first (X264 1080p small = 2200+)
+            .take(5)  // ✅ ONLY top 5 links - prevents loading delay
+        
+        Log.d("MoviesDrive", "Total links collected: ${allExtractedLinks.size}, Sending top ${bestLinks.size} to player")
+        bestLinks.forEachIndexed { index, link ->
+            Log.d("MoviesDrive", "Link ${index+1}: ${link.name} quality=${link.quality}")
+            callback.invoke(link)  // Send to Cloudstream player
+        }
+        
         return true
     }
 
