@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
@@ -533,11 +534,12 @@ class MoviesDriveProvider : MainAPI() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // EXTRACT LINKS USING EXTRACTORS
+            // EXTRACT LINKS USING EXTRACTORS (PARALLEL PROCESSING)
             // Use mdrive.lol extractor (similar to HubCloud/GDFlix architecture)
+            // amap = Async Map = सभी links parallel में process होते हैं
             // ═══════════════════════════════════════════════════════════════════
             
-            sortedLinks.take(10).forEach { downloadLink ->
+            sortedLinks.take(10).amap { downloadLink ->
                 try {
                     val link = downloadLink.url
                     Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
