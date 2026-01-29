@@ -135,9 +135,14 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         val href = this.attr("href")
         val imgElement = this.selectFirst("div.poster-image img")
         
-        // ✅ FIXED: Handle lazy-loaded images properly
-        // Priority: src -> data-src -> data-lazy-src
-        val posterUrl = fixUrlNull(imgElement?.getImageAttr())
+        // ✅ FIXED: Extract poster URL
+        // TMDB URLs are already absolute, don't process them with fixUrlNull
+        val rawPosterUrl = imgElement?.getImageAttr()
+        val posterUrl = when {
+            rawPosterUrl == null -> null
+            rawPosterUrl.startsWith("http") -> rawPosterUrl  // Already absolute (TMDB, Amazon, etc.)
+            else -> fixUrlNull(rawPosterUrl)  // Relative URL, need to fix
+        }
         
         val qualityText = this.selectFirst("span.poster-quality")?.text() ?: ""
         val quality = when {
