@@ -109,7 +109,7 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     override val mainPage = mainPageOf(
         "/page/" to "Latest Release",
         "/category/hollywood/page/" to "Hollywood Movies",
-        "/hindi-dubbed/page/" to "Hindi Dubbed Movies",
+        "/search.html?q=hindi/" to "Hindi Dubbed Movies",
         "/category/south/page/" to "South Movies",
         "/category/bollywood/page/" to "Bollywood Movies",
         "/category/amzn-prime-video/page/" to "Prime Video",
@@ -147,7 +147,9 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
             else -> null
         }
         
-        Log.d("MoviesDrive", "📺 Found: $title | Poster: ${posterUrl?.take(50)}")
+        Log.d("MoviesDrive", "📺 Title: $title")
+        Log.d("MoviesDrive", "🔗 URL: $href")
+        Log.d("MoviesDrive", "🖼️ Poster: ${posterUrl?.take(80) ?: "NULL"}")
         
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
@@ -169,13 +171,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
         
         val document = app.get(searchUrl).document
         
-        // ✅ FIXED: Check both possible structures
-        // Homepage: a:has(div.poster-card)
-        // Search page: div.movies-grid > a (with poster-card inside)
-        val results = document.select("a:has(div.poster-card), div.movies-grid > a, div#results-grid > a")
+        // ✅ FIXED: Search page uses div#results-grid structure
+        // Structure: <div class="movies-grid" id="results-grid"> <a href="..."> <div class="poster-card">
+        val results = document.select("div#results-grid > a, div.movies-grid > a, a:has(div.poster-card)")
             .mapNotNull { it.toSearchResult() }
         
-        Log.d("MoviesDrive", "✅ Found ${results.size} search results")
+        Log.d("MoviesDrive", "✅ Found ${results.size} search results for '$query'")
         
         val hasNext = results.isNotEmpty()
         return newSearchResponseList(results, hasNext)
@@ -489,14 +490,16 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     )
 
     // Helper function to extract image URLs from lazy-loaded images
-    // Checks data-src, data-lazy-src, and src attributes in priority order
+    // MoviesDrive uses direct src attribute, but we check all possibilities
+    // Priority: src (primary) -> data-src -> data-lazy-src -> srcset
     // Returns absolute URLs using abs: prefix (like HDhub4u, Movierulzhd, MultiMovies)
     private fun Element.getImageAttr(): String? {
         return when {
+            this.hasAttr("src") && !this.attr("src").isNullOrEmpty() -> this.attr("abs:src")
             this.hasAttr("data-src") -> this.attr("abs:data-src")
             this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
             this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
-            else -> this.attr("abs:src")
+            else -> null
         }
     }
 }
