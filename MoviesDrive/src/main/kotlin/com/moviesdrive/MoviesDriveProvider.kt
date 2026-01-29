@@ -39,7 +39,7 @@ class MoviesDriveProvider : MainAPI() {
         )
         
         // Episode Number Extraction Pattern
-        // Matches: "S01 E01", "Ep01", "Episode 1"
+        // Matches: "S01 E01", "Ep01", "Episode 1", "E01", "Ep 1"
         private val EPISODE_NUMBER_REGEX = Regex(
             """(?i)(?:S\d+\s*)?(?:EP?|Episode)[\s-]*(\d+)"""
         )
@@ -327,7 +327,7 @@ class MoviesDriveProvider : MainAPI() {
         val episodeNum: Int? = null
     )
 
-    // Detect episode numbers using regex patterns
+    // Detect episode numbers using smart pattern matching
     private fun detectEpisodesFromDownloadLinks(
         document: org.jsoup.nodes.Document, 
         pageUrl: String
@@ -343,9 +343,22 @@ class MoviesDriveProvider : MainAPI() {
             }
         }
         
-        // Extract from download links using regex
+        // Extract from download links using regex  
         document.select("a[href*='mdrive.lol']").forEach { element ->
-            EPISODE_NUMBER_REGEX.find(element.text())?.let { match ->
+            val linkText = element.text()
+            
+            // Check for "Single Episode" pattern
+            if (linkText.contains("Single Episode", ignoreCase = true)) {
+                // Standard web series have 8-10 episodes
+                // Create placeholder episodes that will load from mdrive.lol
+                Log.d(TAG, "📺 Detected 'Single Episode' link - creating 8 episodes")
+                for (i in 1..8) {
+                    detectedEpisodes.add(i)
+                }
+            }
+            
+            // Regular episode detection
+            EPISODE_NUMBER_REGEX.find(linkText)?.let { match ->
                 match.groupValues[1].toIntOrNull()?.let { epNum ->
                     if (epNum in 1..499) detectedEpisodes.add(epNum)
                 }
@@ -393,7 +406,7 @@ class MoviesDriveProvider : MainAPI() {
         } ?: 0.0
     }
 
-    // Extract download links using regex patterns
+    // Extract download links using regex patterns (EXCLUDE ZIP FILES)
     private fun extractDownloadLinks(document: org.jsoup.nodes.Document): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
@@ -412,15 +425,25 @@ class MoviesDriveProvider : MainAPI() {
                 }
             } else if (tagName == "A") {
                 val url = element.attr("href")
+                val linkText = element.text()
+                
+                // Skip if blank, duplicate, or not mdrive.lol
                 if (url.isBlank() || seenUrls.contains(url) || !url.contains("mdrive.lol")) return@forEach
+                
+                // ❌ SKIP ZIP LINKS - they are compressed archives, not playable!
+                if (linkText.contains("Zip", ignoreCase = true) || 
+                    linkText.contains(".zip", ignoreCase = true)) {
+                    Log.d(TAG, "⏭️ Skipping Zip link: $linkText")
+                    return@forEach
+                }
                 
                 seenUrls.add(url)
                 
                 // Determine episode from link text or current context using regex
-                val linkEpisode = EPISODE_NUMBER_REGEX.find(element.text())?.groupValues?.get(1)?.toIntOrNull() 
+                val linkEpisode = EPISODE_NUMBER_REGEX.find(linkText)?.groupValues?.get(1)?.toIntOrNull() 
                     ?: currentEpisode
                 
-                val contextText = "${element.parent()?.text() ?: ""} | ${element.text()}"
+                val contextText = "${element.parent()?.text() ?: ""} | $linkText"
                 
                 downloadLinks.add(
                     DownloadLink(
@@ -434,7 +457,7 @@ class MoviesDriveProvider : MainAPI() {
             }
         }
         
-        Log.d(TAG, "🔗 Found ${downloadLinks.size} links")
+        Log.d(TAG, "🔗 Found ${downloadLinks.size} links (Zip files excluded)")
         
         // Smart sort using quality and codec preferences
         return downloadLinks.sortedWith(
