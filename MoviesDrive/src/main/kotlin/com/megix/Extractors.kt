@@ -132,15 +132,19 @@ suspend fun getLatestUrl(url: String, source: String): String {
             cachedUrlsJson = JSONObject(
                 app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
             )
+            Log.d("DomainResolver", "Successfully fetched domains from GitHub")
         } catch (e: Exception) {
+            Log.d("DomainResolver", "Failed to fetch domain from GitHub: ${e.message}, using fallback")
             return getBaseUrl(url)
         }
     }
     
     val link = cachedUrlsJson?.optString(source)
     if (link.isNullOrEmpty()) {
+        Log.d("DomainResolver", "No domain found for source: $source, using base URL")
         return getBaseUrl(url)
     }
+    Log.d("DomainResolver", "Using domain for $source: $link")
     return link
 }
 open class HubCloud : ExtractorApi() {

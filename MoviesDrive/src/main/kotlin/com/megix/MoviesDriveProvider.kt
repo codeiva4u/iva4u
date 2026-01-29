@@ -150,10 +150,12 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
         // Website uses search.html?q= endpoint, not /?s=
+        // Use dynamic domain from GitHub
+        val baseUrl = ensureMainUrl()
         val searchUrl = if (page <= 1) {
-            "$mainUrl/search.html?q=$query"
+            "$baseUrl/search.html?q=$query"
         } else {
-            "$mainUrl/search.html?q=$query&page=$page"
+            "$baseUrl/search.html?q=$query&page=$page"
         }
         val document = app.get(searchUrl).document
         val results = document.select("a:has(div.poster-card)").mapNotNull { it.toSearchResult() }
@@ -162,6 +164,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     }
 
     override suspend fun load(url: String): LoadResponse {
+        // Ensure we're using the latest domain
+        ensureMainUrl()
         val document = app.get(url).document
         val initialTitle = document.select("title").text().replace("Download ", "")
         val ogTitle = initialTitle
