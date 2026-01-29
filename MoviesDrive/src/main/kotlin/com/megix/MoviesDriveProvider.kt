@@ -16,6 +16,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
@@ -130,7 +131,8 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     private fun Element.toSearchResult(): SearchResponse {
         val title = this.selectFirst("p.poster-title")?.text()?.replace("Download ", "") ?: ""
         val href = this.attr("href")
-        val posterUrl = this.selectFirst("div.poster-image img")?.attr("src") ?: ""
+        val imgElement = this.selectFirst("div.poster-image img")
+        val posterUrl = fixUrlNull(imgElement?.getImageAttr())
         val qualityText = this.selectFirst("span.poster-quality")?.text() ?: ""
         val quality = when {
             title.contains("HDCAM", ignoreCase = true) || title.contains("CAMRip", ignoreCase = true) -> SearchQuality.CamRip
@@ -421,4 +423,16 @@ class MoviesDriveProvider : MainAPI() { // all providers must be an instance of 
     data class EpisodeLink(
         val source: String
     )
+
+    // Helper function to extract image URLs from lazy-loaded images
+    // Checks data-src, data-lazy-src, and src attributes in priority order
+    // Returns absolute URLs using abs: prefix (like HDhub4u, Movierulzhd, MultiMovies)
+    private fun Element.getImageAttr(): String? {
+        return when {
+            this.hasAttr("data-src") -> this.attr("abs:data-src")
+            this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
+            this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
+            else -> this.attr("abs:src")
+        }
+    }
 }
