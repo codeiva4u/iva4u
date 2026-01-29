@@ -143,51 +143,84 @@ class MoviesDriveProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        // MoviesDrive uses .poster-card structure for movie items
-        val home = document.select(".poster-card").mapNotNull {
+        // MoviesDrive structure: <a href="..."><div class="poster-card">...</div></a>
+        // So we need to select the <a> tags that contain .poster-card
+        val home = document.select("a:has(.poster-card)").mapNotNull {
             it.toSearchResult()
         }
 
-        Log.d(TAG, "Found ${home.size} items")
+        Log.d(TAG, "Found ${home.size} items for ${request.name}")
 
         return newHomePageResponse(request.name, home)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        // Structure: .poster-card > a[href] for link
-        // .poster-title for title
-        // .poster-image img for poster
-        // .poster-quality for quality badge
+        // Structure based on actual MoviesDrive HTML:
+        // <a href="...">
+        //   <div class="poster-card">
+        //     <div class="poster-inner">
+        //       <div class="poster-image">
+        //         <img src="https://image.tmdb.org/t/p/w400/..." alt="..." loading="lazy">
+        //       </div>
+        //       <div class="poster-info">
+        //         <p class="poster-title">...</p>
+        //       </div>
+        //     </div>
+        //   </div>
+        // </a>
 
-        val linkElement: Element? = selectFirst("a[href]")
-        val href = linkElement?.attr("href") ?: return null
+        // The <a> tag is the parent, so we need to get href from parent or this element
+        val href = this.attr("href").ifBlank { 
+            parent()?.attr("href") ?: selectFirst("a[href]")?.attr("href") 
+        } ?: return null
+        
         if (href.isBlank() || href.contains("category") || href.contains("page/")) return null
-
         val fixedUrl = fixUrl(href)
 
         // Extract title from .poster-title or img alt
         val titleText: String = selectFirst(".poster-title")?.text()
-            ?: (selectFirst("img")?.attr("alt")
-            ?: (selectFirst("img")?.attr("title")
-            ?: ""))
+            ?: selectFirst("p.poster-title")?.text()
+            ?: selectFirst(".poster-info p")?.text()
+            ?: selectFirst("img")?.attr("alt")
+            ?: selectFirst("img")?.attr("title")
+            ?: ""
 
         if (titleText.isBlank()) return null
         val title: String = cleanTitle(titleText)
         if (title.isBlank()) return null
 
-        // Extract poster from .poster-image img
-        val imgElement = selectFirst(".poster-image img, img")
+        // Extract poster - TMDB images are directly in src attribute
+        val imgElement = selectFirst("img")
         val posterUrl: String? = if (imgElement != null) {
             val srcAttr = imgElement.attr("src")
             val dataSrcAttr = imgElement.attr("data-src")
             val lazyAttr = imgElement.attr("data-lazy-src")
-            val src = when {
-                srcAttr.isNotBlank() && srcAttr.startsWith("http") -> srcAttr
-                dataSrcAttr.isNotBlank() && dataSrcAttr.startsWith("http") -> dataSrcAttr
-                else -> lazyAttr
+            
+            // Priority: src > data-src > data-lazy-src
+            val imageUrl = when {
+                srcAttr.isNotBlank() -> srcAttr
+                dataSrcAttr.isNotBlank() -> dataSrcAttr
+                lazyAttr.isNotBlank() -> lazyAttr
+                else -> null
             }
-            fixUrlNull(src)
-        } else null
+            
+            // Ensure URL is absolute and valid
+            if (!imageUrl.isNullOrBlank()) {
+                if (imageUrl.startsWith("http")) {
+                    imageUrl
+                } else if (imageUrl.startsWith("//")) {
+                    "https:$imageUrl"
+                } else {
+                    fixUrlNull(imageUrl)
+                }
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+
+        Log.d(TAG, "Parsed item: title=$title, poster=$posterUrl")
 
         // Determine type using companion object Regex pattern for series detection
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
@@ -215,8 +248,8 @@ class MoviesDriveProvider : MainAPI() {
             
             val document = app.get(searchUrl, headers = headers).document
 
-            // Search results also use .poster-card structure
-            document.select(".poster-card").forEach { card ->
+            // Search results also use .poster-card structure inside <a> tags
+            document.select("a:has(.poster-card)").forEach { card ->
                 val searchResult = card.toSearchResult()
                 if (searchResult != null && results.none { it.url == searchResult.url }) {
                     results.add(searchResult)
@@ -232,7 +265,7 @@ class MoviesDriveProvider : MainAPI() {
                     val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
                     val doc = app.get(url, headers = headers).document
 
-                    doc.select(".poster-card").forEach { element ->
+                    doc.select("a:has(.poster-card)").forEach { element ->
                         val searchResult = element.toSearchResult()
                         if (searchResult != null) {
                             val title = searchResult.name.lowercase()
