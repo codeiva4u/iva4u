@@ -479,12 +479,96 @@ class MoviesDriveProvider : MainAPI() {
                 else -> allLinks.filter { it.episodeNum == episodeNum }.ifEmpty { allLinks }
             }
 
-            Log.d(TAG, "🎬 EP$episodeNum: ${targetLinks.size} links")
+            Log.d(TAG, "🎬 EP$episodeNum: ${targetLinks.size} links found")
             
-            // Log top 5 links (extractors to be implemented later)
-            targetLinks.take(5).forEach { link ->
-                Log.d(TAG, "  📥 ${link.quality}p ${link.sizeMB}MB: ${link.url.take(50)}")
+            // ═══════════════════════════════════════════════════════════════════
+            // PRIORITY LINK SELECTION (strict order per user requirements):
+            // 1st: X264 1080p
+            // 2nd: X264 720p  
+            // 3rd: x265/HEVC 1080p
+            // 4th: Smallest file size within quality group
+            // 5th: Fastest direct download/streaming link
+            // ═══════════════════════════════════════════════════════════════════
+            
+            val sortedLinks = targetLinks.sortedWith(
+                compareByDescending<DownloadLink> {
+                    val text = it.originalText.lowercase()
+                    val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
+                    val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
+                    
+                    // Priority scoring (higher = better)
+                    when {
+                        isX264 && it.quality >= 1080 -> 30000  // 1st priority: X264 1080p
+                        isX264 && it.quality >= 720 -> 20000   // 2nd priority: X264 720p
+                        isHEVC && it.quality >= 1080 -> 10000  // 3rd priority: HEVC 1080p
+                        isHEVC && it.quality >= 720 -> 9000
+                        it.quality >= 1080 -> 8000
+                        it.quality >= 720 -> 7000
+                        else -> 5000
+                    }
+                }.thenBy {
+                    // 4th priority: Smaller file = higher priority (ascending order)
+                    if (it.sizeMB > 0) it.sizeMB else Double.MAX_VALUE
+                }.thenByDescending {
+                    // 5th priority: Server speed
+                    val serverName = it.originalText
+                    when {
+                        serverName.contains("Instant", true) -> 100
+                        serverName.contains("Direct", true) -> 90
+                        serverName.contains("10Gbps", true) -> 85
+                        serverName.contains("FSL", true) -> 80
+                        else -> 50
+                    }
+                }
+            )
+
+            Log.d(TAG, "✅ Sorted links (priority order):")
+            sortedLinks.take(5).forEachIndexed { index, link ->
+                val codec = when {
+                    link.originalText.contains("x264", true) -> "X264"
+                    link.originalText.contains("hevc", true) || link.originalText.contains("x265", true) -> "HEVC"
+                    else -> "Unknown"
+                }
+                Log.d(TAG, "  #${index + 1}: $codec ${link.quality}p ${link.sizeMB}MB")
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // EXTRACT LINKS USING EXTRACTORS
+            // Use mdrive.lol extractor (similar to HubCloud/GDFlix architecture)
+            // ═══════════════════════════════════════════════════════════════════
+            
+            sortedLinks.take(10).forEach { downloadLink ->
+                try {
+                    val link = downloadLink.url
+                    Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
+                    
+                    when {
+                        // mdrive.lol uses MDriveExtractor which scrapes the page
+                        link.contains("mdrive.lol", ignoreCase = true) -> {
+                            MDriveExtractor().getUrl(link, pageUrl, subtitleCallback, callback)
+                        }
+                        
+                        // Fallback: Direct extractors if other hosts found
+                        link.contains("hubcloud", ignoreCase = true) || 
+                        link.contains("gamerxyt", ignoreCase = true) -> {
+                            HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
+                        }
+                        
+                        link.contains("gdflix", ignoreCase = true) || 
+                        link.contains("gdlink", ignoreCase = true) -> {
+                            GDFlix().getUrl(link, pageUrl, subtitleCallback, callback)
+                        }
+                        
+                        else -> {
+                            Log.w(TAG, "⚠️ No extractor for: ${link.take(50)}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error extracting ${downloadLink.url.take(50)}: ${e.message}")
+                }
+            }
+            
+            Log.d(TAG, "✅ LoadLinks completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "❌ loadLinks error: ${e.message}")
         }
