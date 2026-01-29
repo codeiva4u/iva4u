@@ -597,18 +597,89 @@ class MoviesDriveProvider : MainAPI() {
                             Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
                             
                             when {
-                                // mdrive.lol uses MDriveExtractor which scrapes the page
-                                // Pass episode number via referer in format: "pageUrl|||episodeNum"
+                                // mdrive.lol is just an INDEX/MEDIATOR page
+                                // Fetch it directly and extract HubCloud/GDFlix links
                                 link.contains("mdrive.lol", ignoreCase = true) -> {
-                                    val refererWithEpisode = if (episodeNum != null) {
-                                        "$pageUrl|||$episodeNum"
-                                    } else {
-                                        pageUrl
+                                    try {
+                                        Log.d(TAG, "📄 Fetching mdrive.lol mediator page: $link")
+                                        val mdriveDoc = app.get(link).document
+                                        
+                                        // Episode filtering (if needed)
+                                        val episodeRegex = Regex("(?i)(?:EP|Episode)[\\s-]*(\\d+)")
+                                        var targetLinks = mutableListOf<String>()
+                                        
+                                        if (episodeNum != null) {
+                                            // Find target episode header
+                                            val headers = mdriveDoc.select("h5, h4, h3")
+                                            var targetHeader: org.jsoup.nodes.Element? = null
+                                            
+                                            for (header in headers) {
+                                                val match = episodeRegex.find(header.text())
+                                                if (match?.groupValues?.get(1)?.toIntOrNull() == episodeNum) {
+                                                    targetHeader = header
+                                                    Log.d(TAG, "✅ Found Ep${episodeNum}: ${header.text()}")
+                                                    break
+                                                }
+                                            }
+                                            
+                                            // Extract links from target episode section
+                                            if (targetHeader != null) {
+                                                var elem = targetHeader.nextElementSibling()
+                                                while (elem != null) {
+                                                    // Stop at next episode header
+                                                    if (elem.tagName() in listOf("h5", "h4", "h3") && 
+                                                        episodeRegex.find(elem.text()) != null) {
+                                                        break
+                                                    }
+                                                    
+                                                    // Collect HubCloud/GDFlix links
+                                                    elem.select("a[href]").forEach { a ->
+                                                        val href = a.attr("href")
+                                                        if (href.contains("hubcloud", true) || 
+                                                            href.contains("gdflix", true) ||
+                                                            href.contains("gdlink", true)) {
+                                                            targetLinks.add(href)
+                                                        }
+                                                    }
+                                                    elem = elem.nextElementSibling()
+                                                }
+                                            }
+                                        } else {
+                                            // Movie: Get all HubCloud/GDFlix links
+                                            mdriveDoc.select("a[href]").forEach { a ->
+                                                val href = a.attr("href")
+                                                if (href.contains("hubcloud", true) || 
+                                                    href.contains("gdflix", true) ||
+                                                    href.contains("gdlink", true)) {
+                                                    targetLinks.add(href)
+                                                }
+                                            }
+                                        }
+                                        
+                                        Log.d(TAG, "🔗 Extracted ${targetLinks.size} direct links from mdrive.lol")
+                                        
+                                        // Process extracted links with proper extractors
+                                        targetLinks.take(3).amap { extractorLink ->
+                                            try {
+                                                when {
+                                                    extractorLink.contains("hubcloud", true) -> {
+                                                        HubCloud().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
+                                                    }
+                                                    extractorLink.contains("gdflix", true) || 
+                                                    extractorLink.contains("gdlink", true) -> {
+                                                        GDFlix().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "❌ Error processing extracted link: ${e.message}")
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "❌ Error fetching mdrive.lol: ${e.message}")
                                     }
-                                    MDriveExtractor().getUrl(link, refererWithEpisode, subtitleCallback, callback)
                                 }
                                 
-                                // Fallback: Direct extractors if other hosts found
+                                // Direct extractors if other hosts found
                                 link.contains("hubcloud", ignoreCase = true) || 
                                 link.contains("gamerxyt", ignoreCase = true) -> {
                                     HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
