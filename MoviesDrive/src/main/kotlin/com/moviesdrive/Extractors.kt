@@ -582,34 +582,65 @@ class MDriveExtractor : ExtractorApi() {
             
             // If episode number is provided, filter content by episode section
             val relevantContent = if (episodeNum != null) {
-                // Find all headers and links
-                val allElements = document.select("h5, a[href]")
                 val episodeLinks = mutableListOf<org.jsoup.nodes.Element>()
-                var isTargetEpisode = false
                 
                 // Episode header patterns: "Ep01", "EP 01", "Episode 1", etc.
                 val episodeRegex = Regex("(?i)(?:EP|Episode)[\\s-]*(\\d+)", RegexOption.IGNORE_CASE)
                 
-                allElements.forEach { element ->
-                    if (element.tagName() == "h5") {
-                        val headerText = element.text()
-                        val match = episodeRegex.find(headerText)
-                        val foundEpNum = match?.groupValues?.get(1)?.toIntOrNull()
-                        
-                        // Check if this header matches our target episode
-                        isTargetEpisode = foundEpNum == episodeNum
-                        
-                        if (isTargetEpisode) {
-                            Log.d("MDriveExtractor", "✅ Found episode header: $headerText")
+                // Find all h5 headers
+                val headers = document.select("h5, h4, h3")
+                
+                Log.d("MDriveExtractor", "🔍 Scanning ${headers.size} headers for Episode $episodeNum")
+                
+                // Find the target episode header
+                var targetHeader: org.jsoup.nodes.Element? = null
+                for (header in headers) {
+                    val headerText = header.text()
+                    val match = episodeRegex.find(headerText)
+                    val foundEpNum = match?.groupValues?.get(1)?.toIntOrNull()
+                    
+                    if (foundEpNum == episodeNum) {
+                        targetHeader = header
+                        Log.d("MDriveExtractor", "✅ Found target header: $headerText")
+                        break
+                    }
+                }
+                
+                // If target header found, get all links between this header and next header
+                if (targetHeader != null) {
+                    var currentElement = targetHeader.nextElementSibling()
+                    
+                    while (currentElement != null) {
+                        // Stop if we hit another episode header
+                        if (currentElement.tagName() in listOf("h5", "h4", "h3")) {
+                            val nextHeaderText = currentElement.text()
+                            if (episodeRegex.find(nextHeaderText) != null) {
+                                Log.d("MDriveExtractor", "⏹️ Stopped at next header: $nextHeaderText")
+                                break
+                            }
                         }
-                    } else if (isTargetEpisode && element.tagName() == "a") {
-                        // Collect links under the target episode header
-                        episodeLinks.add(element)
+                        
+                        // Collect all <a> tags in this section
+                        if (currentElement.tagName() == "a") {
+                            episodeLinks.add(currentElement)
+                        }
+                        // Also check for links inside divs/paragraphs
+                        episodeLinks.addAll(currentElement.select("a[href]"))
+                        
+                        currentElement = currentElement.nextElementSibling()
                     }
                 }
                 
                 Log.d("MDriveExtractor", "📋 Filtered to ${episodeLinks.size} links for Episode $episodeNum")
-                episodeLinks
+                
+                // CRITICAL FALLBACK: If no episode-specific links found, use ALL links
+                // This prevents "No links found" error
+                if (episodeLinks.isEmpty()) {
+                    Log.w("MDriveExtractor", "⚠️ No episode-specific links found! Using all links as fallback")
+                    document.select("a[href]")
+                } else {
+                    episodeLinks
+                }
             } else {
                 // No episode filtering - process all links (movies)
                 document.select("a[href]")
