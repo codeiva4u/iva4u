@@ -74,16 +74,18 @@ class MoviesDriveProvider : MainAPI() {
     // Domain URL - fetched from GitHub JSON in real-time (pattern with * for matching)
     override var mainUrl: String = "https://moviesdrive.*"
 
-    // FIXED: Real-time domain fetch from GitHub JSON (blocking until fetched)
+    // FIXED: Real-time domain fetch from GitHub JSON with fallback
     private suspend fun fetchMainUrl(): String {
         // Return cached URL if already fetched
         if (cachedMainUrl != null) return cachedMainUrl!!
         
+        // Fallback URL if GitHub fetch fails
+        val fallbackUrl = "https://new1.moviesdrive.surf"
+        
         // Prevent multiple simultaneous fetches
         if (urlsFetched) {
-            // Wait a bit and check again if URL was fetched by another coroutine
-            if (cachedMainUrl != null) return cachedMainUrl!!
-            throw Exception("Domain not available. Please check your internet connection and try again.")
+            // Return cached or fallback
+            return cachedMainUrl ?: fallbackUrl
         }
 
         urlsFetched = true
@@ -91,7 +93,7 @@ class MoviesDriveProvider : MainAPI() {
         try {
             Log.d(TAG, "🌐 Fetching domain from GitHub...")
             
-            // Real-time fetch with 15s timeout (blocking call)
+            // Real-time fetch with 8s timeout
             val result = withTimeoutOrNull(8_000L) {
                 val response = app.get(GITHUB_URLS_JSON)
                 val json = response.text
@@ -114,13 +116,16 @@ class MoviesDriveProvider : MainAPI() {
                 Log.d(TAG, "✅ Successfully fetched mainUrl: $result")
                 return result
             } else {
-                Log.e(TAG, "❌ Timeout while fetching domain")
-                throw Exception("Timeout fetching domain. Please try again.")
+                Log.w(TAG, "⚠️ Timeout - using fallback: $fallbackUrl")
+                cachedMainUrl = fallbackUrl
+                mainUrl = fallbackUrl
+                return fallbackUrl
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to fetch mainUrl: ${e.message}")
-            urlsFetched = false  // Allow retry on next attempt
-            throw Exception("Cannot connect to server. Please check your internet connection. Error: ${e.message}")
+            Log.e(TAG, "❌ Failed to fetch mainUrl: ${e.message}, using fallback")
+            cachedMainUrl = fallbackUrl
+            mainUrl = fallbackUrl
+            return fallbackUrl
         }
     }
 
