@@ -81,69 +81,37 @@ class HDhub4uProvider : MainAPI() {
         )
     }
 
-    // Cached domain URL - fetched once per session from GitHub
+    // Cached domain URL - fetched once per session (async, no blocking)
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    // GitHub JSON URL for dynamic domain fetching
-    private val GITHUB_URLS_JSON = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+    override var mainUrl: String = "https://new2.hdhub4u.fo"
 
-    // Domain URL - fetched from GitHub JSON in real-time (pattern with * for matching)
-    override var mainUrl: String = "https://hdhub4u.*"
-
-    // FIXED: Real-time domain fetch from GitHub JSON with fallback
+    // Fast async domain fetch with 3s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
-        // Return cached URL if already fetched
         if (cachedMainUrl != null) return cachedMainUrl!!
-        
-        // Fallback URL if GitHub fetch fails
-        val fallbackUrl = "https://new3.hdhub4u.fo"
-        
-        // Prevent multiple simultaneous fetches
-        if (urlsFetched) {
-            // Return cached or fallback
-            return cachedMainUrl ?: fallbackUrl
-        }
+        if (urlsFetched) return mainUrl
 
         urlsFetched = true
-        
         try {
-            Log.d(TAG, "🌐 Fetching domain from GitHub...")
-            
-            // Real-time fetch with 8s timeout
-            val result = withTimeoutOrNull(8_000L) {
-                val response = app.get(GITHUB_URLS_JSON)
+            val result = withTimeoutOrNull(10_000L) {  // Reduced from 10s to 3s
+                val response = app.get(
+                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+                )
                 val json = response.text
-                Log.d(TAG, "📄 Raw JSON: ${json.take(200)}")
-                
                 val jsonObject = JSONObject(json)
                 val urlString = jsonObject.optString("hdhub4u")
-                
-                if (urlString.isBlank()) {
-                    Log.e(TAG, "❌ 'hdhub4u' key not found in JSON")
-                    null
-                } else {
-                    urlString
-                }
+                urlString.ifBlank { null }
             }
-            
             if (result != null) {
                 cachedMainUrl = result
                 mainUrl = result
-                Log.d(TAG, "✅ Successfully fetched mainUrl: $result")
-                return result
-            } else {
-                Log.w(TAG, "⚠️ Timeout - using fallback: $fallbackUrl")
-                cachedMainUrl = fallbackUrl
-                mainUrl = fallbackUrl
-                return fallbackUrl
+                Log.d(TAG, "Fetched mainUrl: $result")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to fetch mainUrl: ${e.message}, using fallback")
-            cachedMainUrl = fallbackUrl
-            mainUrl = fallbackUrl
-            return fallbackUrl
+            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
         }
+        return mainUrl
     }
 
     override var name = "HDHub4U"

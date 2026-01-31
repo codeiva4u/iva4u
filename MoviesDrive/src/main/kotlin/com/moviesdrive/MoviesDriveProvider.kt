@@ -20,38 +20,40 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.Episode
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class MoviesDriveProvider : MainAPI() {
     companion object {
         private const val TAG = "MoviesDriveProvider"
-
+        
         // ═══════════════════════════════════════════════════════════════════
         // REGEX PATTERNS - Based on MoviesDrive Website Analysis (Jan 2026)
         // ═══════════════════════════════════════════════════════════════════
-
+        
         // Series Detection Pattern
         // Matches: "Season 1", "S01", "Episode", "EP", "Complete", "All Episodes"
         private val SERIES_DETECTION_REGEX = Regex(
             """(?i)(Season\s*\d+|S\d+|Episode|EP\s*\d+|Complete|All\s*Episodes|Web[-\s]?Series)"""
         )
-
+        
         // Episode Number Extraction Pattern
         // Matches: "S01 E01", "Ep01", "Episode 1", "E01", "Ep 1"
         private val EPISODE_NUMBER_REGEX = Regex(
             """(?i)(?:S\d+\s*)?(?:EP?|Episode)[\s-]*(\d+)"""
         )
-
+        
         // Quality Extraction Pattern
         // Matches: 480p, 720p, 1080p, 2160p, 4K
         private val QUALITY_REGEX = Regex("""(\d{3,4})p|4K|2160p""", RegexOption.IGNORE_CASE)
-
+        
         // Year Extraction Pattern
         // Matches: (2024), (2025), (2026)
         private val YEAR_REGEX = Regex("""\((\d{4})\)""")
-
+        
         // File Size Extraction Pattern
         // Matches: [420MB], [1.6GB], 568.12 MB, 2.24 GB
         private val FILE_SIZE_REGEX = Regex(
@@ -64,69 +66,37 @@ class MoviesDriveProvider : MainAPI() {
         )
     }
 
-    // Cached domain URL - fetched once per session from GitHub
+    // Cached domain URL - fetched once per session (async, no blocking)
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    // GitHub JSON URL for dynamic domain fetching
-    private val GITHUB_URLS_JSON = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+    override var mainUrl: String = "https://new1.moviesdrive.surf"
 
-    // Domain URL - fetched from GitHub JSON in real-time (pattern with * for matching)
-    override var mainUrl: String = "https://moviesdrive.*"
-
-    // FIXED: Real-time domain fetch from GitHub JSON with fallback
+    // Fast async domain fetch with 2s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
-        // Return cached URL if already fetched
         if (cachedMainUrl != null) return cachedMainUrl!!
-        
-        // Fallback URL if GitHub fetch fails
-        val fallbackUrl = "https://new1.moviesdrive.surf"
-        
-        // Prevent multiple simultaneous fetches
-        if (urlsFetched) {
-            // Return cached or fallback
-            return cachedMainUrl ?: fallbackUrl
-        }
+        if (urlsFetched) return mainUrl
 
         urlsFetched = true
-        
         try {
-            Log.d(TAG, "🌐 Fetching domain from GitHub...")
-            
-            // Real-time fetch with 8s timeout
-            val result = withTimeoutOrNull(8_000L) {
-                val response = app.get(GITHUB_URLS_JSON)
+            val result = withTimeoutOrNull(10_000L) {  // Reduced from 3s to 2s
+                val response = app.get(
+                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+                )
                 val json = response.text
-                Log.d(TAG, "📄 Raw JSON: ${json.take(200)}")
-                
                 val jsonObject = JSONObject(json)
                 val urlString = jsonObject.optString("moviesdrive")
-                
-                if (urlString.isBlank()) {
-                    Log.e(TAG, "❌ 'moviesdrive' key not found in JSON")
-                    null
-                } else {
-                    urlString
-                }
+                urlString.ifBlank { null }
             }
-            
             if (result != null) {
                 cachedMainUrl = result
                 mainUrl = result
-                Log.d(TAG, "✅ Successfully fetched mainUrl: $result")
-                return result
-            } else {
-                Log.w(TAG, "⚠️ Timeout - using fallback: $fallbackUrl")
-                cachedMainUrl = fallbackUrl
-                mainUrl = fallbackUrl
-                return fallbackUrl
+                Log.d(TAG, "✅ Fetched mainUrl: $result")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to fetch mainUrl: ${e.message}, using fallback")
-            cachedMainUrl = fallbackUrl
-            mainUrl = fallbackUrl
-            return fallbackUrl
+            Log.w(TAG, "⚠️ Failed to fetch mainUrl: ${e.message}")
         }
+        return mainUrl
     }
 
     override var name = "MoviesDrive"
@@ -182,39 +152,41 @@ class MoviesDriveProvider : MainAPI() {
     private fun Element.toSearchResult(): SearchResponse? {
         // Extract href (this element is <a> tag)
         val href = attr("href")
-
+        
         // Filter invalid URLs using regex
-        if (href.isBlank() ||
-            href.contains("/category/", ignoreCase = true) ||
+        if (href.isBlank() || 
+            href.contains("/category/", ignoreCase = true) || 
             href.contains("/page/", ignoreCase = true) ||
             href.contains("/tag/", ignoreCase = true)) return null
-
+        
         val fixedUrl = fixUrl(href)
 
         // Extract title with fallback chain - optimized order
-        val titleText: String = selectFirst(".poster-title")?.text()
-            ?: selectFirst("img")?.attr("alt")
-            ?: selectFirst("img")?.attr("title")
+        val posterTitleElem: Element? = selectFirst(".poster-title")
+        val imgElem: Element? = selectFirst("img")
+        val titleText = posterTitleElem?.text()
+            ?: imgElem?.attr("alt")
+            ?: imgElem?.attr("title")
             ?: return null
 
         if (titleText.isBlank()) return null
-        val title: String = cleanTitle(titleText)
+        val title = cleanTitle(titleText)
         if (title.isBlank()) return null
 
         // Extract poster URL with instant validation - CRITICAL FOR SPEED
-        val imgElement = selectFirst("img")
-        val posterUrl: String? = imgElement?.let { img ->
+        val posterImgElem: Element? = selectFirst("img")
+        val posterUrl = posterImgElem?.let { img ->
             // Priority chain: src > data-src > data-lazy-src
-            sequenceOf(
-                img.attr("src"),
-                img.attr("data-src"),
-                img.attr("data-lazy-src")
-            ).firstOrNull { url ->
+            val src = img.attr("src")
+            val dataSrc = img.attr("data-src")
+            val lazyDataSrc = img.attr("data-lazy-src")
+            
+            listOf(src, dataSrc, lazyDataSrc).firstOrNull { url ->
                 url.isNotBlank() && (
-                        url.startsWith("http") ||
-                                url.startsWith("//") ||
-                                url.startsWith("/wp-content/")
-                        )
+                    url.startsWith("http") || 
+                    url.startsWith("//") ||
+                    url.startsWith("/wp-content/")
+                )
             }?.let { imageUrl ->
                 // Normalize URL instantly
                 when {
@@ -245,19 +217,19 @@ class MoviesDriveProvider : MainAPI() {
         try {
             // MoviesDrive uses /?s=query format for search
             val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
-
+            
             val document = app.get(searchUrl, headers = headers).document
 
             // Optimized selector
-            document.select("a[href]:has(.poster-card)").mapNotNullTo(results) {
+            document.select("a[href]:has(.poster-card)").mapNotNullTo(results) { 
                 it.toSearchResult()
             }
-
+            
             // Fallback: search through homepage if no results
             if (results.isEmpty()) {
                 Log.d(TAG, "🔍 Fallback search for: $query")
                 val searchTerms = query.lowercase().split(Regex("\\s+")).filter { it.length > 2 }
-
+                
                 for (page in 1..2) {  // Reduced from 3 to 2 pages for speed
                     val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
                     val doc = app.get(url, headers = headers).document
@@ -265,7 +237,7 @@ class MoviesDriveProvider : MainAPI() {
                     doc.select("a[href]:has(.poster-card)").forEach { element ->
                         element.toSearchResult()?.let { searchResult ->
                             val titleLower = searchResult.name.lowercase()
-                            if (searchTerms.any { titleLower.contains(it) } &&
+                            if (searchTerms.any { titleLower.contains(it) } && 
                                 results.none { it.url == searchResult.url }) {
                                 results.add(searchResult)
                             }
@@ -287,24 +259,28 @@ class MoviesDriveProvider : MainAPI() {
         // Fetch latest mainUrl (async, cached)
         fetchMainUrl()
 
-        val document = app.get(url, headers = headers).document
+        val document: Document = app.get(url, headers = headers).document
 
         // Extract title using regex-optimized selector
-        val rawTitle = document.selectFirst(".post-title, h1.post-title, h1")?.text()?.trim()
-            ?: return null
+        val titleElem: Element? = document.selectFirst(".post-title, h1.post-title, h1")
+        val rawTitle = titleElem?.text()?.trim() ?: return null
         val title = cleanTitle(rawTitle)
 
         // Extract poster with instant validation
-        val posterUrl: String? = sequenceOf(
-            document.selectFirst(".post-content img, .page-body img, img.aligncenter")?.attr("src"),
-            document.selectFirst("meta[property=og:image]")?.attr("content")
+        val posterImgElement: Element? = document.selectFirst(".post-content img, .page-body img, img.aligncenter")
+        val ogImageMeta: Element? = document.selectFirst("meta[property=og:image]")
+        val posterUrl = sequenceOf(
+            posterImgElement?.attr("src"),
+            ogImageMeta?.attr("content")
         ).firstOrNull { url ->
             !url.isNullOrBlank() && url.startsWith("http")
         }
 
         // Extract description using regex
-        val description: String? = document.selectFirst("meta[name=description]")?.attr("content")
-            ?: document.selectFirst("meta[property=og:description]")?.attr("content")
+        val descMeta: Element? = document.selectFirst("meta[name=description]")
+        val ogDescMeta: Element? = document.selectFirst("meta[property=og:description]")
+        val description = descMeta?.attr("content")
+            ?: ogDescMeta?.attr("content")
 
         // Extract year using companion regex
         val year = YEAR_REGEX.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
@@ -344,12 +320,12 @@ class MoviesDriveProvider : MainAPI() {
 
     // Detect actual episode count from mdrive.lol page (SMART & ACCURATE)
     private suspend fun detectEpisodesFromDownloadLinks(
-        document: org.jsoup.nodes.Document,
+        document: Document, 
         pageUrl: String
-    ): List<com.lagradost.cloudstream3.Episode> {
+    ): List<Episode> {
         val detectedEpisodes = mutableSetOf<Int>()
         var singleEpisodeLink: String? = null
-
+        
         // Extract from headings using regex
         document.select("h5, h4").forEach { element ->
             EPISODE_NUMBER_REGEX.find(element.text())?.let { match ->
@@ -358,19 +334,19 @@ class MoviesDriveProvider : MainAPI() {
                 }
             }
         }
-
+        
         // Find "Single Episode" link to detect actual count
         document.select("a[href*='mdrive.lol']").forEach { element ->
             val linkText = element.text()
             val href = element.attr("href")
-
+            
             // Find first "Single Episode" link (prefer highest quality - 1080p)
-            if (linkText.contains("Single Episode", ignoreCase = true) &&
+            if (linkText.contains("Single Episode", ignoreCase = true) && 
                 singleEpisodeLink == null &&
                 (linkText.contains("1080p") || linkText.contains("720p") || linkText.contains("480p"))) {
                 singleEpisodeLink = href
             }
-
+            
             // Regular episode detection from link text
             EPISODE_NUMBER_REGEX.find(linkText)?.let { match ->
                 match.groupValues[1].toIntOrNull()?.let { epNum ->
@@ -378,13 +354,13 @@ class MoviesDriveProvider : MainAPI() {
                 }
             }
         }
-
+        
         // If "Single Episode" link found, fetch mdrive page to get actual count
         if (singleEpisodeLink != null && detectedEpisodes.isEmpty()) {
             try {
                 Log.d(TAG, "📡 Fetching mdrive page to detect actual episode count...")
                 val mdriveDoc = app.get(singleEpisodeLink).document
-
+                
                 // Detect episodes from mdrive page (Ep01, Ep02, etc.)
                 mdriveDoc.select("h5, h4").forEach { elem ->
                     EPISODE_NUMBER_REGEX.find(elem.text())?.let { match ->
@@ -400,9 +376,9 @@ class MoviesDriveProvider : MainAPI() {
                 for (i in 1..8) detectedEpisodes.add(i)
             }
         }
-
+        
         Log.d(TAG, "📺 Final Episodes: $detectedEpisodes")
-
+        
         return if (detectedEpisodes.isNotEmpty()) {
             detectedEpisodes.sorted().map { episodeNum ->
                 newEpisode("$pageUrl|||$episodeNum") {
@@ -443,15 +419,15 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     // Extract download links using regex patterns (EXCLUDE ZIP FILES)
-    private fun extractDownloadLinks(document: org.jsoup.nodes.Document): List<DownloadLink> {
+    private fun extractDownloadLinks(document: Document): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
         var currentEpisode: Int? = null
-
+        
         // Process all headers and links in order
         document.select("h5, h4, a[href*='mdrive.lol']").forEach { element ->
             val tagName = element.tagName().uppercase()
-
+            
             if (tagName in setOf("H4", "H5")) {
                 // Check for episode number in header using regex
                 EPISODE_NUMBER_REGEX.find(element.text())?.let { match ->
@@ -462,25 +438,26 @@ class MoviesDriveProvider : MainAPI() {
             } else if (tagName == "A") {
                 val url = element.attr("href")
                 val linkText = element.text()
-
+                
                 // Skip if blank, duplicate, or not mdrive.lol
                 if (url.isBlank() || seenUrls.contains(url) || !url.contains("mdrive.lol")) return@forEach
-
+                
                 // ❌ SKIP ZIP LINKS - they are compressed archives, not playable!
-                if (linkText.contains("Zip", ignoreCase = true) ||
+                if (linkText.contains("Zip", ignoreCase = true) || 
                     linkText.contains(".zip", ignoreCase = true)) {
                     Log.d(TAG, "⏭️ Skipping Zip link: $linkText")
                     return@forEach
                 }
-
+                
                 seenUrls.add(url)
-
+                
                 // Determine episode from link text or current context using regex
-                val linkEpisode = EPISODE_NUMBER_REGEX.find(linkText)?.groupValues?.get(1)?.toIntOrNull()
+                val linkEpisode = EPISODE_NUMBER_REGEX.find(linkText)?.groupValues?.get(1)?.toIntOrNull() 
                     ?: currentEpisode
-
-                val contextText = "${element.parent()?.text() ?: ""} | $linkText"
-
+                
+                val parentElem: Element? = element.parent()
+                val contextText = "${parentElem?.text() ?: ""} | $linkText"
+                
                 downloadLinks.add(
                     DownloadLink(
                         url = url,
@@ -492,9 +469,9 @@ class MoviesDriveProvider : MainAPI() {
                 )
             }
         }
-
+        
         Log.d(TAG, "🔗 Found ${downloadLinks.size} links (Zip files excluded)")
-
+        
         // Smart sort using quality and codec preferences
         return downloadLinks.sortedWith(
             compareByDescending<DownloadLink> {
@@ -531,16 +508,16 @@ class MoviesDriveProvider : MainAPI() {
 
             val document = app.get(pageUrl, headers = headers).document
             val allLinks = extractDownloadLinks(document)
-
+            
             // Filter links by episode using regex-based matching
-            val targetLinks = when {
-                episodeNum == null -> allLinks
-                episodeNum == 0 -> allLinks.filter { it.episodeNum == null }.ifEmpty { allLinks }
+            val targetLinks = when (episodeNum) {
+                null -> allLinks
+                0 -> allLinks.filter { it.episodeNum == null }.ifEmpty { allLinks }
                 else -> allLinks.filter { it.episodeNum == episodeNum }.ifEmpty { allLinks }
             }
 
             Log.d(TAG, "🎬 EP$episodeNum: ${targetLinks.size} links found")
-
+            
             // ═══════════════════════════════════════════════════════════════════
             // PRIORITY LINK SELECTION (strict order per user requirements):
             // 1st: X264 1080p
@@ -549,13 +526,13 @@ class MoviesDriveProvider : MainAPI() {
             // 4th: Smallest file size within quality group
             // 5th: Fastest direct download/streaming link
             // ═══════════════════════════════════════════════════════════════════
-
+            
             val sortedLinks = targetLinks.sortedWith(
                 compareByDescending<DownloadLink> {
                     val text = it.originalText.lowercase()
                     val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
                     val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
-
+                    
                     // Priority scoring (higher = better)
                     when {
                         isX264 && it.quality >= 1080 -> 30000  // 1st priority: X264 1080p
@@ -591,18 +568,18 @@ class MoviesDriveProvider : MainAPI() {
                 }
                 Log.d(TAG, "  #${index + 1}: $codec ${link.quality}p ${link.sizeMB}MB")
             }
-
+            
             // ═══════════════════════════════════════════════════════════════════
             // EXTRACT LINKS USING EXTRACTORS (PARALLEL + 10s TIMEOUT)
             // Strategy: Process only TOP 1 link for episodes, TOP 3 for movies
             // Reason: Episodes = faster (single video), Movies = backup links needed
             // amap = Async Map = सभी links parallel में process होते हैं
             // ═══════════════════════════════════════════════════════════════════
-
+            
             // Optimize: For series, process only 1 link; for movies, process 3
             val linksToProcess = if (episodeNum != null) 1 else 3
             Log.d(TAG, "⚡ Processing top $linksToProcess link(s) for ${if (episodeNum != null) "Episode $episodeNum" else "Movie"}")
-
+            
             // Process only top links for instant results (10s max)
             try {
                 withTimeoutOrNull(10_000L) {  // 10 second timeout
@@ -610,7 +587,7 @@ class MoviesDriveProvider : MainAPI() {
                         try {
                             val link = downloadLink.url
                             Log.d(TAG, "🔄 Processing: ${link.take(50)}...")
-
+                            
                             when {
                                 // mdrive.lol is just an INDEX/MEDIATOR page
                                 // Fetch it directly and extract HubCloud/GDFlix links
@@ -618,16 +595,16 @@ class MoviesDriveProvider : MainAPI() {
                                     try {
                                         Log.d(TAG, "📄 Fetching mdrive.lol mediator page: $link")
                                         val mdriveDoc = app.get(link).document
-
+                                        
                                         // Episode filtering (if needed)
                                         val episodeRegex = Regex("(?i)(?:EP|Episode)[\\s-]*(\\d+)")
                                         val targetLinks = mutableListOf<String>()
-
+                                        
                                         if (episodeNum != null) {
                                             // Find target episode header
                                             val headers = mdriveDoc.select("h5, h4, h3")
-                                            var targetHeader: org.jsoup.nodes.Element? = null
-
+                                            var targetHeader: Element? = null
+                                            
                                             for (header in headers) {
                                                 val match = episodeRegex.find(header.text())
                                                 if (match?.groupValues?.get(1)?.toIntOrNull() == episodeNum) {
@@ -636,43 +613,44 @@ class MoviesDriveProvider : MainAPI() {
                                                     break
                                                 }
                                             }
-
+                                            
                                             // Extract links from target episode section
                                             if (targetHeader != null) {
-                                                var elem = targetHeader.nextElementSibling()
+                                                var elem: Element? = targetHeader.nextElementSibling()
                                                 while (elem != null) {
+                                                    val currentElem = elem
                                                     // Stop at next episode header
-                                                    if (elem.tagName() in listOf("h5", "h4", "h3") &&
-                                                        episodeRegex.find(elem.text()) != null) {
+                                                    if (currentElem.tagName() in listOf("h5", "h4", "h3") && 
+                                                        episodeRegex.find(currentElem.text()) != null) {
                                                         break
                                                     }
-
+                                                    
                                                     // Collect HubCloud/GDFlix links
-                                                    elem.select("a[href]").forEach { a ->
+                                                    currentElem.select("a[href]").forEach { a ->
                                                         val href = a.attr("href")
-                                                        if (href.contains("hubcloud", true) ||
+                                                        if (href.contains("hubcloud", true) || 
                                                             href.contains("gdflix", true) ||
                                                             href.contains("gdlink", true)) {
                                                             targetLinks.add(href)
                                                         }
                                                     }
-                                                    elem = elem.nextElementSibling()
+                                                    elem = currentElem.nextElementSibling()
                                                 }
                                             }
                                         } else {
                                             // Movie: Get all HubCloud/GDFlix links
                                             mdriveDoc.select("a[href]").forEach { a ->
                                                 val href = a.attr("href")
-                                                if (href.contains("hubcloud", true) ||
+                                                if (href.contains("hubcloud", true) || 
                                                     href.contains("gdflix", true) ||
                                                     href.contains("gdlink", true)) {
                                                     targetLinks.add(href)
                                                 }
                                             }
                                         }
-
+                                        
                                         Log.d(TAG, "🔗 Extracted ${targetLinks.size} direct links from mdrive.lol")
-
+                                        
                                         // Process extracted links with proper extractors
                                         targetLinks.take(3).amap { extractorLink ->
                                             try {
@@ -680,8 +658,8 @@ class MoviesDriveProvider : MainAPI() {
                                                     extractorLink.contains("hubcloud", true) -> {
                                                         HubCloud().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
                                                     }
-                                                    extractorLink.contains("gdflix", true) ||
-                                                            extractorLink.contains("gdlink", true) -> {
+                                                    extractorLink.contains("gdflix", true) || 
+                                                    extractorLink.contains("gdlink", true) -> {
                                                         GDFlix().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
                                                     }
                                                 }
@@ -693,18 +671,18 @@ class MoviesDriveProvider : MainAPI() {
                                         Log.e(TAG, "❌ Error fetching mdrive.lol: ${e.message}")
                                     }
                                 }
-
+                                
                                 // Direct extractors if other hosts found
-                                link.contains("hubcloud", ignoreCase = true) ||
-                                        link.contains("gamerxyt", ignoreCase = true) -> {
+                                link.contains("hubcloud", ignoreCase = true) || 
+                                link.contains("gamerxyt", ignoreCase = true) -> {
                                     HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
                                 }
-
-                                link.contains("gdflix", ignoreCase = true) ||
-                                        link.contains("gdlink", ignoreCase = true) -> {
+                                
+                                link.contains("gdflix", ignoreCase = true) || 
+                                link.contains("gdlink", ignoreCase = true) -> {
                                     GDFlix().getUrl(link, pageUrl, subtitleCallback, callback)
                                 }
-
+                                
                                 else -> {
                                     Log.w(TAG, "⚠️ No extractor for: ${link.take(50)}")
                                 }
@@ -717,7 +695,7 @@ class MoviesDriveProvider : MainAPI() {
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Link extraction error: ${e.message}")
             }
-
+            
             Log.d(TAG, "✅ LoadLinks completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "❌ loadLinks error: ${e.message}")
