@@ -210,8 +210,13 @@ open class Hblinks : ExtractorApi() {
         val tag = "Hblinks"
         Log.d(tag, "Processing: $url")
         
+        // Real-time domain fetching
+        val latestUrl = getLatestUrl(url, "hblinks")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        
         try {
-            val doc = app.get(url).document
+            val doc = app.get(newUrl).document
             val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
             
             Log.d(tag, "Found ${links.size} links")
@@ -274,8 +279,13 @@ class Hubdrive : ExtractorApi() {
         val tag = "Hubdrive"
         Log.d(tag, "Processing: $url")
         
+        // Real-time domain fetching
+        val latestUrl = getLatestUrl(url, "hubdrive")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        
         try {
-            val doc = app.get(url, interceptor = cfKiller).documentLarge
+            val doc = app.get(newUrl, interceptor = cfKiller).documentLarge
             
             // Find hubcloud link
             var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -324,14 +334,19 @@ class HubCloud : ExtractorApi() {
         } catch (_: Exception) { false }
         if (!isValidUrl) return
         
-        Log.d(tag, "Processing: $url")
+        // Real-time domain fetching
+        val latestUrl = getLatestUrl(url, "hubcloud")
+        val currentBaseUrl = getBaseUrl(url)
+        val newUrl = url.replace(currentBaseUrl, latestUrl)
+        
+        Log.d(tag, "Processing: $newUrl")
 
         // Get hubcloud.php page URL
         val phpUrl = try {
             when {
-                "hubcloud.php" in url || "gamerxyt.com" in url -> url
-                "/drive/" in url -> {
-                    val driveDoc = app.get(url, interceptor = cfKiller).document
+                "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
+                "/drive/" in newUrl -> {
+                    val driveDoc = app.get(newUrl, interceptor = cfKiller).document
                     driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
@@ -342,10 +357,10 @@ class HubCloud : ExtractorApi() {
                         ?: ""
                 }
                 else -> {
-                    val rawHref = app.get(url, interceptor = cfKiller)
+                    val rawHref = app.get(newUrl, interceptor = cfKiller)
                         .document.select("#download").attr("href")
                     if (rawHref.startsWith("http")) rawHref
-                    else getBaseUrl(url).trimEnd('/') + "/" + rawHref.trimStart('/')
+                    else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
         } catch (e: Exception) {
@@ -354,7 +369,7 @@ class HubCloud : ExtractorApi() {
         }
 
         if (phpUrl.isBlank()) {
-            Log.w(tag, "No valid PHP URL for: $url")
+            Log.w(tag, "No valid PHP URL for: $newUrl")
             return
         }
 
@@ -552,18 +567,24 @@ class HUBCDN : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "HUBCDN"
-        Log.d(tag, "Processing: $url")
+        
+        // Real-time domain fetching
+        val latestUrl = getLatestUrl(url, "hubcdn")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        
+        Log.d(tag, "Processing: $newUrl")
 
         try {
             when {
                 // gadgetsweb.xyz/?id=ENCRYPTED - NEW v2.0 approach
-                url.contains("gadgetsweb.xyz") && url.contains("?id=") -> {
+                newUrl.contains("gadgetsweb.xyz") && newUrl.contains("?id=") -> {
                     Log.d(tag, "Gadgetsweb v2.0 - extracting encoded data from response")
                     
                     var hblinksUrl: String? = null
                     
                     // Step 1: Fetch WITHOUT following redirects to get the JS with encoded data
-                    val response = app.get(url, allowRedirects = false)
+                    val response = app.get(newUrl, allowRedirects = false)
                     val html = response.text
                     
                     Log.d(tag, "Response status: ${response.code}, length: ${html.length}")
@@ -589,7 +610,7 @@ class HUBCDN : ExtractorApi() {
                         Log.d(tag, "s() function not found, trying legacy redirect method")
                         
                         // Fallback: Follow redirect and try legacy extraction
-                        val redirectResponse = app.get(url, allowRedirects = true)
+                        val redirectResponse = app.get(newUrl, allowRedirects = true)
                         val finalUrl = redirectResponse.url
                         val doc = redirectResponse.document
                         val fullHtml = doc.html()
@@ -627,9 +648,9 @@ class HUBCDN : ExtractorApi() {
                 }
                 
                 // gadgetsweb.xyz/homelander/ or similar mediator pages (direct access)
-                url.contains("gadgetsweb.xyz") && !url.contains("?id=") -> {
+                newUrl.contains("gadgetsweb.xyz") && !newUrl.contains("?id=") -> {
                     Log.d(tag, "Gadgetsweb mediator page (direct access)")
-                    val doc = app.get(url).document
+                    val doc = app.get(newUrl).document
                     val html = doc.html()
                     
                     val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
@@ -645,9 +666,9 @@ class HUBCDN : ExtractorApi() {
                 }
                 
                 // hubcdn.fans/file/XXX - Instant download
-                url.contains("hubcdn.fans/file/") -> {
+                newUrl.contains("hubcdn.fans/file/") || newUrl.contains("hubcdn.") && newUrl.contains("/file/") -> {
                     Log.d(tag, "Instant download")
-                    val doc = app.get(url).document
+                    val doc = app.get(newUrl).document
                     
                     val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
                     val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
@@ -665,8 +686,8 @@ class HUBCDN : ExtractorApi() {
                 }
                 
                 // Legacy hubcdn format
-                url.contains("hubcdn") -> {
-                    val doc = app.get(url).document
+                newUrl.contains("hubcdn") -> {
+                    val doc = app.get(newUrl).document
                     val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
                     val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
                         .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
