@@ -491,7 +491,6 @@ class Gofile : ExtractorApi() {
     override val name = "Gofile"
     override val mainUrl = "https://gofile.*"
     override val requiresReferer = false
-    private val mainApi = "https://api.gofile.*"
 
     @Suppress("UNUSED_PARAMETER")
     override suspend fun getUrl(
@@ -500,23 +499,28 @@ class Gofile : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        // Fetch latest domain from GitHub JSON (real-time API)
+        val latestMainUrl = getLatestUrl(url, "gofile")
+        // Derive API URL from main URL: gofile.io -> api.gofile.io
+        val latestApiUrl = latestMainUrl.replace("://", "://api.")
+        
         val requestHeaders = mapOf(
             "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Origin" to mainUrl,
-            "Referer" to mainUrl,
+            "Origin" to latestMainUrl,
+            "Referer" to latestMainUrl,
         )
         val id = url.substringAfter("d/").substringBefore("/")
-        val genAccountRes = app.post("$mainApi/accounts", headers = requestHeaders).text
+        val genAccountRes = app.post("$latestApiUrl/accounts", headers = requestHeaders).text
         val jsonResp = JSONObject(genAccountRes)
         val token = jsonResp.getJSONObject("data").getString("token")
-        val globalRes = app.get("$mainUrl/dist/js/config.js", headers = requestHeaders).text
+        val globalRes = app.get("$latestMainUrl/dist/js/config.js", headers = requestHeaders).text
         val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
 
-        val response = app.get("$mainApi/contents/$id?cache=true&sortField=createTime&sortDirection=1",
+        val response = app.get("$latestApiUrl/contents/$id?cache=true&sortField=createTime&sortDirection=1",
             headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-                "Origin" to mainUrl,
-                "Referer" to mainUrl,
+                "Origin" to latestMainUrl,
+                "Referer" to latestMainUrl,
                 "Authorization" to "Bearer $token",
                 "X-Website-Token" to wt
             )
