@@ -26,32 +26,6 @@ fun getBaseUrl(url: String): String {
     } catch (_: Exception) { "" }
 }
 
-private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(10000L) {  // Reduced from 3s to 10s
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                val urlString = jsonObject.optString("hdhub4u")
-                urlString.ifBlank { null }
-            }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
-        }
-        return mainUrl
-    }
-
 // Parse file size to MB (e.g., "1.8GB" → 1843, "500MB" → 500)
 fun parseSizeToMB(sizeStr: String): Double {
     val cleanSize = sizeStr.replace("[", "").replace("]", "").replace("⚡", "").trim()
