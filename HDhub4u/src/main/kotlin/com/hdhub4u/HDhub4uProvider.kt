@@ -109,7 +109,7 @@ class HDhub4uProvider : MainAPI() {
             Log.d(TAG, "🌐 Fetching domain from GitHub...")
             
             // Real-time fetch with 15s timeout (blocking call)
-            val result = withTimeoutOrNull(15_000L) {
+            val result = withTimeoutOrNull(8_000L) {
                 val response = app.get(GITHUB_URLS_JSON)
                 val json = response.text
                 Log.d(TAG, "📄 Raw JSON: ${json.take(200)}")

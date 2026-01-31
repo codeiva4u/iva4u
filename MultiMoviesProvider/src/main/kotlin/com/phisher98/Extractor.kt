@@ -376,7 +376,7 @@ open class StreamWishExtractor : ExtractorApi() {
                 interceptUrl = Regex("""txt|m3u8"""),
                 additionalUrls = listOf(Regex("""txt|m3u8""")),
                 useOkhttp = false,
-                timeout = 15_000L
+                timeout = 8_000L
             )
 
             val interceptedStreamUrl = app.get(
