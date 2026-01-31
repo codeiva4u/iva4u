@@ -11,3 +11,5 @@
 local.properties
 .vscodetest.txt
 .build_log.txt
+.NUL
+/NUL
