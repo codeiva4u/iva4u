@@ -81,37 +81,64 @@ class HDhub4uProvider : MainAPI() {
         )
     }
 
-    // Cached domain URL - fetched once per session (async, no blocking)
+    // Cached domain URL - fetched once per session from GitHub
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    override var mainUrl: String = "https://new2.hdhub4u.*"
+    // GitHub JSON URL for dynamic domain fetching
+    private val GITHUB_URLS_JSON = "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
 
-    // Fast async domain fetch with 3s timeout - non-blocking
+    // Domain URL - fetched from GitHub JSON in real-time (pattern with * for matching)
+    override var mainUrl: String = "https://hdhub4u.*"
+
+    // FIXED: Real-time domain fetch from GitHub JSON (blocking until fetched)
     private suspend fun fetchMainUrl(): String {
+        // Return cached URL if already fetched
         if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
+        
+        // Prevent multiple simultaneous fetches
+        if (urlsFetched) {
+            // Wait a bit and check again if URL was fetched by another coroutine
+            if (cachedMainUrl != null) return cachedMainUrl!!
+            throw Exception("Domain not available. Please check your internet connection and try again.")
+        }
 
         urlsFetched = true
+        
         try {
-            val result = withTimeoutOrNull(10_000L) {  // Reduced from 3s to s10s
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                )
+            Log.d(TAG, "🌐 Fetching domain from GitHub...")
+            
+            // Real-time fetch with 15s timeout (blocking call)
+            val result = withTimeoutOrNull(15_000L) {
+                val response = app.get(GITHUB_URLS_JSON)
                 val json = response.text
+                Log.d(TAG, "📄 Raw JSON: ${json.take(200)}")
+                
                 val jsonObject = JSONObject(json)
                 val urlString = jsonObject.optString("hdhub4u")
-                urlString.ifBlank { null }
+                
+                if (urlString.isBlank()) {
+                    Log.e(TAG, "❌ 'hdhub4u' key not found in JSON")
+                    null
+                } else {
+                    urlString
+                }
             }
+            
             if (result != null) {
                 cachedMainUrl = result
                 mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
+                Log.d(TAG, "✅ Successfully fetched mainUrl: $result")
+                return result
+            } else {
+                Log.e(TAG, "❌ Timeout while fetching domain")
+                throw Exception("Timeout fetching domain. Please try again.")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
+            Log.e(TAG, "❌ Failed to fetch mainUrl: ${e.message}")
+            urlsFetched = false  // Allow retry on next attempt
+            throw Exception("Cannot connect to server. Please check your internet connection. Error: ${e.message}")
         }
-        return mainUrl
     }
 
     override var name = "HDHub4U"

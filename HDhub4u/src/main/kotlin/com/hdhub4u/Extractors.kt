@@ -26,13 +26,29 @@ fun getBaseUrl(url: String): String {
     } catch (_: Exception) { "" }
 }
 
+// Cached URLs for session-level caching (fetch once, use throughout session)
+private var cachedUrlsJson: JSONObject? = null
+
 suspend fun getLatestUrl(url: String, source: String): String {
-    val link = JSONObject(
-        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-    ).optString(source)
-    if(link.isNullOrEmpty()) {
+    // Use cached JSON if available (fetch only once per session)
+    if (cachedUrlsJson == null) {
+        try {
+            cachedUrlsJson = JSONObject(
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+            )
+            Log.d("DomainResolver", "✅ Successfully fetched domains from GitHub")
+        } catch (e: Exception) {
+            Log.e("DomainResolver", "❌ Failed to fetch domain from GitHub: ${e.message}, using fallback")
+            return getBaseUrl(url)
+        }
+    }
+    
+    val link = cachedUrlsJson?.optString(source)
+    if (link.isNullOrEmpty()) {
+        Log.d("DomainResolver", "⚠️ No domain found for source: $source, using base URL")
         return getBaseUrl(url)
     }
+    Log.d("DomainResolver", "✅ Using domain for $source: $link")
     return link
 }
 
@@ -211,7 +227,13 @@ open class Hblinks : ExtractorApi() {
         Log.d(tag, "Processing: $url")
         
         try {
-            val doc = app.get(url).document
+            // Fetch latest hblinks domain from GitHub JSON
+            val latestUrl = getLatestUrl(url, "hblinks")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestUrl)
+            
+            Log.d(tag, "Using domain: $latestUrl")
+            val doc = app.get(newUrl).document
             val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
             
             Log.d(tag, "Found ${links.size} links")
@@ -275,7 +297,13 @@ class Hubdrive : ExtractorApi() {
         Log.d(tag, "Processing: $url")
         
         try {
-            val doc = app.get(url, interceptor = cfKiller).documentLarge
+            // Fetch latest hubdrive domain from GitHub JSON
+            val latestUrl = getLatestUrl(url, "hubdrive")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestUrl)
+            
+            Log.d(tag, "Using domain: $latestUrl")
+            val doc = app.get(newUrl, interceptor = cfKiller).documentLarge
             
             // Find hubcloud link
             var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
@@ -325,13 +353,20 @@ class HubCloud : ExtractorApi() {
         if (!isValidUrl) return
         
         Log.d(tag, "Processing: $url")
+        
+        // Fetch latest hubcloud domain from GitHub JSON
+        val latestUrl = getLatestUrl(url, "hubcloud")
+        val baseUrl = getBaseUrl(url)
+        val newUrl = url.replace(baseUrl, latestUrl)
+        
+        Log.d(tag, "Using domain: $latestUrl")
 
         // Get hubcloud.php page URL
         val phpUrl = try {
             when {
-                "hubcloud.php" in url || "gamerxyt.com" in url -> url
-                "/drive/" in url -> {
-                    val driveDoc = app.get(url, interceptor = cfKiller).document
+                "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
+                "/drive/" in newUrl -> {
+                    val driveDoc = app.get(newUrl, interceptor = cfKiller).document
                     driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
                         ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
@@ -342,10 +377,10 @@ class HubCloud : ExtractorApi() {
                         ?: ""
                 }
                 else -> {
-                    val rawHref = app.get(url, interceptor = cfKiller)
+                    val rawHref = app.get(newUrl, interceptor = cfKiller)
                         .document.select("#download").attr("href")
                     if (rawHref.startsWith("http")) rawHref
-                    else getBaseUrl(url).trimEnd('/') + "/" + rawHref.trimStart('/')
+                    else getBaseUrl(newUrl).trimEnd('/') + "/" + rawHref.trimStart('/')
                 }
             }
         } catch (e: Exception) {
@@ -555,6 +590,13 @@ class HUBCDN : ExtractorApi() {
         Log.d(tag, "Processing: $url")
 
         try {
+            // Fetch latest hubcdn domain from GitHub JSON
+            val latestHubcdnUrl = getLatestUrl(url, "hubcdn")
+            val baseUrl = getBaseUrl(url)
+            val newUrl = url.replace(baseUrl, latestHubcdnUrl)
+            
+            Log.d(tag, "Using hubcdn domain: $latestHubcdnUrl")
+            
             when {
                 // gadgetsweb.xyz/?id=ENCRYPTED - NEW v2.0 approach
                 url.contains("gadgetsweb.xyz") && url.contains("?id=") -> {
