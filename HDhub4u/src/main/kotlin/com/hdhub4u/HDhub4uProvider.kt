@@ -85,16 +85,16 @@ class HDhub4uProvider : MainAPI() {
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
+    override var mainUrl: String = "https://new2.hdhub4u.*"
 
-    // Fast async domain fetch with 3s timeout - non-blocking
+    // Fast async domain fetch with 10s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
         if (cachedMainUrl != null) return cachedMainUrl!!
         if (urlsFetched) return mainUrl
 
         urlsFetched = true
         try {
-            val result = withTimeoutOrNull(3_000L) {  // Reduced from 10s to 3s
+            val result = withTimeoutOrNull(10000L) {  // Reduced from 3s to 10s
                 val response = app.get(
                     "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
                 )
