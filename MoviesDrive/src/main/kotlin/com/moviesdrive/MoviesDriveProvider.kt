@@ -55,7 +55,7 @@ class MoviesDriveProvider : MainAPI() {
         // File Size Extraction Pattern
         // Matches: [420MB], [1.6GB], 568.12 MB, 2.24 GB
         private val FILE_SIZE_REGEX = Regex(
-            """(?:\[)?(\d+(?:\.\d+)?)\s*(GB|MB)(?:\])?""", RegexOption.IGNORE_CASE
+            """\[?(\d+(?:\.\d+)?)\s*(GB|MB)]?""", RegexOption.IGNORE_CASE
         )
         
         // Download URL Pattern - Valid hosts for MoviesDrive
@@ -85,7 +85,7 @@ class MoviesDriveProvider : MainAPI() {
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    override var mainUrl: String = "https://new1.moviesdrive.surf"
+    override var mainUrl: String = "https://new1.moviesdrive.*"
 
     // Fast async domain fetch with 2s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
@@ -94,7 +94,7 @@ class MoviesDriveProvider : MainAPI() {
 
         urlsFetched = true
         try {
-            val result = withTimeoutOrNull(2_000L) {  // Reduced from 3s to 2s
+            val result = withTimeoutOrNull(10_000L) {  // Reduced from 10s to 2s
                 val response = app.get(
                     "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
                 )
@@ -130,7 +130,7 @@ class MoviesDriveProvider : MainAPI() {
         "category/south/" to "South Indian",
         "category/netflix/" to "Netflix",
         "category/amzn-prime-video/" to "Amazon Prime",
-        "?s=jiohotstar" to "JioHotStar",
+        "category/hotstar/page/" to "JioHotStar",
         "category/web/" to "Web Series"
     )
 
@@ -166,7 +166,7 @@ class MoviesDriveProvider : MainAPI() {
 
     private fun Element.toSearchResult(): SearchResponse? {
         // Extract href (this element is <a> tag)
-        val href = attr("href") ?: return null
+        val href = attr("href")
         
         // Filter invalid URLs using regex
         if (href.isBlank() || 
@@ -368,7 +368,7 @@ class MoviesDriveProvider : MainAPI() {
         if (singleEpisodeLink != null && detectedEpisodes.isEmpty()) {
             try {
                 Log.d(TAG, "📡 Fetching mdrive page to detect actual episode count...")
-                val mdriveDoc = app.get(singleEpisodeLink!!).document
+                val mdriveDoc = app.get(singleEpisodeLink).document
                 
                 // Detect episodes from mdrive page (Ep01, Ep02, etc.)
                 mdriveDoc.select("h5, h4").forEach { elem ->
@@ -606,7 +606,7 @@ class MoviesDriveProvider : MainAPI() {
                                         
                                         // Episode filtering (if needed)
                                         val episodeRegex = Regex("(?i)(?:EP|Episode)[\\s-]*(\\d+)")
-                                        var targetLinks = mutableListOf<String>()
+                                        val targetLinks = mutableListOf<String>()
                                         
                                         if (episodeNum != null) {
                                             // Find target episode header

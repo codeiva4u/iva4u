@@ -1,26 +1,19 @@
+// MoviesDrive CloudStream Plugin
+
 version = 12
 
 cloudstream {
     language = "hi"
-    // All of these properties are optional, you can safely remove them
-
-    description = "High Quality Movies and TV Shows"
-     authors = listOf("megix")
-
-    /**
-     * Status int as the following:
-     * 0: Down
-     * 1: Ok
-     * 2: Slow
-     * 3: Beta only
-     * */
-    status = 1 // will be 3 if unspecified
+    description = "MoviesDrive - Download HD Movies & Web Series in 4K"
+    authors = listOf("codeiva4u")
+    status = 1 // 0: Down, 1: Ok, 2: Slow, 3: Beta
     tvTypes = listOf(
-        "TvSeries",
         "Movie",
-        "AsianDrama",
-        "Anime"
+        "TvSeries"
     )
+    iconUrl = "https://new1.moviesdrive.surf/wp-content/uploads/2026/01/cropped-Gemini_Generated_Image_qt93aqt93aqt93aq-1-192x192.png"
+}
 
-    iconUrl = "https://raw.githubusercontent.com/codeiva4u/iva4u/master/MoviesDrive/icon.png"
+android {
+    namespace = "com.moviesdrive"
 }

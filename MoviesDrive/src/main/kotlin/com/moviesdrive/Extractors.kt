@@ -489,9 +489,9 @@ open class GDFlix : ExtractorApi() {
 
 class Gofile : ExtractorApi() {
     override val name = "Gofile"
-    override val mainUrl = "https://gofile.io"
+    override val mainUrl = "https://gofile.*"
     override val requiresReferer = false
-    private val mainApi = "https://api.gofile.io"
+    private val mainApi = "https://api.gofile.*"
 
     @Suppress("UNUSED_PARAMETER")
     override suspend fun getUrl(
