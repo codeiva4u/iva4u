@@ -304,7 +304,7 @@ class GDLink : GDFlix() {
     override var mainUrl = "https://gdlink.*"
 }
 class GDFlixNet : GDFlix() {
-    override var mainUrl = "https://new10.gdflix.*"
+    override var mainUrl = "https://new1.gdflix.*"
 }
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
