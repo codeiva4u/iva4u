@@ -33,10 +33,20 @@ suspend fun getLatestUrl(url: String, source: String): String {
     // Use cached JSON if available (fetch only once per session)
     if (cachedUrlsJson == null) {
         try {
-            cachedUrlsJson = JSONObject(
-                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-            )
-            Log.d("DomainResolver", "✅ Successfully fetched domains from GitHub")
+            // Real-time fetch with 8s timeout
+            val result = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                JSONObject(
+                    app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+                )
+            }
+            
+            if (result != null) {
+                cachedUrlsJson = result
+                Log.d("DomainResolver", "✅ Successfully fetched domains from GitHub")
+            } else {
+                Log.e("DomainResolver", "❌ Timeout fetching domain from GitHub, using fallback")
+                return getBaseUrl(url)
+            }
         } catch (e: Exception) {
             Log.e("DomainResolver", "❌ Failed to fetch domain from GitHub: ${e.message}, using fallback")
             return getBaseUrl(url)
