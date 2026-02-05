@@ -165,13 +165,24 @@ class TechInMindStream : ExtractorApi() {
     ) {
         try {
             Log.d("TechInMind", "Fetching: $url")
-            val response = app.get(url, referer = referer).document
+            val response = app.get(url, referer = referer)
+            val document = response.document
             
             // Extract quality links from the player page
-            val qualityLinks = response.select("#quality-links a")
+            // Structure: <div id="quality-links"><a href="#" data-link="https://ssn.techinmind.space/evid/...">Quality Name</a></div>
+            val qualityLinks = document.select("#quality-links a[data-link]")
+            
+            Log.d("TechInMind", "Found ${qualityLinks.size} quality links")
+            
             if (qualityLinks.isEmpty()) {
-                Log.w("TechInMind", "No quality links found")
-                return
+                Log.w("TechInMind", "No quality links found, trying alternative selectors")
+                // Try alternative: look for any a tags with data-link
+                val altLinks = document.select("a[data-link]")
+                Log.d("TechInMind", "Alternative selector found ${altLinks.size} links")
+                
+                if (altLinks.isEmpty()) {
+                    return
+                }
             }
             
             // Process each quality option
@@ -180,7 +191,10 @@ class TechInMindStream : ExtractorApi() {
                     val dataLink = element.attr("data-link")
                     val qualityName = element.text().trim()
                     
-                    if (dataLink.isBlank()) return@amap
+                    if (dataLink.isBlank()) {
+                        Log.w("TechInMind", "Empty data-link for: $qualityName")
+                        return@amap
+                    }
                     
                     Log.d("TechInMind", "Found quality: $qualityName -> $dataLink")
                     
@@ -215,11 +229,13 @@ class SSNTechInMind : ExtractorApi() {
         try {
             Log.d("SSNTechInMind", "Fetching: $url")
             
-            // Follow redirect to get svid page
+            // Follow redirect to get svid page (evid/{id} -> svid/{hash})
             val response = app.get(url, referer = referer, allowRedirects = true)
             val document = response.document
             
-            // Extract download link
+            Log.d("SSNTechInMind", "Final URL: ${response.url}")
+            
+            // Extract download link - a.dlvideoLinks contains the DDN download URL
             val downloadLink = document.selectFirst("a.dlvideoLinks")?.attr("href")
             if (!downloadLink.isNullOrBlank()) {
                 Log.d("SSNTechInMind", "Found download link: $downloadLink")
@@ -228,21 +244,34 @@ class SSNTechInMind : ExtractorApi() {
                 ddnExtractor.getUrl(downloadLink, response.url, subtitleCallback, callback)
             }
             
-            // Also extract streaming server links
-            val serverItems = document.select("li.server-item")
+            // Also extract streaming server links from li.server-item elements
+            // Structure: <li class="server-item" data-link="https://...">
+            val serverItems = document.select("li.server-item[data-link]")
+            Log.d("SSNTechInMind", "Found ${serverItems.size} server items")
+            
             serverItems.amap { item ->
                 try {
                     val serverLink = item.attr("data-link")
                     val serverName = item.selectFirst(".server-name")?.text()?.trim() ?: "Unknown"
+                    val serverMeta = item.selectFirst(".server-meta")?.text()?.trim() ?: ""
                     
                     if (serverLink.isBlank()) return@amap
                     
-                    Log.d("SSNTechInMind", "Found server: $serverName -> $serverLink")
+                    Log.d("SSNTechInMind", "Found server: $serverName ($serverMeta) -> $serverLink")
+                    
+                    // Skip download server item (first li without data-link that has the DDN URL)
+                    if (serverLink.contains("iqsmartgames.com")) {
+                        Log.d("SSNTechInMind", "Skipping DDN server (already processed)")
+                        return@amap
+                    }
                     
                     // Get extractor based on URL
                     val extractor = ExtractorFactory.getExtractor(serverLink)
                     if (extractor != null) {
+                        Log.d("SSNTechInMind", "Using extractor: ${extractor.name}")
                         extractor.getUrl(serverLink, response.url, subtitleCallback, callback)
+                    } else {
+                        Log.w("SSNTechInMind", "No extractor found for: $serverLink")
                     }
                 } catch (e: Exception) {
                     Log.e("SSNTechInMind", "Error processing server: ${e.message}")
@@ -272,23 +301,40 @@ class DDNIQSmartGames : ExtractorApi() {
         try {
             Log.d("DDNIQSmartGames", "Fetching: $url")
             
-            // Follow redirect to get final page
+            // Follow redirect to get final page (file/{id} -> files/{hash})
             val response = app.get(url, referer = referer, allowRedirects = true)
-            val document = response.document
-            val html = document.html()
+            val html = response.text
             
-            // Extract file URL from JavaScript
+            Log.d("DDNIQSmartGames", "Final URL: ${response.url}")
+            
+            // Extract file URL from JavaScript - handles escaped URLs like: https:\\/\\/domain.com
+            // Pattern: const fileurl = "https:\/\/..."
             val fileUrlRegex = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""")
             val fileNameRegex = Regex("""const\s+filename\s*=\s*["']([^"']+)["']""")
             
-            val fileUrl = fileUrlRegex.find(html)?.groupValues?.get(1)
-                ?.replace("\\/", "/")?.replace("\\", "")
+            val rawFileUrl = fileUrlRegex.find(html)?.groupValues?.get(1)
             val fileName = fileNameRegex.find(html)?.groupValues?.get(1) ?: "Unknown"
             
-            // Get file size from page
-            val fileSize = document.selectFirst("div.file-stat:contains(File size) div:last-child")?.text() ?: ""
+            // Clean up escaped URL - convert \/ to / and remove any other escapes
+            val fileUrl = rawFileUrl
+                ?.replace("\\/", "/")
+                ?.replace("\\\\", "")
+                ?.replace("\\", "")
             
-            if (!fileUrl.isNullOrBlank()) {
+            Log.d("DDNIQSmartGames", "Raw fileurl: $rawFileUrl")
+            Log.d("DDNIQSmartGames", "Cleaned fileurl: $fileUrl")
+            Log.d("DDNIQSmartGames", "Filename: $fileName")
+            
+            // Get file size from page - look for "2.46 GB" pattern in file-stat div
+            val document = response.document
+            val fileSizeElement = document.select("div.file-stat").find { 
+                it.text().contains("File size", ignoreCase = true) 
+            }
+            val fileSize = fileSizeElement?.select("div")?.lastOrNull()?.text()?.trim() ?: ""
+            
+            Log.d("DDNIQSmartGames", "File size: $fileSize")
+            
+            if (!fileUrl.isNullOrBlank() && fileUrl.startsWith("http")) {
                 Log.d("DDNIQSmartGames", "Found direct URL: $fileUrl")
                 
                 val quality = getIndexQuality(fileName)
@@ -306,14 +352,16 @@ class DDNIQSmartGames : ExtractorApi() {
                 )
             }
             
-            // Also extract mirror links
+            // Also extract mirror links from mirror-item divs
             val mirrorItems = document.select("div.mirror-item")
+            Log.d("DDNIQSmartGames", "Found ${mirrorItems.size} mirror items")
+            
             mirrorItems.amap { item ->
                 try {
                     val mirrorName = item.selectFirst(".mirror-name strong")?.text()?.trim() ?: "Mirror"
-                    val mirrorLink = item.selectFirst("a.mirror-btn")?.attr("href") ?: return@amap
+                    val mirrorLink = item.selectFirst("a.btn, a.mirror-btn")?.attr("href") ?: return@amap
                     
-                    if (mirrorLink.isBlank()) return@amap
+                    if (mirrorLink.isBlank() || !mirrorLink.startsWith("http")) return@amap
                     
                     Log.d("DDNIQSmartGames", "Found mirror: $mirrorName -> $mirrorLink")
                     
