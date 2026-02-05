@@ -151,11 +151,25 @@ object ExtractorFactory {
 // ═══════════════════════════════════════════════════════════════════
 // TECHINMIND STREAM EXTRACTOR
 // Main player page: stream.techinmind.space/embed/movie/{id}
+// Uses API: stream.techinmind.space/mymovieapi?imdbid={id}&key={key}
 // ═══════════════════════════════════════════════════════════════════
 class TechInMindStream : ExtractorApi() {
     override val name = "TechInMind"
     override val mainUrl = "https://stream.techinmind.space"
     override val requiresReferer = true
+
+    // Data class for API response
+    data class MovieApiResponse(
+        val success: Boolean,
+        val message: String?,
+        val data: List<MovieData>?
+    )
+    
+    data class MovieData(
+        val filename: String,
+        val fileslug: String,
+        val fsize: String?
+    )
 
     override suspend fun getUrl(
         url: String,
@@ -165,48 +179,122 @@ class TechInMindStream : ExtractorApi() {
     ) {
         try {
             Log.d("TechInMind", "Fetching: $url")
-            val response = app.get(url, referer = referer)
-            val document = response.document
             
-            // Extract quality links from the player page
-            // Structure: <div id="quality-links"><a href="#" data-link="https://ssn.techinmind.space/evid/...">Quality Name</a></div>
-            val qualityLinks = document.select("#quality-links a[data-link]")
+            // Parse URL to extract IMDB ID and key
+            // URL format: https://stream.techinmind.space/embed/movie/tt33046197?key=e11a7debaaa4f5d25b671706ffe4d2acb56efbd4
+            val uri = URI(url)
+            val path = uri.path
+            val query = uri.query ?: ""
             
-            Log.d("TechInMind", "Found ${qualityLinks.size} quality links")
+            // Extract IMDB ID from path (last segment)
+            val imdbId = path.substringAfterLast("/")
             
-            if (qualityLinks.isEmpty()) {
-                Log.w("TechInMind", "No quality links found, trying alternative selectors")
-                // Try alternative: look for any a tags with data-link
-                val altLinks = document.select("a[data-link]")
-                Log.d("TechInMind", "Alternative selector found ${altLinks.size} links")
-                
-                if (altLinks.isEmpty()) {
-                    return
-                }
+            // Extract key from query string
+            val keyMatch = Regex("""key=([^&]+)""").find(query)
+            val key = keyMatch?.groupValues?.get(1) ?: ""
+            
+            if (imdbId.isBlank()) {
+                Log.e("TechInMind", "Could not extract IMDB ID from URL: $url")
+                return
             }
             
+            Log.d("TechInMind", "Extracted IMDB ID: $imdbId, key: $key")
+            
+            // Determine ID type (imdbid vs tmdbid)
+            val idType = if (imdbId.startsWith("tt")) "imdbid" else "tmdbid"
+            
+            // Build API URL
+            val apiUrl = "$mainUrl/mymovieapi?$idType=$imdbId&key=$key"
+            Log.d("TechInMind", "Calling API: $apiUrl")
+            
+            // Call the API
+            val apiResponse = app.get(apiUrl, referer = url)
+            
+            Log.d("TechInMind", "API response: ${apiResponse.text}")
+            
+            // Parse JSON response
+            val json = JSONObject(apiResponse.text)
+            val success = json.optBoolean("success", false)
+            
+            if (!success) {
+                Log.w("TechInMind", "API returned success=false")
+                // Fallback to HTML parsing
+                parseHtmlFallback(url, referer, subtitleCallback, callback)
+                return
+            }
+            
+            val dataArray = json.optJSONArray("data")
+            if (dataArray == null || dataArray.length() == 0) {
+                Log.w("TechInMind", "No data in API response, trying HTML fallback")
+                parseHtmlFallback(url, referer, subtitleCallback, callback)
+                return
+            }
+            
+            Log.d("TechInMind", "Found ${dataArray.length()} quality options")
+            
             // Process each quality option
-            qualityLinks.amap { element ->
+            for (i in 0 until dataArray.length()) {
                 try {
-                    val dataLink = element.attr("data-link")
-                    val qualityName = element.text().trim()
+                    val item = dataArray.getJSONObject(i)
+                    val filename = item.optString("filename", "Unknown")
+                    val fileslug = item.optString("fileslug", "")
+                    val fsize = item.optString("fsize", "")
                     
-                    if (dataLink.isBlank()) {
-                        Log.w("TechInMind", "Empty data-link for: $qualityName")
-                        return@amap
-                    }
+                    if (fileslug.isBlank()) continue
                     
-                    Log.d("TechInMind", "Found quality: $qualityName -> $dataLink")
+                    // Build SSN URL
+                    val ssnUrl = "https://ssn.techinmind.space/evid/$fileslug"
+                    
+                    Log.d("TechInMind", "Processing: $filename ($fsize) -> $ssnUrl")
                     
                     // Extract through SSN extractor
                     val ssnExtractor = SSNTechInMind()
-                    ssnExtractor.getUrl(dataLink, url, subtitleCallback, callback)
+                    ssnExtractor.getUrl(ssnUrl, url, subtitleCallback, callback)
                 } catch (e: Exception) {
-                    Log.e("TechInMind", "Error processing quality: ${e.message}")
+                    Log.e("TechInMind", "Error processing quality item: ${e.message}")
                 }
             }
         } catch (e: Exception) {
             Log.e("TechInMind", "Error: ${e.message}")
+            // Try HTML fallback on error
+            try {
+                parseHtmlFallback(url, referer, subtitleCallback, callback)
+            } catch (e2: Exception) {
+                Log.e("TechInMind", "HTML fallback also failed: ${e2.message}")
+            }
+        }
+    }
+    
+    // Fallback: Try to parse HTML directly (may not work if content is JS-rendered)
+    private suspend fun parseHtmlFallback(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        Log.d("TechInMind", "Trying HTML fallback for: $url")
+        val response = app.get(url, referer = referer)
+        val document = response.document
+        
+        // Try to find quality links in HTML
+        val qualityLinks = document.select("#quality-links a[data-link], a[data-link]")
+        
+        Log.d("TechInMind", "HTML fallback found ${qualityLinks.size} links")
+        
+        qualityLinks.amap { element ->
+            try {
+                val dataLink = element.attr("data-link")
+                val qualityName = element.text().trim()
+                
+                if (dataLink.isBlank()) return@amap
+                
+                Log.d("TechInMind", "HTML fallback quality: $qualityName -> $dataLink")
+                
+                val ssnExtractor = SSNTechInMind()
+                ssnExtractor.getUrl(dataLink, url, subtitleCallback, callback)
+            } catch (e: Exception) {
+                Log.e("TechInMind", "Error in HTML fallback: ${e.message}")
+            }
         }
     }
 }
