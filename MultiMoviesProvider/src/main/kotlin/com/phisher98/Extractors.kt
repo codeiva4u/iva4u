@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
@@ -143,11 +144,13 @@ suspend fun getLatestUrl(url: String, source: String): String {
 object ExtractorFactory {
     fun getExtractor(url: String): ExtractorApi? {
         return when {
-            url.contains("techinmind.space") -> TechInMindStream()
             url.contains("ssn.techinmind.space") -> TechInMindSSN()
+            url.contains("stream.techinmind.space") -> TechInMindStream()
+            url.contains("techinmind.space") -> TechInMindStream()
             url.contains("ddn.iqsmartgames.com") -> GDMirrorDownload()
+            url.contains("pro.iqsmartgames.com/vpage") -> VPageExtractor()
             url.contains("pro.iqsmartgames.com") -> IQSmartStream()
-            url.contains("jakcminasi.workers.dev") -> WorkersDownload()
+            url.contains("workers.dev") -> WorkersDownload()
             url.contains("multimoviesshg.com") -> StreamHGExtractor()
             url.contains("rpmhub.site") || url.contains("multimovies.rpmhub") -> RpmShareExtractor()
             url.contains("uns.bio") || url.contains("server1.uns.bio") -> UpnShareExtractor()
@@ -275,6 +278,7 @@ class TechInMindSSN : ExtractorApi() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // GDMIRROR DOWNLOAD EXTRACTOR
 // Handles: ddn.iqsmartgames.com/file/{slug} and /files/{encrypted}
+// Primary source for direct downloads via workers.dev
 // ═══════════════════════════════════════════════════════════════════════════════
 class GDMirrorDownload : ExtractorApi() {
     override val name = "GDMirror"
@@ -292,34 +296,45 @@ class GDMirrorDownload : ExtractorApi() {
             
             // Follow redirects to get final page
             val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
-            val doc = response.document
+            val html = response.text
             val finalUrl = response.url
             
-            // Extract filename and direct download URL from JavaScript
-            val scripts = doc.select("script").map { it.html() }
+            Log.d("GDMirror", "Final URL: $finalUrl")
             
+            // Extract filename and direct download URL from JavaScript
             var directUrl: String? = null
             var fileName: String? = null
             var fileSize: String? = null
             
-            scripts.forEach { script ->
-                // Extract fileurl
-                val fileurlMatch = Regex("""const\s+fileurl\s*=\s*"([^"]+)"""").find(script)
-                if (fileurlMatch != null) {
-                    directUrl = fileurlMatch.groupValues[1]
-                        .replace("\\/", "/")
-                        .replace("\\\"", "\"")
-                }
-                
-                // Extract filename
-                val filenameMatch = Regex("""const\s+filename\s*=\s*"([^"]+)"""").find(script)
-                if (filenameMatch != null) {
-                    fileName = filenameMatch.groupValues[1]
-                }
+            // Extract fileurl - handle escaped characters
+            val fileurlMatch = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""").find(html)
+            if (fileurlMatch != null) {
+                directUrl = fileurlMatch.groupValues[1]
+                    .replace("\\/", "/")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                Log.d("GDMirror", "Raw fileurl: ${fileurlMatch.groupValues[1]}")
+                Log.d("GDMirror", "Cleaned fileurl: $directUrl")
+            }
+            
+            // Extract filename
+            val filenameMatch = Regex("""const\s+filename\s*=\s*["']([^"']+)["']""").find(html)
+            if (filenameMatch != null) {
+                fileName = filenameMatch.groupValues[1]
             }
             
             // Get file size from page
-            fileSize = doc.select(".file-stat:contains(File size) div:last-child").text().trim()
+            val doc = response.document
+            fileSize = doc.select(".file-stat div:contains(File size) + div, .file-size").text().trim()
+            if (fileSize.isNullOrEmpty()) {
+                // Try alternate selector
+                val statDivs = doc.select(".file-stat")
+                statDivs.forEach { stat ->
+                    if (stat.text().contains("File size", true)) {
+                        fileSize = stat.select("div:last-child").text().trim()
+                    }
+                }
+            }
             
             if (!directUrl.isNullOrEmpty()) {
                 Log.d("GDMirror", "Direct URL: $directUrl")
@@ -341,44 +356,37 @@ class GDMirrorDownload : ExtractorApi() {
                 )
             }
             
-            // Also extract mirror links
+            // Extract mirror links (vpage URLs)
             val mirrorItems = doc.select(".mirror-item")
             mirrorItems.amap { mirror ->
-                val mirrorName = mirror.select(".mirror-name strong").text().trim()
+                val mirrorName = mirror.select(".mirror-name strong, .mirror-name").text().trim()
                 val visitLink = mirror.select("a[href*=vpage]").attr("href")
                 
                 if (visitLink.isNotEmpty()) {
                     Log.d("GDMirror", "Mirror: $mirrorName -> $visitLink")
                     
                     try {
-                        when {
-                            mirrorName.contains("Buzzheavier", true) -> {
-                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
-                            }
-                            mirrorName.contains("Fpress", true) -> {
-                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
-                            }
-                            mirrorName.contains("Rpmshare", true) -> {
-                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
-                            }
-                            mirrorName.contains("Upnshare", true) -> {
-                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
-                            }
-                            mirrorName.contains("Streamp2p", true) -> {
-                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
-                            }
-                        }
+                        VPageExtractor().extractFromVPage(
+                            visitLink,
+                            mirrorName,
+                            fileName,
+                            fileSize,
+                            finalUrl,
+                            callback
+                        )
                     } catch (e: Exception) {
                         Log.e("GDMirror", "Mirror extraction failed for $mirrorName: ${e.message}")
                     }
                 }
             }
             
-            // Extract stream link
+            // Extract stream link (form action)
             val streamForm = doc.select("form[action*='stream']")
             if (streamForm.isNotEmpty()) {
-                val streamUrl = streamForm.attr("action")
-                if (streamUrl.isNotEmpty()) {
+                val streamAction = streamForm.attr("action")
+                if (streamAction.isNotEmpty()) {
+                    val streamUrl = if (streamAction.startsWith("http")) streamAction 
+                                    else "https://pro.iqsmartgames.com$streamAction"
                     Log.d("GDMirror", "Stream URL: $streamUrl")
                     
                     val quality = getIndexQuality(fileName)
@@ -401,21 +409,50 @@ class GDMirrorDownload : ExtractorApi() {
             Log.e("GDMirror", "Extraction failed: ${e.message}")
         }
     }
-    
-    private suspend fun extractMirrorLink(
-        visitLink: String,
-        mirrorName: String,
-        fileName: String?,
-        fileSize: String?,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VPAGE EXTRACTOR - Handles pro.iqsmartgames.com/vpage redirects
+// ═══════════════════════════════════════════════════════════════════════════════
+class VPageExtractor : ExtractorApi() {
+    override val name = "VPage"
+    override val mainUrl = "https://pro.iqsmartgames.com"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Follow vpage redirect to get actual mirror link
-            val response = app.get(visitLink, allowRedirects = true)
-            val finalUrl = response.url
+            extractFromVPage(url, "Mirror", null, null, referer ?: mainUrl, callback)
+        } catch (e: Exception) {
+            Log.e("VPage", "Extraction failed: ${e.message}")
+        }
+    }
+    
+    suspend fun extractFromVPage(
+        vpageUrl: String,
+        mirrorName: String,
+        fileName: String?,
+        fileSize: String?,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("VPage", "Following vpage: $vpageUrl for $mirrorName")
             
-            if (finalUrl != visitLink && (finalUrl.contains(".mkv") || finalUrl.contains(".mp4") || 
-                finalUrl.contains("download") || finalUrl.contains("file"))) {
+            // Follow vpage redirect to get actual mirror URL
+            val response = app.get(vpageUrl, referer = referer, allowRedirects = true)
+            val finalUrl = response.url
+            val html = response.text
+            
+            Log.d("VPage", "Redirected to: $finalUrl")
+            
+            // Check if this is a direct download URL
+            if (finalUrl.contains(".mkv") || finalUrl.contains(".mp4") || 
+                finalUrl.contains("download") || finalUrl.contains("workers.dev")) {
                 
                 val quality = getIndexQuality(fileName)
                 val adjustedQuality = getAdjustedQuality(quality, fileSize ?: "", mirrorName, fileName ?: "")
@@ -430,10 +467,75 @@ class GDMirrorDownload : ExtractorApi() {
                         this.headers = VIDEO_HEADERS
                     }
                 )
+                return
             }
+            
+            // Parse the mirror page for download links
+            val doc = response.document
+            
+            // Buzzheavier pattern
+            if (finalUrl.contains("buzzheavier")) {
+                val downloadLink = doc.select("a[href*=download], a.download-btn, a:contains(Download)").attr("href")
+                if (downloadLink.isNotEmpty()) {
+                    val fullUrl = if (downloadLink.startsWith("http")) downloadLink else "https://buzzheavier.com$downloadLink"
+                    emitLink(fullUrl, mirrorName, fileName, fileSize, callback)
+                }
+            }
+            
+            // Fpress pattern
+            else if (finalUrl.contains("fpress")) {
+                val downloadLink = doc.select("a[href*=download], a.download-btn, a:contains(Download)").attr("href")
+                if (downloadLink.isNotEmpty()) {
+                    val fullUrl = if (downloadLink.startsWith("http")) downloadLink else "https://fpress.to$downloadLink"
+                    emitLink(fullUrl, mirrorName, fileName, fileSize, callback)
+                }
+            }
+            
+            // Rpmshare/Streamp2p/Upnshare - usually have direct link in page
+            else {
+                // Look for file URL in scripts
+                val scripts = doc.select("script").map { it.html() }
+                scripts.forEach { script ->
+                    val urlMatch = Regex("""["']?(https?://[^"'\s]+\.(mkv|mp4|m4v)[^"'\s]*)["']?""").find(script)
+                    if (urlMatch != null) {
+                        emitLink(urlMatch.groupValues[1], mirrorName, fileName, fileSize, callback)
+                        return
+                    }
+                }
+                
+                // Fallback: any download link
+                val downloadLink = doc.select("a[href*=download], a.btn-download, button[onclick*=download]").attr("href")
+                if (downloadLink.isNotEmpty()) {
+                    val fullUrl = if (downloadLink.startsWith("http")) downloadLink else "${getBaseUrl(finalUrl)}$downloadLink"
+                    emitLink(fullUrl, mirrorName, fileName, fileSize, callback)
+                }
+            }
+            
         } catch (e: Exception) {
-            Log.e("GDMirror", "Mirror link extraction failed: ${e.message}")
+            Log.e("VPage", "Extraction failed for $mirrorName: ${e.message}")
         }
+    }
+    
+    private suspend fun emitLink(
+        url: String,
+        mirrorName: String,
+        fileName: String?,
+        fileSize: String?,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val quality = getIndexQuality(fileName)
+        val adjustedQuality = getAdjustedQuality(quality, fileSize ?: "", mirrorName, fileName ?: "")
+        
+        callback.invoke(
+            newExtractorLink(
+                "GDMirror[$mirrorName]",
+                "GDMirror[$mirrorName] ${fileName ?: ""}[${fileSize ?: ""}]",
+                url,
+            ) {
+                this.quality = adjustedQuality
+                this.headers = VIDEO_HEADERS
+            }
+        )
     }
 }
 
@@ -525,6 +627,7 @@ class IQSmartStream : ExtractorApi() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // STREAMHG EXTRACTOR
 // Handles: multimoviesshg.com/e/{id}
+// NOTE: Uses HLS m3u8 streaming via JWPlayer - this is the only streaming option
 // ═══════════════════════════════════════════════════════════════════════════════
 class StreamHGExtractor : ExtractorApi() {
     override val name = "StreamHG"
@@ -541,23 +644,52 @@ class StreamHGExtractor : ExtractorApi() {
             Log.d("StreamHG", "Extracting from: $url")
             
             val response = app.get(url, referer = referer ?: mainUrl)
-            val doc = response.document
+            val html = response.text
             
-            // Look for video source in page
-            val scripts = doc.select("script").map { it.html() }
+            // Extract m3u8 from JWPlayer setup - pattern: file: "/stream/..."
+            val m3u8Match = Regex("""["']?file["']?\s*:\s*["']([^"']*master\.m3u8[^"']*)["']""").find(html)
+            if (m3u8Match != null) {
+                val m3u8Path = m3u8Match.groupValues[1]
+                val m3u8Url = if (m3u8Path.startsWith("http")) m3u8Path else "$mainUrl$m3u8Path"
+                
+                Log.d("StreamHG", "Found m3u8 URL: $m3u8Url")
+                
+                // Extract title from page
+                val titleMatch = Regex("""<title>([^<]+)</title>""").find(html)
+                val title = titleMatch?.groupValues?.get(1)?.trim() ?: "StreamHG"
+                
+                callback.invoke(
+                    newExtractorLink(
+                        "StreamHG[HLS]",
+                        "StreamHG[HLS] $title",
+                        m3u8Url,
+                        ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = url
+                        this.headers = mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "Referer" to url,
+                            "Origin" to mainUrl
+                        )
+                    }
+                )
+            }
             
+            // Fallback: look for direct video source in scripts
+            val scripts = response.document.select("script").map { it.html() }
             scripts.forEach { script ->
-                // Extract file/source URL
+                // Extract mp4/mkv source URL
                 val fileMatch = Regex("""(?:file|source|src)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m4v)[^"']*)["']""").find(script)
                 if (fileMatch != null) {
                     val videoUrl = fileMatch.groupValues[1]
-                    Log.d("StreamHG", "Found video URL: $videoUrl")
+                    val fullUrl = if (videoUrl.startsWith("http")) videoUrl else "$mainUrl$videoUrl"
+                    Log.d("StreamHG", "Found direct video URL: $fullUrl")
                     
                     callback.invoke(
                         newExtractorLink(
                             "StreamHG",
                             "StreamHG",
-                            videoUrl,
+                            fullUrl,
                         ) {
                             this.quality = Qualities.P1080.value
                             this.referer = url
@@ -565,22 +697,6 @@ class StreamHGExtractor : ExtractorApi() {
                         }
                     )
                 }
-            }
-            
-            // Fallback: look for direct video tag
-            val videoSrc = doc.select("video source[src]").attr("src")
-            if (videoSrc.isNotEmpty()) {
-                callback.invoke(
-                    newExtractorLink(
-                        "StreamHG",
-                        "StreamHG",
-                        videoSrc,
-                    ) {
-                        this.quality = Qualities.P1080.value
-                        this.referer = url
-                        this.headers = VIDEO_HEADERS
-                    }
-                )
             }
             
         } catch (e: Exception) {
@@ -592,6 +708,7 @@ class StreamHGExtractor : ExtractorApi() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // RPMSHARE EXTRACTOR
 // Handles: multimovies.rpmhub.site/#{hash}
+// NOTE: Hash-based URLs - best accessed via vpage mirrors from GDMirror
 // ═══════════════════════════════════════════════════════════════════════════════
 class RpmShareExtractor : ExtractorApi() {
     override val name = "RpmShare"
@@ -607,34 +724,37 @@ class RpmShareExtractor : ExtractorApi() {
         try {
             Log.d("RpmShare", "Extracting from: $url")
             
-            val hash = url.substringAfter("#")
-            val response = app.get(url, referer = referer ?: mainUrl)
-            val doc = response.document
+            // These hash-based URLs (#hash) load content via JavaScript
+            // The actual files are accessed via the GDMirror vpage redirects
+            // Try to find video source anyway
             
-            // Look for video source
-            val scripts = doc.select("script").map { it.html() }
+            val response = app.get(url.substringBefore("#"), referer = referer ?: mainUrl)
+            val html = response.text
             
-            scripts.forEach { script ->
-                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
-                if (sourceMatch != null) {
-                    val videoUrl = sourceMatch.groupValues[1]
-                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
-                        Log.d("RpmShare", "Found video URL: $videoUrl")
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "RpmShare",
-                                "RpmShare",
-                                videoUrl,
-                            ) {
-                                this.quality = Qualities.P1080.value
-                                this.referer = url
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
+            // Look for video source in scripts
+            val urlMatches = Regex("""["'](https?://[^"'\s]+\.(mkv|mp4|m3u8)[^"'\s]*)["']""").findAll(html)
+            urlMatches.forEach { match ->
+                val videoUrl = match.groupValues[1]
+                if (!videoUrl.contains("jquery") && !videoUrl.contains("player.js")) {
+                    Log.d("RpmShare", "Found video URL: $videoUrl")
+                    
+                    val linkType = if (videoUrl.contains("m3u8")) ExtractorLinkType.M3U8 else null
+                    callback.invoke(
+                        newExtractorLink(
+                            "RpmShare",
+                            "RpmShare",
+                            videoUrl,
+                            linkType
+                        ) {
+                            this.referer = url
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                    return
                 }
             }
+            
+            Log.d("RpmShare", "No direct video URL found - use GDMirror vpage instead")
             
         } catch (e: Exception) {
             Log.e("RpmShare", "Extraction failed: ${e.message}")
@@ -645,6 +765,7 @@ class RpmShareExtractor : ExtractorApi() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // UPNSHARE EXTRACTOR
 // Handles: server1.uns.bio/#{hash}
+// NOTE: Hash-based URLs - best accessed via vpage mirrors from GDMirror
 // ═══════════════════════════════════════════════════════════════════════════════
 class UpnShareExtractor : ExtractorApi() {
     override val name = "UpnShare"
@@ -660,32 +781,33 @@ class UpnShareExtractor : ExtractorApi() {
         try {
             Log.d("UpnShare", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer ?: mainUrl)
-            val doc = response.document
+            val response = app.get(url.substringBefore("#"), referer = referer ?: mainUrl)
+            val html = response.text
             
-            val scripts = doc.select("script").map { it.html() }
-            
-            scripts.forEach { script ->
-                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
-                if (sourceMatch != null) {
-                    val videoUrl = sourceMatch.groupValues[1]
-                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
-                        Log.d("UpnShare", "Found video URL: $videoUrl")
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "UpnShare",
-                                "UpnShare",
-                                videoUrl,
-                            ) {
-                                this.quality = Qualities.P1080.value
-                                this.referer = url
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
+            // Look for video source in scripts
+            val urlMatches = Regex("""["'](https?://[^"'\s]+\.(mkv|mp4|m3u8)[^"'\s]*)["']""").findAll(html)
+            urlMatches.forEach { match ->
+                val videoUrl = match.groupValues[1]
+                if (!videoUrl.contains("jquery") && !videoUrl.contains("player.js")) {
+                    Log.d("UpnShare", "Found video URL: $videoUrl")
+                    
+                    val linkType = if (videoUrl.contains("m3u8")) ExtractorLinkType.M3U8 else null
+                    callback.invoke(
+                        newExtractorLink(
+                            "UpnShare",
+                            "UpnShare",
+                            videoUrl,
+                            linkType
+                        ) {
+                            this.referer = url
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                    return
                 }
             }
+            
+            Log.d("UpnShare", "No direct video URL found - use GDMirror vpage instead")
             
         } catch (e: Exception) {
             Log.e("UpnShare", "Extraction failed: ${e.message}")
@@ -696,6 +818,7 @@ class UpnShareExtractor : ExtractorApi() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // STREAMP2P EXTRACTOR
 // Handles: multimovies.p2pplay.pro/#{hash}
+// NOTE: Hash-based URLs - best accessed via vpage mirrors from GDMirror
 // ═══════════════════════════════════════════════════════════════════════════════
 class StreamP2PExtractor : ExtractorApi() {
     override val name = "StreamP2P"
@@ -711,32 +834,33 @@ class StreamP2PExtractor : ExtractorApi() {
         try {
             Log.d("StreamP2P", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer ?: mainUrl)
-            val doc = response.document
+            val response = app.get(url.substringBefore("#"), referer = referer ?: mainUrl)
+            val html = response.text
             
-            val scripts = doc.select("script").map { it.html() }
-            
-            scripts.forEach { script ->
-                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
-                if (sourceMatch != null) {
-                    val videoUrl = sourceMatch.groupValues[1]
-                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
-                        Log.d("StreamP2P", "Found video URL: $videoUrl")
-                        
-                        callback.invoke(
-                            newExtractorLink(
-                                "StreamP2P",
-                                "StreamP2P",
-                                videoUrl,
-                            ) {
-                                this.quality = Qualities.P1080.value
-                                this.referer = url
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
+            // Look for video source in scripts
+            val urlMatches = Regex("""["'](https?://[^"'\s]+\.(mkv|mp4|m3u8)[^"'\s]*)["']""").findAll(html)
+            urlMatches.forEach { match ->
+                val videoUrl = match.groupValues[1]
+                if (!videoUrl.contains("jquery") && !videoUrl.contains("player.js")) {
+                    Log.d("StreamP2P", "Found video URL: $videoUrl")
+                    
+                    val linkType = if (videoUrl.contains("m3u8")) ExtractorLinkType.M3U8 else null
+                    callback.invoke(
+                        newExtractorLink(
+                            "StreamP2P",
+                            "StreamP2P",
+                            videoUrl,
+                            linkType
+                        ) {
+                            this.referer = url
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                    return
                 }
             }
+            
+            Log.d("StreamP2P", "No direct video URL found - use GDMirror vpage instead")
             
         } catch (e: Exception) {
             Log.e("StreamP2P", "Extraction failed: ${e.message}")
