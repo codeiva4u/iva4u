@@ -12,6 +12,7 @@ import java.net.URI
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MULTIMOVIES EXTRACTORS
+// Flow: stream.techinmind.space → ssn.techinmind.space → ddn.iqsmartgames.com
 // Working Mirrors: Swish, Rpmshare, Streamp2p, Upnshare, Flion
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -22,6 +23,84 @@ fun getBaseUrl(url: String): String {
 fun getIndexQuality(str: String?): Int {
     return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
         ?: Qualities.Unknown.value
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TECHINMIND STREAM EXTRACTOR
+// Handles: stream.techinmind.space/embed/movie/{imdb}
+// ═══════════════════════════════════════════════════════════════════════════════
+class TechInMindStream : ExtractorApi() {
+    override val name = "TechInMind"
+    override val mainUrl = "https://stream.techinmind.space"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMind", "Extracting from: $url")
+            
+            val response = app.get(url, referer = referer ?: mainUrl)
+            val html = response.text
+            
+            // Extract ssn.techinmind.space URL from data-link or iframe
+            val ssnUrlMatch = Regex("""data-link=["']([^"']*ssn\.techinmind\.space[^"']*)["']""").find(html)
+                ?: Regex("""src=["']([^"']*ssn\.techinmind\.space[^"']*)["']""").find(html)
+            
+            val ssnUrl = ssnUrlMatch?.groupValues?.get(1)
+            
+            if (!ssnUrl.isNullOrEmpty()) {
+                Log.d("TechInMind", "Found SSN URL: $ssnUrl")
+                TechInMindSSN().getUrl(ssnUrl, url, subtitleCallback, callback)
+            } else {
+                Log.w("TechInMind", "No SSN URL found in page")
+            }
+            
+        } catch (e: Exception) {
+            Log.e("TechInMind", "Extraction failed: ${e.message}")
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TECHINMIND SSN EXTRACTOR
+// Handles: ssn.techinmind.space/evid/{slug} and /svid/{slug}
+// ═══════════════════════════════════════════════════════════════════════════════
+class TechInMindSSN : ExtractorApi() {
+    override val name = "TechInMindSSN"
+    override val mainUrl = "https://ssn.techinmind.space"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("TechInMindSSN", "Extracting from: $url")
+            
+            // Follow redirect from /evid/ to /svid/
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val doc = response.document
+            val finalUrl = response.url
+            
+            Log.d("TechInMindSSN", "Final URL: $finalUrl")
+            
+            // Extract download link (ddn.iqsmartgames.com)
+            val downloadLink = doc.select("a.dlvideoLinks").attr("href")
+            if (downloadLink.isNotEmpty() && downloadLink.contains("ddn.iqsmartgames.com")) {
+                Log.d("TechInMindSSN", "Download link: $downloadLink")
+                GDMirrorDownload().getUrl(downloadLink, finalUrl, subtitleCallback, callback)
+            }
+            
+        } catch (e: Exception) {
+            Log.e("TechInMindSSN", "Extraction failed: ${e.message}")
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -44,6 +123,8 @@ class GDMirrorDownload : ExtractorApi() {
             val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
             val html = response.text
             val finalUrl = response.url
+            
+            Log.d("GDMirror", "Final URL: $finalUrl")
             
             // Extract direct Workers.dev URL
             val fileurlMatch = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""").find(html)
@@ -73,7 +154,7 @@ class GDMirrorDownload : ExtractorApi() {
                 val mirrorName = mirror.select(".mirror-name strong, .mirror-name").text().trim()
                 val vpageLink = mirror.select("a[href*=vpage]").attr("href")
                 
-                // Only process: Swish, Rpmshare, Streamp2p, Upnshare, Flion
+                // Only process working mirrors: Swish, Rpmshare, Streamp2p, Upnshare, Flion
                 if (vpageLink.isNotEmpty() && isWorkingMirror(mirrorName)) {
                     Log.d("GDMirror", "Processing mirror: $mirrorName")
                     try {

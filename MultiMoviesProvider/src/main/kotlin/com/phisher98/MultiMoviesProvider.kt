@@ -381,14 +381,25 @@ class MultiMoviesProvider : MainAPI() {
             return
         }
 
-        // Use GDMirrorDownload for ddn.iqsmartgames.com URLs
-        if (embedUrl.contains("ddn.iqsmartgames.com")) {
-            Log.d("MultiMovies", "Using GDMirrorDownload for: $embedUrl")
-            GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
-        } else {
-            // For other URLs, try GDMirrorDownload as it handles all mirrors
-            Log.d("MultiMovies", "Using default GDMirrorDownload for: $embedUrl")
-            GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
+        // Route based on URL type
+        when {
+            embedUrl.contains("stream.techinmind.space") -> {
+                Log.d("MultiMovies", "Using TechInMindStream for: $embedUrl")
+                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
+            }
+            embedUrl.contains("ssn.techinmind.space") -> {
+                Log.d("MultiMovies", "Using TechInMindSSN for: $embedUrl")
+                TechInMindSSN().getUrl(embedUrl, referer, subtitleCallback, callback)
+            }
+            embedUrl.contains("ddn.iqsmartgames.com") -> {
+                Log.d("MultiMovies", "Using GDMirrorDownload for: $embedUrl")
+                GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
+            }
+            else -> {
+                // Try TechInMindStream as default
+                Log.d("MultiMovies", "Using default TechInMindStream for: $embedUrl")
+                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
+            }
         }
     }
 
