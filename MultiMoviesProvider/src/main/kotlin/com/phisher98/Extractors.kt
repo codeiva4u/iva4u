@@ -11,9 +11,9 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
 
-// ═══════════════════════════════════════════════════════════════════
-// UTILITY FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// MULTIMOVIES EXTRACTORS - DOWNLOAD LINKS ONLY (NO M3U8/HLS STREAMING)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 val VIDEO_HEADERS = mapOf(
     "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
@@ -30,12 +30,13 @@ fun getBaseUrl(url: String): String {
     }
 }
 
+// Quality detection from filename
 fun getIndexQuality(str: String?): Int {
     return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
         ?: Qualities.Unknown.value
 }
 
-// Parse file size string to MB (e.g., "1.5GB" -> 1536, "700MB" -> 700)
+// Parse file size string to MB
 fun parseSizeToMB(sizeStr: String): Double {
     val cleanSize = sizeStr.replace("[", "").replace("]", "").trim()
     val regex = Regex("""([\d.]+)\s*(GB|MB|gb|mb)""", RegexOption.IGNORE_CASE)
@@ -49,33 +50,31 @@ fun parseSizeToMB(sizeStr: String): Double {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// PRIORITY ORDER (Cloudstream - higher number = shown first):
-// 
-// 1. Codec + Quality (X264 1080p > X264 720p > HEVC 1080p)
-// 2. Within that quality group, smallest file size
-// 3. Within that quality+size, fastest server
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUALITY PRIORITY SYSTEM:
+// 1. X264 1080p > X264 720p > HEVC 1080p > HEVC 720p
+// 2. Within same quality: smaller file size preferred
+// 3. Within same size: faster server preferred
+// ═══════════════════════════════════════════════════════════════════════════════
 fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", fileName: String = ""): Int {
     val text = (fileName + sizeStr + serverName).lowercase()
     
-    // Detect codec: X264 vs HEVC
     val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
     val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
     
-    // PRIORITY 1: Codec + Quality Group (10,000 points per group)
+    // PRIORITY 1: Codec + Quality Group
     val codecQualityScore = when {
-        isX264 && quality >= 1080 -> 30000  // Group 1: X264 1080p
-        isX264 && quality >= 720  -> 20000  // Group 2: X264 720p
-        isHEVC && quality >= 1080 -> 10000  // Group 3: HEVC 1080p
-        isHEVC && quality >= 720  -> 9000   // Group 4: HEVC 720p
-        quality >= 1080 -> 8000             // Unknown 1080p
-        quality >= 720  -> 7000             // Unknown 720p
-        quality >= 480  -> 6000             // 480p
-        else -> 5000                        // Unknown
+        isX264 && quality >= 1080 -> 30000  // X264 1080p
+        isX264 && quality >= 720  -> 20000  // X264 720p
+        isHEVC && quality >= 1080 -> 10000  // HEVC 1080p
+        isHEVC && quality >= 720  -> 9000   // HEVC 720p
+        quality >= 1080 -> 8000
+        quality >= 720  -> 7000
+        quality >= 480  -> 6000
+        else -> 5000
     }
     
-    // PRIORITY 2: File Size (max 300 points within group)
+    // PRIORITY 2: File Size (smaller = higher score)
     val sizeMB = parseSizeToMB(sizeStr)
     val sizeScore = when {
         sizeMB <= 300  -> 260
@@ -94,7 +93,7 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", f
         else -> 0
     }
     
-    // PRIORITY 3: Server Speed (max 100 points)
+    // PRIORITY 3: Server Speed
     val serverScore = getServerPriority(serverName)
     
     return codecQualityScore + sizeScore + serverScore
@@ -103,73 +102,71 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", f
 fun getServerPriority(serverName: String): Int {
     return when {
         serverName.contains("Instant", true) -> 100
-        serverName.contains("Direct", true) -> 90
+        serverName.contains("Direct", true) -> 95
+        serverName.contains("Workers", true) -> 90
+        serverName.contains("Stream", true) -> 85
         serverName.contains("FSL", true) -> 80
         serverName.contains("10Gbps", true) -> 85
-        serverName.contains("Download", true) -> 70
-        serverName.contains("Stream", true) -> 65
-        else -> 50
+        serverName.contains("Buzzheavier", true) -> 70
+        serverName.contains("Fpress", true) -> 65
+        serverName.contains("Rpmshare", true) -> 60
+        serverName.contains("Upnshare", true) -> 55
+        serverName.contains("Streamp2p", true) -> 50
+        else -> 40
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// EXTRACTOR FACTORY - Auto-select correct extractor based on URL
-// ═══════════════════════════════════════════════════════════════════
-object ExtractorFactory {
-    fun getExtractor(url: String): ExtractorApi? {
-        return when {
-            url.contains("stream.techinmind.space") -> TechInMindStream()
-            url.contains("ssn.techinmind.space") -> SSNTechInMind()
-            url.contains("ddn.iqsmartgames.com") -> DDNIQSmartGames()
-            url.contains("pro.iqsmartgames.com") -> ProIQSmartGames()
-            url.contains("multimoviesshg.com") -> MultiMoviesSHG()
-            url.contains("rpmhub.site") -> RpmHub()
-            url.contains("uns.bio") -> UnsBio()
-            url.contains("p2pplay.pro") -> P2pPlay()
-            url.contains("gdmirrorbot") -> GDMirrorDownload()
-            url.contains("hubcloud") -> HubCloud()
-            url.contains("gdflix") -> GDFlix()
-            else -> null
+// Cached URLs for session-level caching
+private var cachedUrlsJson: JSONObject? = null
+
+suspend fun getLatestUrl(url: String, source: String): String {
+    if (cachedUrlsJson == null) {
+        try {
+            cachedUrlsJson = JSONObject(
+                app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+            )
+        } catch (e: Exception) {
+            return getBaseUrl(url)
         }
     }
     
-    val extractorList = listOf(
-        TechInMindStream(),
-        SSNTechInMind(),
-        DDNIQSmartGames(),
-        ProIQSmartGames(),
-        MultiMoviesSHG(),
-        RpmHub(),
-        UnsBio(),
-        P2pPlay(),
-        GDMirrorDownload(),
-        HubCloud(),
-        GDFlix()
-    )
+    val link = cachedUrlsJson?.optString(source)
+    if (link.isNullOrEmpty()) {
+        return getBaseUrl(url)
+    }
+    return link
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXTRACTOR FACTORY - Selects appropriate extractor based on URL
+// ═══════════════════════════════════════════════════════════════════════════════
+object ExtractorFactory {
+    fun getExtractor(url: String): ExtractorApi? {
+        return when {
+            url.contains("techinmind.space") -> TechInMindStream()
+            url.contains("ssn.techinmind.space") -> TechInMindSSN()
+            url.contains("ddn.iqsmartgames.com") -> GDMirrorDownload()
+            url.contains("pro.iqsmartgames.com") -> IQSmartStream()
+            url.contains("jakcminasi.workers.dev") -> WorkersDownload()
+            url.contains("multimoviesshg.com") -> StreamHGExtractor()
+            url.contains("rpmhub.site") || url.contains("multimovies.rpmhub") -> RpmShareExtractor()
+            url.contains("uns.bio") || url.contains("server1.uns.bio") -> UpnShareExtractor()
+            url.contains("p2pplay.pro") || url.contains("multimovies.p2pplay") -> StreamP2PExtractor()
+            url.contains("buzzheavier") -> BuzzheavierExtractor()
+            url.contains("fpress") -> FpressExtractor()
+            else -> null
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TECHINMIND STREAM EXTRACTOR
-// Main player page: stream.techinmind.space/embed/movie/{id}
-// Uses API: stream.techinmind.space/mymovieapi?imdbid={id}&key={key}
-// ═══════════════════════════════════════════════════════════════════
+// Handles: stream.techinmind.space/embed/movie/{imdb}
+// ═══════════════════════════════════════════════════════════════════════════════
 class TechInMindStream : ExtractorApi() {
     override val name = "TechInMind"
     override val mainUrl = "https://stream.techinmind.space"
     override val requiresReferer = true
-
-    // Data class for API response
-    data class MovieApiResponse(
-        val success: Boolean,
-        val message: String?,
-        val data: List<MovieData>?
-    )
-    
-    data class MovieData(
-        val filename: String,
-        val fileslug: String,
-        val fsize: String?
-    )
 
     override suspend fun getUrl(
         url: String,
@@ -178,133 +175,45 @@ class TechInMindStream : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("TechInMind", "Fetching: $url")
+            Log.d("TechInMind", "Extracting from: $url")
             
-            // Parse URL to extract IMDB ID and key
-            // URL format: https://stream.techinmind.space/embed/movie/tt33046197?key=e11a7debaaa4f5d25b671706ffe4d2acb56efbd4
-            val uri = URI(url)
-            val path = uri.path
-            val query = uri.query ?: ""
+            val doc = app.get(url, referer = referer ?: mainUrl).document
             
-            // Extract IMDB ID from path (last segment)
-            val imdbId = path.substringAfterLast("/")
+            // Extract quality links from menu
+            val qualityLinks = doc.select("#quality-links a[data-link]")
             
-            // Extract key from query string
-            val keyMatch = Regex("""key=([^&]+)""").find(query)
-            val key = keyMatch?.groupValues?.get(1) ?: ""
-            
-            if (imdbId.isBlank()) {
-                Log.e("TechInMind", "Could not extract IMDB ID from URL: $url")
-                return
-            }
-            
-            Log.d("TechInMind", "Extracted IMDB ID: $imdbId, key: $key")
-            
-            // Determine ID type (imdbid vs tmdbid)
-            val idType = if (imdbId.startsWith("tt")) "imdbid" else "tmdbid"
-            
-            // Build API URL
-            val apiUrl = "$mainUrl/mymovieapi?$idType=$imdbId&key=$key"
-            Log.d("TechInMind", "Calling API: $apiUrl")
-            
-            // Call the API
-            val apiResponse = app.get(apiUrl, referer = url)
-            
-            Log.d("TechInMind", "API response: ${apiResponse.text}")
-            
-            // Parse JSON response
-            val json = JSONObject(apiResponse.text)
-            val success = json.optBoolean("success", false)
-            
-            if (!success) {
-                Log.w("TechInMind", "API returned success=false")
-                // Fallback to HTML parsing
-                parseHtmlFallback(url, referer, subtitleCallback, callback)
-                return
-            }
-            
-            val dataArray = json.optJSONArray("data")
-            if (dataArray == null || dataArray.length() == 0) {
-                Log.w("TechInMind", "No data in API response, trying HTML fallback")
-                parseHtmlFallback(url, referer, subtitleCallback, callback)
-                return
-            }
-            
-            Log.d("TechInMind", "Found ${dataArray.length()} quality options")
-            
-            // Process each quality option
-            for (i in 0 until dataArray.length()) {
-                try {
-                    val item = dataArray.getJSONObject(i)
-                    val filename = item.optString("filename", "Unknown")
-                    val fileslug = item.optString("fileslug", "")
-                    val fsize = item.optString("fsize", "")
+            qualityLinks.forEach { link ->
+                val videoUrl = link.attr("data-link")
+                val qualityName = link.text().trim()
+                
+                if (videoUrl.isNotEmpty()) {
+                    Log.d("TechInMind", "Found quality: $qualityName -> $videoUrl")
                     
-                    if (fileslug.isBlank()) continue
-                    
-                    // Build SSN URL
-                    val ssnUrl = "https://ssn.techinmind.space/evid/$fileslug"
-                    
-                    Log.d("TechInMind", "Processing: $filename ($fsize) -> $ssnUrl")
-                    
-                    // Extract through SSN extractor
-                    val ssnExtractor = SSNTechInMind()
-                    ssnExtractor.getUrl(ssnUrl, url, subtitleCallback, callback)
-                } catch (e: Exception) {
-                    Log.e("TechInMind", "Error processing quality item: ${e.message}")
+                    // Use SSN extractor for ssn.techinmind.space URLs
+                    if (videoUrl.contains("ssn.techinmind.space")) {
+                        TechInMindSSN().getUrl(videoUrl, url, subtitleCallback, callback)
+                    }
                 }
             }
+            
+            // Also try iframe src
+            val iframeSrc = doc.select("iframe#player").attr("src")
+            if (iframeSrc.isNotEmpty() && iframeSrc.contains("ssn.techinmind.space")) {
+                TechInMindSSN().getUrl(iframeSrc, url, subtitleCallback, callback)
+            }
+            
         } catch (e: Exception) {
-            Log.e("TechInMind", "Error: ${e.message}")
-            // Try HTML fallback on error
-            try {
-                parseHtmlFallback(url, referer, subtitleCallback, callback)
-            } catch (e2: Exception) {
-                Log.e("TechInMind", "HTML fallback also failed: ${e2.message}")
-            }
-        }
-    }
-    
-    // Fallback: Try to parse HTML directly (may not work if content is JS-rendered)
-    private suspend fun parseHtmlFallback(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        Log.d("TechInMind", "Trying HTML fallback for: $url")
-        val response = app.get(url, referer = referer)
-        val document = response.document
-        
-        // Try to find quality links in HTML
-        val qualityLinks = document.select("#quality-links a[data-link], a[data-link]")
-        
-        Log.d("TechInMind", "HTML fallback found ${qualityLinks.size} links")
-        
-        qualityLinks.amap { element ->
-            try {
-                val dataLink = element.attr("data-link")
-                val qualityName = element.text().trim()
-                
-                if (dataLink.isBlank()) return@amap
-                
-                Log.d("TechInMind", "HTML fallback quality: $qualityName -> $dataLink")
-                
-                val ssnExtractor = SSNTechInMind()
-                ssnExtractor.getUrl(dataLink, url, subtitleCallback, callback)
-            } catch (e: Exception) {
-                Log.e("TechInMind", "Error in HTML fallback: ${e.message}")
-            }
+            Log.e("TechInMind", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SSN TECHINMIND EXTRACTOR
-// Handles: ssn.techinmind.space/evid/{id} -> ssn.techinmind.space/svid/{hash}
-// ═══════════════════════════════════════════════════════════════════
-class SSNTechInMind : ExtractorApi() {
-    override val name = "SSN-TechInMind"
+// ═══════════════════════════════════════════════════════════════════════════════
+// TECHINMIND SSN EXTRACTOR  
+// Handles: ssn.techinmind.space/evid/{slug} and /svid/{slug}
+// ═══════════════════════════════════════════════════════════════════════════════
+class TechInMindSSN : ExtractorApi() {
+    override val name = "TechInMindSSN"
     override val mainUrl = "https://ssn.techinmind.space"
     override val requiresReferer = true
 
@@ -315,68 +224,60 @@ class SSNTechInMind : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("SSNTechInMind", "Fetching: $url")
+            Log.d("TechInMindSSN", "Extracting from: $url")
             
-            // Follow redirect to get svid page (evid/{id} -> svid/{hash})
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val document = response.document
+            // Follow redirect from /evid/ to /svid/
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val doc = response.document
+            val finalUrl = response.url
             
-            Log.d("SSNTechInMind", "Final URL: ${response.url}")
+            Log.d("TechInMindSSN", "Final URL: $finalUrl")
             
-            // Extract download link - a.dlvideoLinks contains the DDN download URL
-            val downloadLink = document.selectFirst("a.dlvideoLinks")?.attr("href")
-            if (!downloadLink.isNullOrBlank()) {
-                Log.d("SSNTechInMind", "Found download link: $downloadLink")
-                // Use DDN extractor for download link
-                val ddnExtractor = DDNIQSmartGames()
-                ddnExtractor.getUrl(downloadLink, response.url, subtitleCallback, callback)
-            }
+            // Extract video servers from the player page
+            val videoLinks = doc.select("#videoLinks li.server-item")
             
-            // Also extract streaming server links from li.server-item elements
-            // Structure: <li class="server-item" data-link="https://...">
-            val serverItems = document.select("li.server-item[data-link]")
-            Log.d("SSNTechInMind", "Found ${serverItems.size} server items")
-            
-            serverItems.amap { item ->
-                try {
-                    val serverLink = item.attr("data-link")
-                    val serverName = item.selectFirst(".server-name")?.text()?.trim() ?: "Unknown"
-                    val serverMeta = item.selectFirst(".server-meta")?.text()?.trim() ?: ""
-                    
-                    if (serverLink.isBlank()) return@amap
-                    
-                    Log.d("SSNTechInMind", "Found server: $serverName ($serverMeta) -> $serverLink")
-                    
-                    // Skip download server item (first li without data-link that has the DDN URL)
-                    if (serverLink.contains("iqsmartgames.com")) {
-                        Log.d("SSNTechInMind", "Skipping DDN server (already processed)")
-                        return@amap
+            videoLinks.forEach { serverItem ->
+                val serverLink = serverItem.attr("data-link")
+                val serverName = serverItem.select(".server-name").text().trim()
+                val serverMeta = serverItem.select(".server-meta").text().trim()
+                
+                Log.d("TechInMindSSN", "Server: $serverName - $serverLink")
+                
+                when {
+                    serverName.contains("SMWH", true) || serverLink.contains("multimoviesshg.com") -> {
+                        StreamHGExtractor().getUrl(serverLink, finalUrl, subtitleCallback, callback)
                     }
-                    
-                    // Get extractor based on URL
-                    val extractor = ExtractorFactory.getExtractor(serverLink)
-                    if (extractor != null) {
-                        Log.d("SSNTechInMind", "Using extractor: ${extractor.name}")
-                        extractor.getUrl(serverLink, response.url, subtitleCallback, callback)
-                    } else {
-                        Log.w("SSNTechInMind", "No extractor found for: $serverLink")
+                    serverName.contains("RPMSHRE", true) || serverLink.contains("rpmhub.site") -> {
+                        RpmShareExtractor().getUrl(serverLink, finalUrl, subtitleCallback, callback)
                     }
-                } catch (e: Exception) {
-                    Log.e("SSNTechInMind", "Error processing server: ${e.message}")
+                    serverName.contains("UPNSHR", true) || serverLink.contains("uns.bio") -> {
+                        UpnShareExtractor().getUrl(serverLink, finalUrl, subtitleCallback, callback)
+                    }
+                    serverName.contains("STRMP2", true) || serverLink.contains("p2pplay.pro") -> {
+                        StreamP2PExtractor().getUrl(serverLink, finalUrl, subtitleCallback, callback)
+                    }
                 }
             }
+            
+            // Extract direct download link
+            val downloadLink = doc.select("a.dlvideoLinks").attr("href")
+            if (downloadLink.isNotEmpty() && downloadLink.contains("ddn.iqsmartgames.com")) {
+                Log.d("TechInMindSSN", "Download link found: $downloadLink")
+                GDMirrorDownload().getUrl(downloadLink, finalUrl, subtitleCallback, callback)
+            }
+            
         } catch (e: Exception) {
-            Log.e("SSNTechInMind", "Error: ${e.message}")
+            Log.e("TechInMindSSN", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// DDN IQSMARTGAMES EXTRACTOR
-// Handles: ddn.iqsmartgames.com/file/{id} -> final download link
-// ═══════════════════════════════════════════════════════════════════
-class DDNIQSmartGames : ExtractorApi() {
-    override val name = "DDN-Download"
+// ═══════════════════════════════════════════════════════════════════════════════
+// GDMIRROR DOWNLOAD EXTRACTOR
+// Handles: ddn.iqsmartgames.com/file/{slug} and /files/{encrypted}
+// ═══════════════════════════════════════════════════════════════════════════════
+class GDMirrorDownload : ExtractorApi() {
+    override val name = "GDMirror"
     override val mainUrl = "https://ddn.iqsmartgames.com"
     override val requiresReferer = true
 
@@ -387,52 +288,52 @@ class DDNIQSmartGames : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("DDNIQSmartGames", "Fetching: $url")
+            Log.d("GDMirror", "Extracting from: $url")
             
-            // Follow redirect to get final page (file/{id} -> files/{hash})
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val html = response.text
+            // Follow redirects to get final page
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val doc = response.document
+            val finalUrl = response.url
             
-            Log.d("DDNIQSmartGames", "Final URL: ${response.url}")
+            // Extract filename and direct download URL from JavaScript
+            val scripts = doc.select("script").map { it.html() }
             
-            // Extract file URL from JavaScript - handles escaped URLs like: https:\\/\\/domain.com
-            // Pattern: const fileurl = "https:\/\/..."
-            val fileUrlRegex = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""")
-            val fileNameRegex = Regex("""const\s+filename\s*=\s*["']([^"']+)["']""")
+            var directUrl: String? = null
+            var fileName: String? = null
+            var fileSize: String? = null
             
-            val rawFileUrl = fileUrlRegex.find(html)?.groupValues?.get(1)
-            val fileName = fileNameRegex.find(html)?.groupValues?.get(1) ?: "Unknown"
-            
-            // Clean up escaped URL - convert \/ to / and remove any other escapes
-            val fileUrl = rawFileUrl
-                ?.replace("\\/", "/")
-                ?.replace("\\\\", "")
-                ?.replace("\\", "")
-            
-            Log.d("DDNIQSmartGames", "Raw fileurl: $rawFileUrl")
-            Log.d("DDNIQSmartGames", "Cleaned fileurl: $fileUrl")
-            Log.d("DDNIQSmartGames", "Filename: $fileName")
-            
-            // Get file size from page - look for "2.46 GB" pattern in file-stat div
-            val document = response.document
-            val fileSizeElement = document.select("div.file-stat").find { 
-                it.text().contains("File size", ignoreCase = true) 
+            scripts.forEach { script ->
+                // Extract fileurl
+                val fileurlMatch = Regex("""const\s+fileurl\s*=\s*"([^"]+)"""").find(script)
+                if (fileurlMatch != null) {
+                    directUrl = fileurlMatch.groupValues[1]
+                        .replace("\\/", "/")
+                        .replace("\\\"", "\"")
+                }
+                
+                // Extract filename
+                val filenameMatch = Regex("""const\s+filename\s*=\s*"([^"]+)"""").find(script)
+                if (filenameMatch != null) {
+                    fileName = filenameMatch.groupValues[1]
+                }
             }
-            val fileSize = fileSizeElement?.select("div")?.lastOrNull()?.text()?.trim() ?: ""
             
-            Log.d("DDNIQSmartGames", "File size: $fileSize")
+            // Get file size from page
+            fileSize = doc.select(".file-stat:contains(File size) div:last-child").text().trim()
             
-            if (!fileUrl.isNullOrBlank() && fileUrl.startsWith("http")) {
-                Log.d("DDNIQSmartGames", "Found direct URL: $fileUrl")
+            if (!directUrl.isNullOrEmpty()) {
+                Log.d("GDMirror", "Direct URL: $directUrl")
+                Log.d("GDMirror", "Filename: $fileName")
+                Log.d("GDMirror", "Size: $fileSize")
                 
                 val quality = getIndexQuality(fileName)
-                val adjustedQuality = getAdjustedQuality(quality, fileSize, "Direct", fileName)
+                val adjustedQuality = getAdjustedQuality(quality, fileSize ?: "", "Workers", fileName ?: "")
                 
                 callback.invoke(
                     newExtractorLink(
-                        "DDN[Direct]",
-                        "DDN[Direct] $fileName [$fileSize]",
-                        fileUrl
+                        "GDMirror[Direct]",
+                        "GDMirror[Direct] ${fileName ?: ""}[${fileSize ?: ""}]",
+                        directUrl!!,
                     ) {
                         this.quality = adjustedQuality
                         this.headers = VIDEO_HEADERS
@@ -440,39 +341,54 @@ class DDNIQSmartGames : ExtractorApi() {
                 )
             }
             
-            // Also extract mirror links from mirror-item divs
-            val mirrorItems = document.select("div.mirror-item")
-            Log.d("DDNIQSmartGames", "Found ${mirrorItems.size} mirror items")
-            
-            mirrorItems.amap { item ->
-                try {
-                    val mirrorName = item.selectFirst(".mirror-name strong")?.text()?.trim() ?: "Mirror"
-                    val mirrorLink = item.selectFirst("a.btn, a.mirror-btn")?.attr("href") ?: return@amap
+            // Also extract mirror links
+            val mirrorItems = doc.select(".mirror-item")
+            mirrorItems.amap { mirror ->
+                val mirrorName = mirror.select(".mirror-name strong").text().trim()
+                val visitLink = mirror.select("a[href*=vpage]").attr("href")
+                
+                if (visitLink.isNotEmpty()) {
+                    Log.d("GDMirror", "Mirror: $mirrorName -> $visitLink")
                     
-                    if (mirrorLink.isBlank() || !mirrorLink.startsWith("http")) return@amap
-                    
-                    Log.d("DDNIQSmartGames", "Found mirror: $mirrorName -> $mirrorLink")
-                    
-                    // Resolve mirror link
-                    resolveMirrorLink(mirrorLink, mirrorName, fileName, fileSize, callback)
-                } catch (e: Exception) {
-                    Log.e("DDNIQSmartGames", "Error processing mirror: ${e.message}")
+                    try {
+                        when {
+                            mirrorName.contains("Buzzheavier", true) -> {
+                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
+                            }
+                            mirrorName.contains("Fpress", true) -> {
+                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
+                            }
+                            mirrorName.contains("Rpmshare", true) -> {
+                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
+                            }
+                            mirrorName.contains("Upnshare", true) -> {
+                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
+                            }
+                            mirrorName.contains("Streamp2p", true) -> {
+                                extractMirrorLink(visitLink, mirrorName, fileName, fileSize, callback)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("GDMirror", "Mirror extraction failed for $mirrorName: ${e.message}")
+                    }
                 }
             }
             
-            // Extract stream button form
-            val streamForm = document.selectFirst("form[action*='pro.iqsmartgames.com/stream']")
-            if (streamForm != null) {
+            // Extract stream link
+            val streamForm = doc.select("form[action*='stream']")
+            if (streamForm.isNotEmpty()) {
                 val streamUrl = streamForm.attr("action")
-                if (streamUrl.isNotBlank()) {
+                if (streamUrl.isNotEmpty()) {
+                    Log.d("GDMirror", "Stream URL: $streamUrl")
+                    
                     val quality = getIndexQuality(fileName)
-                    val adjustedQuality = getAdjustedQuality(quality, fileSize, "Stream", fileName)
+                    val adjustedQuality = getAdjustedQuality(quality, fileSize ?: "", "Stream", fileName ?: "")
                     
                     callback.invoke(
                         newExtractorLink(
-                            "DDN[Stream]",
-                            "DDN[Stream] $fileName [$fileSize]",
-                            streamUrl
+                            "GDMirror[Stream]",
+                            "GDMirror[Stream] ${fileName ?: ""}[${fileSize ?: ""}]",
+                            streamUrl,
                         ) {
                             this.quality = adjustedQuality
                             this.headers = VIDEO_HEADERS
@@ -480,48 +396,96 @@ class DDNIQSmartGames : ExtractorApi() {
                     )
                 }
             }
+            
         } catch (e: Exception) {
-            Log.e("DDNIQSmartGames", "Error: ${e.message}")
+            Log.e("GDMirror", "Extraction failed: ${e.message}")
         }
     }
     
-    private suspend fun resolveMirrorLink(
-        url: String,
+    private suspend fun extractMirrorLink(
+        visitLink: String,
         mirrorName: String,
-        fileName: String,
-        fileSize: String,
+        fileName: String?,
+        fileSize: String?,
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            // Follow redirect to get final URL
-            val response = app.get(url, allowRedirects = true)
+            // Follow vpage redirect to get actual mirror link
+            val response = app.get(visitLink, allowRedirects = true)
             val finalUrl = response.url
             
+            if (finalUrl != visitLink && (finalUrl.contains(".mkv") || finalUrl.contains(".mp4") || 
+                finalUrl.contains("download") || finalUrl.contains("file"))) {
+                
+                val quality = getIndexQuality(fileName)
+                val adjustedQuality = getAdjustedQuality(quality, fileSize ?: "", mirrorName, fileName ?: "")
+                
+                callback.invoke(
+                    newExtractorLink(
+                        "GDMirror[$mirrorName]",
+                        "GDMirror[$mirrorName] ${fileName ?: ""}[${fileSize ?: ""}]",
+                        finalUrl,
+                    ) {
+                        this.quality = adjustedQuality
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("GDMirror", "Mirror link extraction failed: ${e.message}")
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORKERS DOWNLOAD EXTRACTOR
+// Handles: *.workers.dev direct download links
+// ═══════════════════════════════════════════════════════════════════════════════
+class WorkersDownload : ExtractorApi() {
+    override val name = "Workers"
+    override val mainUrl = "https://jakcminasi.workers.dev"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d("Workers", "Direct download URL: $url")
+            
+            // Extract filename from URL parameter
+            val fileName = Regex("""name=([^&]+)""").find(url)?.groupValues?.get(1)
+                ?.replace("%20", " ")
+                ?.replace("+", " ")
+            
             val quality = getIndexQuality(fileName)
-            val adjustedQuality = getAdjustedQuality(quality, fileSize, mirrorName, fileName)
+            val adjustedQuality = getAdjustedQuality(quality, "", "Workers", fileName ?: "")
             
             callback.invoke(
                 newExtractorLink(
-                    "DDN[$mirrorName]",
-                    "DDN[$mirrorName] $fileName [$fileSize]",
-                    finalUrl
+                    "Workers[Direct]",
+                    "Workers[Direct] ${fileName ?: "Video"}",
+                    url,
                 ) {
                     this.quality = adjustedQuality
                     this.headers = VIDEO_HEADERS
                 }
             )
+            
         } catch (e: Exception) {
-            Log.e("DDNIQSmartGames", "Error resolving mirror: ${e.message}")
+            Log.e("Workers", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// PRO IQSMARTGAMES EXTRACTOR
-// Handles: pro.iqsmartgames.com/stream/{id}
-// ═══════════════════════════════════════════════════════════════════
-class ProIQSmartGames : ExtractorApi() {
-    override val name = "Pro-Stream"
+// ═══════════════════════════════════════════════════════════════════════════════
+// IQSMART STREAM EXTRACTOR
+// Handles: pro.iqsmartgames.com/stream/{slug}
+// ═══════════════════════════════════════════════════════════════════════════════
+class IQSmartStream : ExtractorApi() {
+    override val name = "IQSmart"
     override val mainUrl = "https://pro.iqsmartgames.com"
     override val requiresReferer = true
 
@@ -532,40 +496,38 @@ class ProIQSmartGames : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("ProIQSmartGames", "Fetching: $url")
+            Log.d("IQSmart", "Stream URL: $url")
             
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val document = response.document
-            val html = document.html()
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val finalUrl = response.url
             
-            // Extract video source from script
-            val sourceRegex = Regex("""source["\s:]+["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val source = sourceRegex.find(html)?.groupValues?.get(1)
-            
-            if (!source.isNullOrBlank()) {
+            if (finalUrl != url) {
+                Log.d("IQSmart", "Redirected to: $finalUrl")
+                
                 callback.invoke(
                     newExtractorLink(
-                        name,
-                        "$name Stream",
-                        source
+                        "IQSmart[Stream]",
+                        "IQSmart[Stream]",
+                        finalUrl,
                     ) {
-                        this.quality = Qualities.Unknown.value
+                        this.quality = Qualities.P1080.value
                         this.headers = VIDEO_HEADERS
                     }
                 )
             }
+            
         } catch (e: Exception) {
-            Log.e("ProIQSmartGames", "Error: ${e.message}")
+            Log.e("IQSmart", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MULTIMOVIES SHG EXTRACTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+// STREAMHG EXTRACTOR
 // Handles: multimoviesshg.com/e/{id}
-// ═══════════════════════════════════════════════════════════════════
-class MultiMoviesSHG : ExtractorApi() {
-    override val name = "MultiMoviesSHG"
+// ═══════════════════════════════════════════════════════════════════════════════
+class StreamHGExtractor : ExtractorApi() {
+    override val name = "StreamHG"
     override val mainUrl = "https://multimoviesshg.com"
     override val requiresReferer = true
 
@@ -576,46 +538,64 @@ class MultiMoviesSHG : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("MultiMoviesSHG", "Fetching: $url")
+            Log.d("StreamHG", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer)
-            val html = response.text
+            val response = app.get(url, referer = referer ?: mainUrl)
+            val doc = response.document
             
-            // Extract source URL from script
-            val sourceRegex = Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']""")
-            val source = sourceRegex.find(html)?.groupValues?.get(1)
+            // Look for video source in page
+            val scripts = doc.select("script").map { it.html() }
             
-            // Try alternate pattern
-            val altSourceRegex = Regex("""src\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val altSource = altSourceRegex.find(html)?.groupValues?.get(1)
+            scripts.forEach { script ->
+                // Extract file/source URL
+                val fileMatch = Regex("""(?:file|source|src)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m4v)[^"']*)["']""").find(script)
+                if (fileMatch != null) {
+                    val videoUrl = fileMatch.groupValues[1]
+                    Log.d("StreamHG", "Found video URL: $videoUrl")
+                    
+                    callback.invoke(
+                        newExtractorLink(
+                            "StreamHG",
+                            "StreamHG",
+                            videoUrl,
+                        ) {
+                            this.quality = Qualities.P1080.value
+                            this.referer = url
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
+            }
             
-            val finalSource = source ?: altSource
-            
-            if (!finalSource.isNullOrBlank()) {
+            // Fallback: look for direct video tag
+            val videoSrc = doc.select("video source[src]").attr("src")
+            if (videoSrc.isNotEmpty()) {
                 callback.invoke(
                     newExtractorLink(
-                        name,
-                        "$name Stream",
-                        finalSource
+                        "StreamHG",
+                        "StreamHG",
+                        videoSrc,
                     ) {
-                        this.quality = Qualities.Unknown.value
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+                        this.quality = Qualities.P1080.value
+                        this.referer = url
+                        this.headers = VIDEO_HEADERS
                     }
                 )
             }
+            
         } catch (e: Exception) {
-            Log.e("MultiMoviesSHG", "Error: ${e.message}")
+            Log.e("StreamHG", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// RPM HUB EXTRACTOR
-// Handles: *.rpmhub.site
-// ═══════════════════════════════════════════════════════════════════
-class RpmHub : ExtractorApi() {
-    override val name = "RpmHub"
-    override val mainUrl = "https://rpmhub.site"
+// ═══════════════════════════════════════════════════════════════════════════════
+// RPMSHARE EXTRACTOR
+// Handles: multimovies.rpmhub.site/#{hash}
+// ═══════════════════════════════════════════════════════════════════════════════
+class RpmShareExtractor : ExtractorApi() {
+    override val name = "RpmShare"
+    override val mainUrl = "https://multimovies.rpmhub.site"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -625,39 +605,49 @@ class RpmHub : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("RpmHub", "Fetching: $url")
+            Log.d("RpmShare", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val html = response.text
+            val hash = url.substringAfter("#")
+            val response = app.get(url, referer = referer ?: mainUrl)
+            val doc = response.document
             
-            // Extract video source
-            val sourceRegex = Regex("""(?:file|src|source)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val source = sourceRegex.find(html)?.groupValues?.get(1)
+            // Look for video source
+            val scripts = doc.select("script").map { it.html() }
             
-            if (!source.isNullOrBlank()) {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name Stream",
-                        source
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+            scripts.forEach { script ->
+                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
+                if (sourceMatch != null) {
+                    val videoUrl = sourceMatch.groupValues[1]
+                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
+                        Log.d("RpmShare", "Found video URL: $videoUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "RpmShare",
+                                "RpmShare",
+                                videoUrl,
+                            ) {
+                                this.quality = Qualities.P1080.value
+                                this.referer = url
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
                     }
-                )
+                }
             }
+            
         } catch (e: Exception) {
-            Log.e("RpmHub", "Error: ${e.message}")
+            Log.e("RpmShare", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// UNS BIO EXTRACTOR
-// Handles: server1.uns.bio
-// ═══════════════════════════════════════════════════════════════════
-class UnsBio : ExtractorApi() {
-    override val name = "UnsBio"
+// ═══════════════════════════════════════════════════════════════════════════════
+// UPNSHARE EXTRACTOR
+// Handles: server1.uns.bio/#{hash}
+// ═══════════════════════════════════════════════════════════════════════════════
+class UpnShareExtractor : ExtractorApi() {
+    override val name = "UpnShare"
     override val mainUrl = "https://server1.uns.bio"
     override val requiresReferer = true
 
@@ -668,40 +658,48 @@ class UnsBio : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("UnsBio", "Fetching: $url")
+            Log.d("UpnShare", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val html = response.text
+            val response = app.get(url, referer = referer ?: mainUrl)
+            val doc = response.document
             
-            // Extract video source
-            val sourceRegex = Regex("""(?:file|src|source)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val source = sourceRegex.find(html)?.groupValues?.get(1)
+            val scripts = doc.select("script").map { it.html() }
             
-            if (!source.isNullOrBlank()) {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name Stream",
-                        source
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+            scripts.forEach { script ->
+                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
+                if (sourceMatch != null) {
+                    val videoUrl = sourceMatch.groupValues[1]
+                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
+                        Log.d("UpnShare", "Found video URL: $videoUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "UpnShare",
+                                "UpnShare",
+                                videoUrl,
+                            ) {
+                                this.quality = Qualities.P1080.value
+                                this.referer = url
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
                     }
-                )
+                }
             }
+            
         } catch (e: Exception) {
-            Log.e("UnsBio", "Error: ${e.message}")
+            Log.e("UpnShare", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// P2P PLAY EXTRACTOR
-// Handles: *.p2pplay.pro
-// ═══════════════════════════════════════════════════════════════════
-class P2pPlay : ExtractorApi() {
-    override val name = "P2pPlay"
-    override val mainUrl = "https://p2pplay.pro"
+// ═══════════════════════════════════════════════════════════════════════════════
+// STREAMP2P EXTRACTOR
+// Handles: multimovies.p2pplay.pro/#{hash}
+// ═══════════════════════════════════════════════════════════════════════════════
+class StreamP2PExtractor : ExtractorApi() {
+    override val name = "StreamP2P"
+    override val mainUrl = "https://multimovies.p2pplay.pro"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -711,40 +709,47 @@ class P2pPlay : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("P2pPlay", "Fetching: $url")
+            Log.d("StreamP2P", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val html = response.text
+            val response = app.get(url, referer = referer ?: mainUrl)
+            val doc = response.document
             
-            // Extract video source
-            val sourceRegex = Regex("""(?:file|src|source)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            val source = sourceRegex.find(html)?.groupValues?.get(1)
+            val scripts = doc.select("script").map { it.html() }
             
-            if (!source.isNullOrBlank()) {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "$name Stream",
-                        source
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+            scripts.forEach { script ->
+                val sourceMatch = Regex("""(?:source|file|src)\s*[:=]\s*["']([^"']+)["']""").find(script)
+                if (sourceMatch != null) {
+                    val videoUrl = sourceMatch.groupValues[1]
+                    if (videoUrl.contains(".mp4") || videoUrl.contains(".mkv") || videoUrl.contains("download")) {
+                        Log.d("StreamP2P", "Found video URL: $videoUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                "StreamP2P",
+                                "StreamP2P",
+                                videoUrl,
+                            ) {
+                                this.quality = Qualities.P1080.value
+                                this.referer = url
+                                this.headers = VIDEO_HEADERS
+                            }
+                        )
                     }
-                )
+                }
             }
+            
         } catch (e: Exception) {
-            Log.e("P2pPlay", "Error: ${e.message}")
+            Log.e("StreamP2P", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// GD MIRROR DOWNLOAD EXTRACTOR
-// Main fallback extractor for gdmirrorbot links
-// ═══════════════════════════════════════════════════════════════════
-class GDMirrorDownload : ExtractorApi() {
-    override val name = "GDMirror"
-    override val mainUrl = "https://gdmirrorbot.nl"
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUZZHEAVIER EXTRACTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+class BuzzheavierExtractor : ExtractorApi() {
+    override val name = "Buzzheavier"
+    override val mainUrl = "https://buzzheavier.com"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -754,55 +759,42 @@ class GDMirrorDownload : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            Log.d("GDMirrorDownload", "Fetching: $url")
+            Log.d("Buzzheavier", "Extracting from: $url")
             
-            // First, try to get embed URL if it's a stream.techinmind.space URL
-            if (url.contains("stream.techinmind.space")) {
-                val techExtractor = TechInMindStream()
-                techExtractor.getUrl(url, referer, subtitleCallback, callback)
-                return
-            }
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val doc = response.document
             
-            // Otherwise follow redirects
-            val response = app.get(url, referer = referer, allowRedirects = true)
-            val finalUrl = response.url
+            // Look for download link
+            val downloadLink = doc.select("a[href*=download], a:contains(Download)").attr("href")
             
-            // Detect which extractor to use based on final URL
-            val extractor = ExtractorFactory.getExtractor(finalUrl)
-            if (extractor != null && extractor.name != this.name) {
-                extractor.getUrl(finalUrl, url, subtitleCallback, callback)
-            } else {
-                // Direct link fallback
-                val html = response.text
-                val sourceRegex = Regex("""(?:file|src|source|url)\s*[:=]\s*["']([^"']+\.(?:mp4|mkv|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
-                val source = sourceRegex.find(html)?.groupValues?.get(1)
+            if (downloadLink.isNotEmpty()) {
+                val finalUrl = if (downloadLink.startsWith("http")) downloadLink else "$mainUrl$downloadLink"
                 
-                if (!source.isNullOrBlank()) {
-                    callback.invoke(
-                        newExtractorLink(
-                            name,
-                            "$name Stream",
-                            source
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.headers = VIDEO_HEADERS
-                        }
-                    )
-                }
+                callback.invoke(
+                    newExtractorLink(
+                        "Buzzheavier",
+                        "Buzzheavier",
+                        finalUrl,
+                    ) {
+                        this.quality = Qualities.P1080.value
+                        this.headers = VIDEO_HEADERS
+                    }
+                )
             }
+            
         } catch (e: Exception) {
-            Log.e("GDMirrorDownload", "Error: ${e.message}")
+            Log.e("Buzzheavier", "Extraction failed: ${e.message}")
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// HUB CLOUD EXTRACTOR
-// ═══════════════════════════════════════════════════════════════════
-open class HubCloud : ExtractorApi() {
-    override val name = "Hub-Cloud"
-    override val mainUrl = "https://hubcloud.day"
-    override val requiresReferer = false
+// ═══════════════════════════════════════════════════════════════════════════════
+// FPRESS EXTRACTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+class FpressExtractor : ExtractorApi() {
+    override val name = "Fpress"
+    override val mainUrl = "https://fpress.to"
+    override val requiresReferer = true
 
     override suspend fun getUrl(
         url: String,
@@ -811,160 +803,30 @@ open class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val doc = app.get(url).document
-            var link = if (url.contains("drive")) {
-                val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
-                Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-            } else {
-                doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
-            }
-
-            if (link.isBlank()) return
+            Log.d("Fpress", "Extracting from: $url")
             
-            if (!link.startsWith("https://")) {
-                link = getBaseUrl(url) + link
-            }
-
-            val document = app.get(link).document
-            val div = document.selectFirst("div.card-body")
-            val header = document.select("div.card-header").text()
-            val size = document.select("i#size").text()
-            val baseQuality = getIndexQuality(header)
-
-            div?.select("h2 a.btn")?.amap {
-                val btnLink = it.attr("href")
-                val text = it.text()
-                val serverQuality = getAdjustedQuality(baseQuality, size, text, header)
-
-                when {
-                    text.contains("Download File") -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name $header[$size]",
-                                btnLink,
-                            ) {
-                                this.quality = serverQuality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
-                    btnLink.contains("pixeldra") -> {
-                        val pixelBaseUrl = getBaseUrl(btnLink)
-                        val finalURL = if (btnLink.contains("download", true)) btnLink
-                        else "$pixelBaseUrl/api/file/${btnLink.substringAfterLast("/")}?download"
-
-                        callback.invoke(
-                            newExtractorLink(
-                                "Pixeldrain",
-                                "Pixeldrain $header[$size]",
-                                finalURL,
-                            ) {
-                                this.quality = serverQuality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
-                    !btnLink.contains(".zip") && (btnLink.contains(".mkv") || btnLink.contains(".mp4")) -> {
-                        callback.invoke(
-                            newExtractorLink(
-                                name,
-                                "$name $header[$size]",
-                                btnLink,
-                            ) {
-                                this.quality = serverQuality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("HubCloud", "Error: ${e.message}")
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// GD FLIX EXTRACTOR
-// ═══════════════════════════════════════════════════════════════════
-open class GDFlix : ExtractorApi() {
-    override val name = "GDFlix"
-    override val mainUrl = "https://gdflix.dad"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val document = app.get(url).document
-            val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
-                .substringAfter("Name : ")
-            val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
-                .substringAfter("Size : ")
-            val baseQuality = getIndexQuality(fileName)
-
-            val allAnchors = document.select("div.text-center a")
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val doc = response.document
             
-            for (anchor in allAnchors) {
-                val text = anchor.select("a").text()
-                val link = anchor.attr("href")
-                val serverQuality = getAdjustedQuality(baseQuality, fileSize, text, fileName)
+            val downloadLink = doc.select("a[href*=download], a:contains(Download)").attr("href")
+            
+            if (downloadLink.isNotEmpty()) {
+                val finalUrl = if (downloadLink.startsWith("http")) downloadLink else "$mainUrl$downloadLink"
                 
-                // Skip ZIP servers
-                if (text.contains("FAST CLOUD", true) || 
-                    text.contains("ZIPDISK", true) ||
-                    text.contains("ZIP", true) ||
-                    link.contains(".zip", true)) {
-                    continue
-                }
-                
-                try {
-                    when {
-                        text.contains("Instant DL") -> {
-                            val instantDownloadLink = app.get(link, allowRedirects = false)
-                                .headers["location"]?.substringAfter("url=").orEmpty()
-                            if (instantDownloadLink.isNotEmpty()) {
-                                callback.invoke(
-                                    newExtractorLink("GDFlix[Instant]", "GDFlix[Instant] $fileName[$fileSize]", instantDownloadLink) {
-                                        this.quality = serverQuality
-                                        this.headers = VIDEO_HEADERS
-                                    }
-                                )
-                                return
-                            }
-                        }
-                        text.contains("DIRECT DL") || text.contains("DIRECT SERVER") -> {
-                            callback.invoke(
-                                newExtractorLink("GDFlix[Direct]", "GDFlix[Direct] $fileName[$fileSize]", link) {
-                                    this.quality = serverQuality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
-                            return
-                        }
-                        link.contains("pixeldra") -> {
-                            val baseUrlLink = getBaseUrl(link)
-                            val finalURL = if (link.contains("download", true)) link
-                            else "$baseUrlLink/api/file/${link.substringAfterLast("/")}?download"
-                            callback.invoke(
-                                newExtractorLink("Pixeldrain", "GDFlix[Pixeldrain] $fileName[$fileSize]", finalURL) {
-                                    this.quality = serverQuality
-                                    this.headers = VIDEO_HEADERS
-                                }
-                            )
-                            return
-                        }
+                callback.invoke(
+                    newExtractorLink(
+                        "Fpress",
+                        "Fpress",
+                        finalUrl,
+                    ) {
+                        this.quality = Qualities.P1080.value
+                        this.headers = VIDEO_HEADERS
                     }
-                } catch (e: Exception) {
-                    Log.d("GDFlix", "Error processing link: ${e.message}")
-                }
+                )
             }
+            
         } catch (e: Exception) {
-            Log.e("GDFlix", "Error: ${e.message}")
+            Log.e("Fpress", "Extraction failed: ${e.message}")
         }
     }
 }

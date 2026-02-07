@@ -274,18 +274,52 @@ class MultiMoviesProvider : MainAPI() {
     ): Boolean {
         Log.d("MultiMovies", "loadLinks called for: $data")
 
-        // Check if data is episode URL or movie URL
-        val pageUrl = if (data.startsWith("http")) data else {
-            // Try to parse as JSON LinkData
+        // Check if data is episode URL, movie URL, or JSON LinkData
+        var directPostData: LinkData? = null
+        
+        val pageUrl: String = if (data.startsWith("http")) {
+            data
+        } else {
+            // Try to parse as JSON LinkData (for TV Series episodes with player data)
             try {
-                val linkData = com.lagradost.cloudstream3.utils.AppUtils.parseJson<LinkData>(data)
-                linkData.url
+                directPostData = com.lagradost.cloudstream3.utils.AppUtils.parseJson<LinkData>(data)
+                directPostData.url
             } catch (e: Exception) {
                 data
             }
         }
 
         val document = app.get(pageUrl, interceptor = cfKiller).document
+        
+        // If we have direct post data (from episode), use it directly
+        if (directPostData != null && directPostData.post.isNotEmpty()) {
+            try {
+                Log.d("MultiMovies", "Using direct post data: post=${directPostData.post}, nume=${directPostData.nume}")
+                
+                val embedResponse = app.post(
+                    url = "$mainUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to directPostData.post,
+                        "nume" to directPostData.nume,
+                        "type" to directPostData.type
+                    ),
+                    referer = pageUrl,
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
+                    interceptor = cfKiller
+                )
+                
+                val embedUrl = extractEmbedUrl(embedResponse.text)
+                if (!embedUrl.isNullOrBlank()) {
+                    processEmbedUrl(embedUrl, pageUrl, subtitleCallback, callback)
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.e("MultiMovies", "Error with direct post data: ${e.message}")
+            }
+        }
+        
+        // Standard player options extraction
         val playerOptions = document.select("ul#playeroptionsul li").filter {
             !it.attr("data-nume").equals("trailer", ignoreCase = true)
         }
@@ -322,35 +356,45 @@ class MultiMoviesProvider : MainAPI() {
                     return@amap
                 }
 
-                Log.d("MultiMovies", "Embed URL: $embedUrl")
-
-                // Skip YouTube/trailer links
-                if (embedUrl.contains("youtube", ignoreCase = true) ||
-                    embedUrl.contains("youtu.be", ignoreCase = true)) {
-                    Log.d("MultiMovies", "Skipping YouTube link")
-                    return@amap
-                }
-
-                // Use ExtractorFactory to get appropriate extractor
-                val extractor = ExtractorFactory.getExtractor(embedUrl)
-                if (extractor != null) {
-                    Log.d("MultiMovies", "Using extractor: ${extractor.name}")
-                    extractor.getUrl(embedUrl, pageUrl, subtitleCallback, callback)
-                } else {
-                    Log.d("MultiMovies", "No specific extractor found, using TechInMind as default")
-                    // Default to TechInMind extractor for stream.techinmind.space URLs
-                    if (embedUrl.contains("techinmind.space")) {
-                        TechInMindStream().getUrl(embedUrl, pageUrl, subtitleCallback, callback)
-                    } else {
-                        GDMirrorDownload().getUrl(embedUrl, pageUrl, subtitleCallback, callback)
-                    }
-                }
+                processEmbedUrl(embedUrl, pageUrl, subtitleCallback, callback)
+                
             } catch (e: Exception) {
                 Log.e("MultiMovies", "Error processing player option: ${e.message}")
             }
         }
 
         return true
+    }
+    
+    private suspend fun processEmbedUrl(
+        embedUrl: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        Log.d("MultiMovies", "Embed URL: $embedUrl")
+
+        // Skip YouTube/trailer links
+        if (embedUrl.contains("youtube", ignoreCase = true) ||
+            embedUrl.contains("youtu.be", ignoreCase = true)) {
+            Log.d("MultiMovies", "Skipping YouTube link")
+            return
+        }
+
+        // Use ExtractorFactory to get appropriate extractor
+        val extractor = ExtractorFactory.getExtractor(embedUrl)
+        if (extractor != null) {
+            Log.d("MultiMovies", "Using extractor: ${extractor.name}")
+            extractor.getUrl(embedUrl, referer, subtitleCallback, callback)
+        } else {
+            Log.d("MultiMovies", "No specific extractor found, using TechInMind as default")
+            // Default to TechInMind extractor for stream.techinmind.space URLs
+            if (embedUrl.contains("techinmind.space")) {
+                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
+            } else {
+                GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
+            }
+        }
     }
 
     private fun extractEmbedUrl(responseText: String): String? {
