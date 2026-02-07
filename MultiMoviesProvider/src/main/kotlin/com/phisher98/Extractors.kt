@@ -4,6 +4,7 @@ import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
@@ -15,6 +16,8 @@ import java.net.URI
 // Flow: stream.techinmind.space → ssn.techinmind.space → ddn.iqsmartgames.com
 // Working Mirrors: Swish, Rpmshare, Streamp2p, Upnshare, Flion
 // ═══════════════════════════════════════════════════════════════════════════════
+
+private val cfKiller by lazy { CloudflareKiller() }
 
 fun getBaseUrl(url: String): String {
     return URI(url).let { "${it.scheme}://${it.host}" }
@@ -43,7 +46,12 @@ class TechInMindStream : ExtractorApi() {
         try {
             Log.d("TechInMind", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer ?: mainUrl)
+            val response = app.get(
+                url, 
+                referer = referer ?: mainUrl,
+                interceptor = cfKiller,
+                timeout = 60
+            )
             val html = response.text
             
             // Extract ssn.techinmind.space URL from data-link or iframe
@@ -84,7 +92,13 @@ class TechInMindSSN : ExtractorApi() {
             Log.d("TechInMindSSN", "Extracting from: $url")
             
             // Follow redirect from /evid/ to /svid/
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(
+                url, 
+                referer = referer ?: mainUrl, 
+                allowRedirects = true,
+                interceptor = cfKiller,
+                timeout = 60
+            )
             val doc = response.document
             val finalUrl = response.url
             
@@ -120,7 +134,13 @@ class GDMirrorDownload : ExtractorApi() {
         try {
             Log.d("GDMirror", "Extracting from: $url")
             
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(
+                url, 
+                referer = referer ?: mainUrl, 
+                allowRedirects = true,
+                interceptor = cfKiller,
+                timeout = 60
+            )
             val html = response.text
             val finalUrl = response.url
             
@@ -182,7 +202,13 @@ class GDMirrorDownload : ExtractorApi() {
         referer: String,
         callback: (ExtractorLink) -> Unit
     ) {
-        val response = app.get(vpageUrl, referer = referer, allowRedirects = true)
+        val response = app.get(
+            vpageUrl, 
+            referer = referer, 
+            allowRedirects = true,
+            interceptor = cfKiller,
+            timeout = 60
+        )
         val finalUrl = response.url
         val doc = response.document
         
@@ -231,7 +257,7 @@ class SwishExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Swish", "Extracting: $url")
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true, timeout = 60)
             val doc = response.document
             
             val downloadLink = doc.select("a[href*=download], a.download-btn, a:contains(Download)").attr("href")
@@ -265,7 +291,7 @@ class RpmshareExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Rpmshare", "Extracting: $url")
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true, timeout = 60)
             val doc = response.document
             
             val downloadLink = doc.select("a[href*=download], a.btn-download, a:contains(Download)").attr("href")
@@ -299,7 +325,7 @@ class Streamp2pExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Streamp2p", "Extracting: $url")
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true, timeout = 60)
             val doc = response.document
             
             val downloadLink = doc.select("a[href*=download], a.download, a:contains(Download)").attr("href")
@@ -333,7 +359,7 @@ class UpnshareExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Upnshare", "Extracting: $url")
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true, timeout = 60)
             val doc = response.document
             
             val downloadLink = doc.select("a[href*=download], a.download-btn, a:contains(Download)").attr("href")
@@ -367,7 +393,7 @@ class FlionExtractor : ExtractorApi() {
     ) {
         try {
             Log.d("Flion", "Extracting: $url")
-            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true)
+            val response = app.get(url, referer = referer ?: mainUrl, allowRedirects = true, timeout = 60)
             val doc = response.document
             
             val downloadLink = doc.select("a[href*=download], a.download-btn, a:contains(Download)").attr("href")
