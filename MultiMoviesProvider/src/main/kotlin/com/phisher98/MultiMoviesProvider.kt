@@ -381,19 +381,14 @@ class MultiMoviesProvider : MainAPI() {
             return
         }
 
-        // Use ExtractorFactory to get appropriate extractor
-        val extractor = ExtractorFactory.getExtractor(embedUrl)
-        if (extractor != null) {
-            Log.d("MultiMovies", "Using extractor: ${extractor.name}")
-            extractor.getUrl(embedUrl, referer, subtitleCallback, callback)
+        // Use GDMirrorDownload for ddn.iqsmartgames.com URLs
+        if (embedUrl.contains("ddn.iqsmartgames.com")) {
+            Log.d("MultiMovies", "Using GDMirrorDownload for: $embedUrl")
+            GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
         } else {
-            Log.d("MultiMovies", "No specific extractor found, using TechInMind as default")
-            // Default to TechInMind extractor for stream.techinmind.space URLs
-            if (embedUrl.contains("techinmind.space")) {
-                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
-            } else {
-                GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
-            }
+            // For other URLs, try GDMirrorDownload as it handles all mirrors
+            Log.d("MultiMovies", "Using default GDMirrorDownload for: $embedUrl")
+            GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
         }
     }
 
