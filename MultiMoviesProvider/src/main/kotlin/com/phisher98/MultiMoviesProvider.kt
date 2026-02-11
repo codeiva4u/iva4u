@@ -1,5 +1,6 @@
 package com.phisher98
 
+import android.util.Base64
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.Actor
@@ -26,8 +27,13 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -272,7 +278,160 @@ class MultiMoviesProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-       
-	   }
+        try {
+            // Determine URL - data can be URL or JSON (LinkData)
+            val pageUrl = if (data.startsWith("{")) {
+                try {
+                    val linkData = parseJson<LinkData>(data)
+                    linkData.url
+                } catch (e: Exception) {
+                    data
+                }
+            } else {
+                data
+            }
+
+            Log.d("MultiMovies", "loadLinks for: $pageUrl")
+
+            // Step 1: Get page and extract iframe src
+            val doc = app.get(pageUrl, interceptor = cfKiller).document
+            val iframeSrc = doc.selectFirst("#dooplay_player_response iframe")?.attr("src")
+                ?: doc.selectFirst("iframe.metaframe")?.attr("src")
+                ?: doc.selectFirst(".pframe iframe")?.attr("src")
+
+            if (iframeSrc.isNullOrBlank()) {
+                Log.e("MultiMovies", "No iframe found")
+                return false
+            }
+
+            Log.d("MultiMovies", "Iframe src: $iframeSrc")
+
+            // Step 2: Fetch embed page from stream.techinmind.space
+            val embedHtml = app.get(iframeSrc, referer = pageUrl).text
+
+            // Step 3: Extract JS variables for API call
+            val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
+            val idType = Regex("""let\s+idType\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
+            val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
+
+            if (finalId == null || idType == null || myKey == null) {
+                Log.e("MultiMovies", "Could not extract JS variables")
+                return false
+            }
+
+            Log.d("MultiMovies", "FinalID=$finalId, idType=$idType")
+
+            // Step 4: Determine API URL from embed page
+            val apiUrlPattern = Regex("""let\s+apiUrl\s*=\s*`([^`]+)`""").find(embedHtml)?.groupValues?.get(1)
+            val apiUrl = apiUrlPattern
+                ?.replace("\${idType}", idType)
+                ?.replace("\${FinalID}", finalId)
+                ?.replace("\${myKey}", myKey)
+
+            // Extract base URL for evid links
+            val baseEvidUrl = Regex("""let\s+baseUrl\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
+                ?: "https://ssn.techinmind.space/evid/"
+
+            // Step 5: Call API to get quality links
+            data class QualityItem(val fileslug: String, val filename: String, val priority: Int)
+            val qualityItems = mutableListOf<QualityItem>()
+
+            if (!apiUrl.isNullOrBlank()) {
+                try {
+                    val apiResponse = app.get(apiUrl, referer = iframeSrc).text
+                    val json = JSONObject(apiResponse)
+
+                    if (json.optBoolean("success", false)) {
+                        val dataArray = json.getJSONArray("data")
+                        for (i in 0 until dataArray.length()) {
+                            val item = dataArray.getJSONObject(i)
+                            val fileslug = item.optString("fileslug", "")
+                            val filename = item.optString("filename", "")
+                            if (fileslug.isNotEmpty()) {
+                                qualityItems.add(
+                                    QualityItem(fileslug, filename, getQualityPriority(filename))
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MultiMovies", "API call failed: ${e.message}")
+                }
+            }
+
+            // Fallback: try to extract from pre-rendered HTML quality links
+            if (qualityItems.isEmpty()) {
+                val qualityLinks = Regex("""data-link=["']([^"']+)["'][^>]*>([^<]+)""").findAll(embedHtml)
+                for (match in qualityLinks) {
+                    val evidUrl = match.groupValues[1]
+                    val filename = match.groupValues[2].trim()
+                    val slug = evidUrl.substringAfterLast("/")
+                    if (slug.isNotEmpty()) {
+                        qualityItems.add(
+                            QualityItem(slug, filename, getQualityPriority(filename))
+                        )
+                    }
+                }
+            }
+
+            if (qualityItems.isEmpty()) {
+                Log.e("MultiMovies", "No quality items found")
+                return false
+            }
+
+            // Sort by quality priority (X264 1080p first)
+            qualityItems.sortBy { it.priority }
+            Log.d("MultiMovies", "Found ${qualityItems.size} quality items")
+
+            // Step 6: For each quality, fetch server links via embedhelper API
+            for (qualityItem in qualityItems) {
+                try {
+                    val serverLinks = fetchSvidServerLinks(qualityItem.fileslug)
+                    val qualityValue = getQualityFromName(qualityItem.filename)
+
+                    for ((serverUrl, sourceKey) in serverLinks) {
+                        try {
+                            // Try registered extractors first
+                            val extractorHandled = loadExtractor(
+                                serverUrl, pageUrl, subtitleCallback, callback
+                            )
+
+                            // If no extractor matched, add as direct link
+                            if (!extractorHandled) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        "MultiMovies",
+                                        "MultiMovies ${qualityItem.filename} [$sourceKey]",
+                                        serverUrl,
+                                        ExtractorLinkType.VIDEO
+                                    ) {
+                                        this.referer = pageUrl
+                                        this.quality = qualityValue
+                                    }
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.d("MultiMovies", "Server $sourceKey error: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MultiMovies", "Quality ${qualityItem.filename} error: ${e.message}")
+                }
+            }
+
+            return true
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "loadLinks failed: ${e.message}")
+            return false
+        }
+    }
+
+    private fun Element.getImageAttr(): String? {
+        return when {
+            hasAttr("data-src") -> attr("data-src")
+            hasAttr("data-lazy-src") -> attr("data-lazy-src")
+            hasAttr("srcset") -> attr("srcset").substringBefore(" ")
+            else -> attr("src")
+        }
     }
 }
