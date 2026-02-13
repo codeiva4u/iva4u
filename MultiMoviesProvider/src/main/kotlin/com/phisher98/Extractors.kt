@@ -1,6 +1,6 @@
 package com.phisher98
 
-import android.util.Base64
+import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
@@ -11,7 +11,6 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
-import java.net.URLEncoder
 
 // ====== Helper Functions ======
 
@@ -117,7 +116,7 @@ suspend fun fetchSvidServerLinks(
         if (mresultB64.isNotEmpty() && siteUrlsObj != null) {
             try {
                 val mresultJson = JSONObject(
-                    String(Base64.decode(mresultB64, Base64.DEFAULT))
+                    base64Decode(mresultB64)
                 )
 
                 val keys = mresultJson.keys()
