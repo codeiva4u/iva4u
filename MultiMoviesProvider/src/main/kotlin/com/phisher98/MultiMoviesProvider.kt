@@ -384,8 +384,6 @@ class MultiMoviesProvider : MainAPI() {
             qualityItems.sortWith(compareBy({ it.priority }, { it.sizeMB }))
             Log.d("MultiMovies", "Found ${qualityItems.size} quality items, sorted by priority")
 
-            val allLinks = mutableListOf<ExtractorLink>()
-
             for (qualityItem in qualityItems) {
                 try {
                     val serverLinks = fetchSvidServerLinks(qualityItem.fileslug)
@@ -393,13 +391,13 @@ class MultiMoviesProvider : MainAPI() {
 
                     for ((serverUrl, sourceKey) in serverLinks) {
                         try {
-                            if (!isStreamingUrl(serverUrl)) {
-                                val extractorHandled = loadExtractor(
-                                    serverUrl, pageUrl, subtitleCallback, callback
-                                )
+                            val extractorHandled = loadExtractor(
+                                serverUrl, pageUrl, subtitleCallback, callback
+                            )
 
-                                if (!extractorHandled) {
-                                    allLinks.add(
+                            if (!extractorHandled) {
+                                if (!isStreamingUrl(serverUrl)) {
+                                    callback.invoke(
                                         newExtractorLink(
                                             "MultiMovies",
                                             "MultiMovies ${qualityItem.filename} [$sourceKey]",
@@ -419,36 +417,6 @@ class MultiMoviesProvider : MainAPI() {
                 } catch (e: Exception) {
                     Log.e("MultiMovies", "Quality ${qualityItem.filename} error: ${e.message}")
                 }
-            }
-
-            if (allLinks.isEmpty()) {
-                Log.e("MultiMovies", "No valid download links found")
-                return false
-            }
-
-            val sortedLinks = allLinks.sortedWith(
-                compareByDescending<ExtractorLink> { link ->
-                    when {
-                        link.quality == Qualities.P1080.value -> 1000
-                        link.quality == Qualities.P720.value -> 700
-                        link.quality == Qualities.P480.value -> 500
-                        link.quality == Qualities.P360.value -> 300
-                        else -> 100
-                    }
-                }.thenBy { link ->
-                    val sizeMatch = Regex("""(\d+\.?\d*)\s*(GB|MB)""").find(link.name)
-                    if (sizeMatch != null) {
-                        val size = sizeMatch.groupValues[1].toDoubleOrNull() ?: Double.MAX_VALUE
-                        val unit = sizeMatch.groupValues[2]
-                        if (unit.equals("GB", ignoreCase = true)) size * 1024 else size
-                    } else {
-                        Double.MAX_VALUE
-                    }
-                }
-            )
-
-            for (link in sortedLinks) {
-                callback.invoke(link)
             }
 
             return true
