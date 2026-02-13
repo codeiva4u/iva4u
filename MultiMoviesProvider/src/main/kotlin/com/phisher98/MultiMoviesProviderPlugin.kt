@@ -15,5 +15,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(RpmHub())
         registerExtractorAPI(P2pPlay())
         registerExtractorAPI(SmoothPre())
+        registerExtractorAPI(Techinmind())
     }
 }

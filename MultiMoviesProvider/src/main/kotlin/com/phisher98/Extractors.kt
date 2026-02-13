@@ -812,3 +812,89 @@ class SmoothPre : ExtractorApi() {
         }
     }
 }
+
+/**
+ * Techinmind (ssn.techinmind.space / stream.techinmind.space)
+ * Handles evid and svid pages to extract server download links
+ */
+class Techinmind : ExtractorApi() {
+    override val name = "Techinmind"
+    override val mainUrl = "https://ssn.techinmind.space"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            Log.d(name, "Starting extraction: $url")
+
+            val slug = Regex("""/(evid|svid)/([a-zA-Z0-9]+)""").find(url)?.groupValues?.get(2)
+                ?: url.substringAfterLast("/")
+
+            val pageUrl = if (url.contains("/evid/")) {
+                "$mainUrl/evid/$slug"
+            } else if (url.contains("/svid/")) {
+                "$mainUrl/svid/$slug"
+            } else {
+                url
+            }
+
+            Log.d(name, "Fetching page: $pageUrl")
+            val doc = app.get(pageUrl, referer = referer ?: mainUrl).document
+
+            // Extract data-link attributes from server items
+            val serverItems = doc.select("li.server-item[data-link]")
+            
+            if (serverItems.isNotEmpty()) {
+                for (item in serverItems) {
+                    val serverUrl = item.attr("data-link").trim()
+                    val sourceKey = item.attr("data-source-key")
+                    val serverName = item.selectFirst(".server-name")?.text()?.trim() ?: sourceKey
+
+                    if (serverUrl.isNotBlank() && !isStreamingUrl(serverUrl)) {
+                        Log.d(name, "Found server: $serverName -> $serverUrl")
+                        
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name $serverName",
+                                serverUrl,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = pageUrl
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
+                }
+                return
+            }
+
+            // Fallback: try to find direct download link
+            val downloadLink = doc.selectFirst("a.dlvideoLinks[href], a[href*='/file/']")?.attr("href")
+            if (!downloadLink.isNullOrBlank() && !isStreamingUrl(downloadLink)) {
+                callback.invoke(
+                    newExtractorLink(name, "$name Download", downloadLink, ExtractorLinkType.VIDEO) {
+                        this.referer = pageUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+                return
+            }
+
+            if (!isStreamingUrl(url)) {
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Extraction failed: ${e.message}")
+        }
+    }
+}
