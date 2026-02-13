@@ -365,12 +365,11 @@ class MultiMoviesProvider : MainAPI() {
             if (qualityItems.isEmpty()) {
                 val qualityLinks = Regex("""data-link=["']([^"']+)["'][^>]*>([^<]+)""").findAll(embedHtml)
                 for (match in qualityLinks) {
-                    val evidUrl = match.groupValues[1]
+                    val evidUrl = match.groupValues[1].trim()
                     val filename = match.groupValues[2].trim()
-                    val slug = evidUrl.substringAfterLast("/")
-                    if (slug.isNotEmpty()) {
+                    if (evidUrl.isNotEmpty()) {
                         qualityItems.add(
-                            QualityItem(slug, filename, getQualityPriority(filename))
+                            QualityItem(evidUrl, filename, getQualityPriority(filename))
                         )
                     }
                 }
@@ -386,32 +385,41 @@ class MultiMoviesProvider : MainAPI() {
 
             for (qualityItem in qualityItems) {
                 try {
-                    val serverLinks = fetchSvidServerLinks(qualityItem.fileslug)
                     val qualityValue = getQualityFromName(qualityItem.filename)
-
-                    for ((serverUrl, sourceKey) in serverLinks) {
-                        try {
-                            val extractorHandled = loadExtractor(
-                                serverUrl, pageUrl, subtitleCallback, callback
-                            )
-
-                            if (!extractorHandled) {
-                                if (!isStreamingUrl(serverUrl)) {
-                                    callback.invoke(
-                                        newExtractorLink(
-                                            "MultiMovies",
-                                            "MultiMovies ${qualityItem.filename} [$sourceKey]",
-                                            serverUrl,
-                                            ExtractorLinkType.VIDEO
-                                        ) {
-                                            this.referer = pageUrl
-                                            this.quality = qualityValue
-                                        }
+                    
+                    // First try to call loadExtractor directly with the evid URL
+                    Log.d("MultiMovies", "Trying loadExtractor with: ${qualityItem.fileslug}")
+                    val extractorHandled = loadExtractor(
+                        qualityItem.fileslug, pageUrl, subtitleCallback, callback
+                    )
+                    
+                    if (!extractorHandled) {
+                        // If extractor didn't handle it, try fetchSvidServerLinks as fallback
+                        val slug = qualityItem.fileslug.substringAfterLast("/")
+                        if (slug.isNotEmpty() && qualityItem.fileslug != slug) {
+                            val serverLinks = fetchSvidServerLinks(slug)
+                            for ((serverUrl, sourceKey) in serverLinks) {
+                                try {
+                                    val serverExtractorHandled = loadExtractor(
+                                        serverUrl, pageUrl, subtitleCallback, callback
                                     )
+                                    if (!serverExtractorHandled && !isStreamingUrl(serverUrl)) {
+                                        callback.invoke(
+                                            newExtractorLink(
+                                                "MultiMovies",
+                                                "MultiMovies ${qualityItem.filename} [$sourceKey]",
+                                                serverUrl,
+                                                ExtractorLinkType.VIDEO
+                                            ) {
+                                                this.referer = pageUrl
+                                                this.quality = qualityValue
+                                            }
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.d("MultiMovies", "Server $sourceKey error: ${e.message}")
                                 }
                             }
-                        } catch (e: Exception) {
-                            Log.d("MultiMovies", "Server $sourceKey error: ${e.message}")
                         }
                     }
                 } catch (e: Exception) {
