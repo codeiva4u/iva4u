@@ -38,25 +38,41 @@ import org.jsoup.nodes.Element
 class MultiMoviesProvider : MainAPI() {
     override var mainUrl: String = "https://multimovies.gripe/"
 
-    init {
-        runBlocking {
-            getLatestUrl(mainUrl, "multimovies")?.let {
-                mainUrl = it
-            }
-        }
-    }
-
     companion object {
         private val cfKiller by lazy { CloudflareKiller() }
 
-        suspend fun getLatestUrl(url: String, source: String): String? {
+        private var cachedUrls: JSONObject? = null
+
+        private val multimoviesshgBaseUrl: String by lazy {
+            runBlocking { getLatestUrl("multimoviesshg") } ?: "https://multimoviesshg.com"
+        }
+
+        private val unsBioBaseUrl: String by lazy {
+            runBlocking { getLatestUrl("server1.uns.bio") } ?: "https://server1.uns.bio"
+        }
+
+        suspend fun getLatestUrl(source: String): String? {
             return try {
-                val json = JSONObject(
-                    app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-                )
-                json.optString(source).takeIf { it.isNotEmpty() }
+                if (cachedUrls == null) {
+                    cachedUrls = JSONObject(
+                        app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
+                    )
+                }
+                cachedUrls?.optString(source)?.takeIf { it.isNotEmpty() }
             } catch (_: Exception) {
                 null
+            }
+        }
+
+        fun getMultimoviesshgUrl(): String = multimoviesshgBaseUrl
+
+        fun getUnsBioUrl(): String = unsBioBaseUrl
+    }
+
+    init {
+        runBlocking {
+            getLatestUrl("multimovies")?.let {
+                mainUrl = it
             }
         }
     }
@@ -269,6 +285,15 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
+    /**
+     * loadLinks — simplified flow:
+     * 1. Get iframe URL (direct from page HTML, or via AJAX for LinkData)
+     * 2. Parse embed page for JS variables (FinalID, idType, myKey, season, episode)
+     * 3. Call mymovieapi to get quality items (fileslug, filename, fsize)
+     * 4. Sort by quality priority (X264 1080p > X264 720p > X265 1080p > ...)
+     * 5. For each quality item, fetch SVID server links via fetchSvidServerLinks()
+     * 6. For each server link, delegate to registered extractors via loadExtractor()
+     */
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -276,31 +301,45 @@ class MultiMoviesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         try {
-            val pageUrl = if (data.startsWith("{")) {
-                try {
-                    val linkData = parseJson<LinkData>(data)
-                    linkData.url
-                } catch (e: Exception) {
-                    data
-                }
+            var iframeSrc: String? = null
+            val pageUrl: String
+
+            if (data.startsWith("{")) {
+                // LinkData from player options (TV show without season structure)
+                val linkData = parseJson<LinkData>(data)
+                pageUrl = linkData.url
+                iframeSrc = getIframeViaAjax(linkData.post, linkData.type, linkData.nume, pageUrl)
             } else {
-                data
+                pageUrl = data
+                val doc = app.get(pageUrl, interceptor = cfKiller).document
+
+                // Try to find iframe directly in page HTML
+                iframeSrc = doc.selectFirst("#dooplay_player_response iframe")?.attr("src")
+                    ?: doc.selectFirst("iframe.metaframe")?.attr("src")
+                    ?: doc.selectFirst(".pframe iframe")?.attr("src")
+
+                // If no iframe found, try AJAX with first non-trailer player option
+                if (iframeSrc.isNullOrBlank()) {
+                    val playerOption = doc.select("ul#playeroptionsul > li")
+                        .firstOrNull { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+
+                    if (playerOption != null) {
+                        val post = playerOption.attr("data-post")
+                        val type = playerOption.attr("data-type")
+                        val nume = playerOption.attr("data-nume")
+                        iframeSrc = getIframeViaAjax(post, type, nume, pageUrl)
+                    }
+                }
             }
 
-            Log.d("MultiMovies", "loadLinks for: $pageUrl")
-
-            val doc = app.get(pageUrl, interceptor = cfKiller).document
-            val iframeSrc = doc.selectFirst("#dooplay_player_response iframe")?.attr("src")
-                ?: doc.selectFirst("iframe.metaframe")?.attr("src")
-                ?: doc.selectFirst(".pframe iframe")?.attr("src")
-
             if (iframeSrc.isNullOrBlank()) {
-                Log.e("MultiMovies", "No iframe found")
+                Log.e("MultiMovies", "No iframe found for: $pageUrl")
                 return false
             }
 
             Log.d("MultiMovies", "Iframe src: $iframeSrc")
 
+            // Load embed page and extract JS variables
             val embedHtml = app.get(iframeSrc, referer = pageUrl).text
 
             val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
@@ -308,29 +347,44 @@ class MultiMoviesProvider : MainAPI() {
             val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
 
             if (finalId == null || idType == null || myKey == null) {
-                Log.e("MultiMovies", "Could not extract JS variables")
+                Log.e("MultiMovies", "Could not extract JS variables from embed page")
                 return false
             }
 
             Log.d("MultiMovies", "FinalID=$finalId, idType=$idType")
 
-            val apiUrlPattern = Regex("""let\s+apiUrl\s*=\s*`([^`]+)`""").find(embedHtml)?.groupValues?.get(1)
-            val apiUrl = apiUrlPattern
-                ?.replace("\${idType}", idType)
-                ?.replace("\${FinalID}", finalId)
-                ?.replace("\${myKey}", myKey)
-
+            // Extract API URL template and base evid URL
+            val apiUrlTemplate = Regex("""let\s+apiUrl\s*=\s*`([^`]+)`""").find(embedHtml)?.groupValues?.get(1)
             val baseEvidUrl = Regex("""let\s+baseUrl\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
                 ?: "https://ssn.techinmind.space/evid/"
 
+            // Extract season/episode for TV show API calls
+            val seasonVar = Regex("""let\s+season\s*=\s*["']?(\d+)["']?""").find(embedHtml)?.groupValues?.get(1)
+            val episodeVar = Regex("""let\s+episode\s*=\s*["']?(\d+)["']?""").find(embedHtml)?.groupValues?.get(1)
+
+            // Build the actual API URL by replacing template variables
+            val apiUrl = apiUrlTemplate
+                ?.replace("\${idType}", idType)
+                ?.replace("\${FinalID}", finalId)
+                ?.replace("\${myKey}", myKey)
+                ?.let { url ->
+                    var result = url
+                    if (seasonVar != null) result = result.replace("\${season}", seasonVar)
+                    if (episodeVar != null) result = result.replace("\${episode}", episodeVar)
+                    result
+                }
+
+            // Data class for quality tracking
             data class QualityItem(
                 val fileslug: String,
                 val filename: String,
                 val priority: Int,
                 val sizeMB: Double = Double.MAX_VALUE
             )
+
             val qualityItems = mutableListOf<QualityItem>()
 
+            // Call mymovieapi to get file data
             if (!apiUrl.isNullOrBlank()) {
                 try {
                     val apiResponseText = app.get(apiUrl, referer = iframeSrc).text
@@ -342,17 +396,12 @@ class MultiMoviesProvider : MainAPI() {
                             val item = dataArray.getJSONObject(i)
                             val fileslug = item.optString("fileslug", "")
                             val filename = item.optString("filename", "")
-                            val sizeStr = item.optString("size", "")
+                            val sizeStr = item.optString("fsize", "")
                             val sizeMB = parseFileSizeMB(sizeStr)
-                            
+
                             if (fileslug.isNotEmpty()) {
                                 qualityItems.add(
-                                    QualityItem(
-                                        fileslug, 
-                                        filename, 
-                                        getQualityPriority(filename),
-                                        sizeMB
-                                    )
+                                    QualityItem(fileslug, filename, getQualityPriority(filename), sizeMB)
                                 )
                             }
                         }
@@ -362,14 +411,15 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
 
+            // Fallback: try data-link attributes from embed page HTML
             if (qualityItems.isEmpty()) {
                 val qualityLinks = Regex("""data-link=["']([^"']+)["'][^>]*>([^<]+)""").findAll(embedHtml)
                 for (match in qualityLinks) {
-                    val evidUrl = match.groupValues[1].trim()
+                    val link = match.groupValues[1].trim()
                     val filename = match.groupValues[2].trim()
-                    if (evidUrl.isNotEmpty()) {
+                    if (link.isNotEmpty()) {
                         qualityItems.add(
-                            QualityItem(evidUrl, filename, getQualityPriority(filename))
+                            QualityItem(link, filename, getQualityPriority(filename))
                         )
                     }
                 }
@@ -380,46 +430,46 @@ class MultiMoviesProvider : MainAPI() {
                 return false
             }
 
+            // Sort: quality priority first, then file size (smaller preferred)
             qualityItems.sortWith(compareBy({ it.priority }, { it.sizeMB }))
             Log.d("MultiMovies", "Found ${qualityItems.size} quality items, sorted by priority")
 
+            val processedLinks = mutableSetOf<String>()
+
+            // Process each quality item — fetch SVID server links, delegate to extractors
             for (qualityItem in qualityItems) {
                 try {
                     val qualityValue = getQualityFromName(qualityItem.filename)
-                    
-                    // First try to call loadExtractor directly with the evid URL
-                    Log.d("MultiMovies", "Trying loadExtractor with: ${qualityItem.fileslug}")
-                    val extractorHandled = loadExtractor(
-                        qualityItem.fileslug, pageUrl, subtitleCallback, callback
-                    )
-                    
-                    if (!extractorHandled) {
-                        // If extractor didn't handle it, try fetchSvidServerLinks as fallback
-                        val slug = qualityItem.fileslug.substringAfterLast("/")
-                        if (slug.isNotEmpty() && qualityItem.fileslug != slug) {
-                            val serverLinks = fetchSvidServerLinks(slug)
-                            for ((serverUrl, sourceKey) in serverLinks) {
-                                try {
-                                    val serverExtractorHandled = loadExtractor(
-                                        serverUrl, pageUrl, subtitleCallback, callback
-                                    )
-                                    if (!serverExtractorHandled && !isStreamingUrl(serverUrl)) {
-                                        callback.invoke(
-                                            newExtractorLink(
-                                                "MultiMovies",
-                                                "MultiMovies ${qualityItem.filename} [$sourceKey]",
-                                                serverUrl,
-                                                ExtractorLinkType.VIDEO
-                                            ) {
-                                                this.referer = pageUrl
-                                                this.quality = qualityValue
-                                            }
-                                        )
-                                    }
-                                } catch (e: Exception) {
-                                    Log.d("MultiMovies", "Server $sourceKey error: ${e.message}")
+
+                    Log.d("MultiMovies", "Processing: ${qualityItem.filename} (priority: ${qualityItem.priority})")
+
+                    // Fetch all server links from SVID page for this fileslug
+                    val serverLinks = fetchSvidServerLinks(qualityItem.fileslug, baseEvidUrl)
+
+                    for ((serverUrl, sourceKey) in serverLinks) {
+                        if (serverUrl in processedLinks) continue
+                        if (isStreamingUrl(serverUrl)) continue
+
+                        processedLinks.add(serverUrl)
+
+                        // Try registered extractors first (match by URL domain)
+                        val extractorHandled = loadExtractor(
+                            serverUrl, pageUrl, subtitleCallback, callback
+                        )
+
+                        if (!extractorHandled) {
+                            // Fallback: emit as direct link with quality info
+                            callback.invoke(
+                                newExtractorLink(
+                                    "MultiMovies",
+                                    "MultiMovies ${qualityItem.filename} [$sourceKey]",
+                                    serverUrl,
+                                    ExtractorLinkType.VIDEO
+                                ) {
+                                    this.referer = pageUrl
+                                    this.quality = qualityValue
                                 }
-                            }
+                            )
                         }
                     }
                 } catch (e: Exception) {
@@ -427,10 +477,42 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
 
-            return true
+            return processedLinks.isNotEmpty() || qualityItems.isNotEmpty()
         } catch (e: Exception) {
             Log.e("MultiMovies", "loadLinks failed: ${e.message}")
             return false
+        }
+    }
+
+    /**
+     * Make AJAX call to WordPress doo_player_ajax to get iframe embed URL.
+     * DooPlay theme loads player iframes via AJAX with post ID, type, and nume.
+     *
+     * Response format: {"type":"iframe","embed_url":"<iframe src='...' ...>"}
+     * or: {"embed_url":"https://..."}
+     */
+    private suspend fun getIframeViaAjax(post: String, type: String, nume: String, referer: String): String? {
+        return try {
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                data = mapOf(
+                    "action" to "doo_player_ajax",
+                    "post" to post,
+                    "type" to type,
+                    "nume" to nume
+                ),
+                referer = referer,
+                interceptor = cfKiller
+            )
+            val json = JSONObject(response.text)
+            val embedUrl = json.optString("embed_url", "")
+
+            // embed_url might be HTML iframe tag or just a URL
+            Regex("""src=["']([^"']+)["']""").find(embedUrl)?.groupValues?.get(1)
+                ?: embedUrl.takeIf { it.startsWith("http") }
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "AJAX call failed: ${e.message}")
+            null
         }
     }
 
