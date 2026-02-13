@@ -439,7 +439,7 @@ class MultiMoviesProvider : MainAPI() {
                         else -> 100
                     }
                 }.thenBy { link ->
-                    val sizeMatch = Regex("""(\d+\.?\d*)\s*(GB|MB)""").find(link.name ?: "")
+                    val sizeMatch = Regex("""(\d+\.?\d*)\s*(GB|MB)""").find(link.name)
                     if (sizeMatch != null) {
                         val size = sizeMatch.groupValues[1].toDoubleOrNull() ?: Double.MAX_VALUE
                         val unit = sizeMatch.groupValues[2]
