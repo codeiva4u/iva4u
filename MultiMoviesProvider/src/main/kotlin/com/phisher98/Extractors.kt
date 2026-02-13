@@ -11,19 +11,24 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
 import java.net.URI
+import java.net.URLEncoder
 
 // ====== Helper Functions ======
 
 fun getBaseUrl(url: String): String {
-    return URI(url).let { "${it.scheme}://${it.host}" }
+    return try {
+        URI(url).let { "${it.scheme}://${it.host}" }
+    } catch (e: Exception) {
+        ""
+    }
 }
 
 fun getQualityFromName(name: String): Int {
     val upper = name.uppercase()
     return when {
-        upper.contains("1080P") -> Qualities.P1080.value
-        upper.contains("720P") -> Qualities.P720.value
-        upper.contains("480P") -> Qualities.P480.value
+        upper.contains("1080P") || upper.contains("FULL HD") -> Qualities.P1080.value
+        upper.contains("720P") || upper.contains("HD QUALITY") -> Qualities.P720.value
+        upper.contains("480P") || upper.contains("NORMAL") -> Qualities.P480.value
         upper.contains("360P") -> Qualities.P360.value
         else -> Qualities.Unknown.value
     }
@@ -42,7 +47,7 @@ fun getQualityPriority(name: String): Int {
         upper.contains("720P") && !isHevc -> 2
         upper.contains("1080P") && isHevc -> 3
         upper.contains("720P") && isHevc -> 4
-        upper.contains("480P") -> 5
+        upper.contains("480P") || upper.contains("NORMAL") -> 5
         else -> 6
     }
 }
@@ -63,6 +68,15 @@ fun parseFileSizeMB(sizeText: String): Double {
     }
 }
 
+/**
+ * Check if URL is a streaming URL (should be blocked for download-only mode)
+ */
+fun isStreamingUrl(url: String): Boolean {
+    return url.contains(".m3u8", ignoreCase = true) || 
+           url.contains("/hls/", ignoreCase = true) ||
+           url.contains(".mpd", ignoreCase = true)
+}
+
 // ====== Techinmind Helper (SVid Page API) ======
 
 /**
@@ -77,7 +91,6 @@ suspend fun fetchSvidServerLinks(
     try {
         Log.d("TechinmindHelper", "Fetching server links for fileslug: $fileslug")
 
-        // Call the embedhelper API (reverse-engineered from piliyerxnew.js)
         val apiUrl = "$ssnBaseUrl/embedhelper.php"
         val response = app.post(
             apiUrl,
@@ -95,11 +108,9 @@ suspend fun fetchSvidServerLinks(
 
         val json = JSONObject(response.text)
 
-        // DDN direct download link
         val ddnUrl = "https://ddn.iqsmartgames.com/file/$fileslug"
         serverLinks.add(Pair(ddnUrl, "ddn"))
 
-        // Parse mresult (Base64 encoded JSON with server-specific file IDs)
         val mresultB64 = json.optString("mresult", "")
         val siteUrlsObj = json.optJSONObject("siteUrls")
 
@@ -129,7 +140,6 @@ suspend fun fetchSvidServerLinks(
         Log.d("TechinmindHelper", "Total server links found: ${serverLinks.size}")
     } catch (e: Exception) {
         Log.e("TechinmindHelper", "API error: ${e.message}")
-        // Fallback: at least return DDN link
         val ddnUrl = "https://ddn.iqsmartgames.com/file/$fileslug"
         serverLinks.add(Pair(ddnUrl, "ddn"))
     }
@@ -140,7 +150,6 @@ suspend fun fetchSvidServerLinks(
 
 /**
  * DDN (ddn.iqsmartgames.com) - Direct download via redirect chain
- * Flow: /file/{slug} → 302 → /files/{token} → POST form → direct download
  */
 class DDNIqsmartgames : ExtractorApi() {
     override val name = "DDNIqsmartgames"
@@ -156,20 +165,16 @@ class DDNIqsmartgames : ExtractorApi() {
         try {
             Log.d(name, "Starting extraction: $url")
 
-            // Step 1: Follow redirect /file/{slug} → /files/{token}
             val response = app.get(url, allowRedirects = true)
             val finalUrl = response.url
             val doc = response.document
 
             Log.d(name, "Redirected to: $finalUrl")
 
-            // Step 2: Try to find direct download link from forms
-            // The page has a form that POSTs to get the download
             val forms = doc.select("form")
             for (form in forms) {
                 val action = form.attr("action")
                 if (action.contains("/cldst") || action.contains("/stream/")) {
-                    // Try POST to cldst endpoint for CloudStream
                     try {
                         val slug = url.substringAfterLast("/")
                         val cldstResponse = app.post(
@@ -179,7 +184,7 @@ class DDNIqsmartgames : ExtractorApi() {
                             allowRedirects = false
                         )
                         val dlUrl = cldstResponse.headers["Location"]
-                        if (!dlUrl.isNullOrBlank() && dlUrl.startsWith("http")) {
+                        if (!dlUrl.isNullOrBlank() && dlUrl.startsWith("http") && !isStreamingUrl(dlUrl)) {
                             callback.invoke(
                                 newExtractorLink(
                                     name, "$name Direct Download", dlUrl,
@@ -197,7 +202,6 @@ class DDNIqsmartgames : ExtractorApi() {
                 }
             }
 
-            // Step 3: Try POST to the files page itself
             try {
                 val postResponse = app.post(
                     finalUrl,
@@ -205,7 +209,7 @@ class DDNIqsmartgames : ExtractorApi() {
                     allowRedirects = false
                 )
                 val dlLocation = postResponse.headers["Location"]
-                if (!dlLocation.isNullOrBlank() && dlLocation.startsWith("http")) {
+                if (!dlLocation.isNullOrBlank() && dlLocation.startsWith("http") && !isStreamingUrl(dlLocation)) {
                     callback.invoke(
                         newExtractorLink(
                             name, "$name Download", dlLocation,
@@ -221,16 +225,17 @@ class DDNIqsmartgames : ExtractorApi() {
                 Log.d(name, "POST attempt: ${e.message}")
             }
 
-            // Step 4: Fallback - use the final redirect URL directly
-            callback.invoke(
-                newExtractorLink(
-                    name, name, finalUrl,
-                    ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = mainUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+            if (!isStreamingUrl(finalUrl)) {
+                callback.invoke(
+                    newExtractorLink(
+                        name, name, finalUrl,
+                        ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
         } catch (e: Exception) {
             Log.e(name, "Extraction failed: ${e.message}")
         }
@@ -239,8 +244,9 @@ class DDNIqsmartgames : ExtractorApi() {
 
 /**
  * Multimoviesshg (multimoviesshg.com / StreamHG)
- * Flow: /e/{id} → convert to /f/{id} → parse quality download links
- * Download links: /f/{id}_h (1080p), /f/{id}_n (720p), /f/{id}_l (480p)
+ * Download page: /f/{id} - Shows quality options
+ * Each quality: /f/{id}_h (1080p), /f/{id}_n (720p), /f/{id}_l (480p)
+ * Contains form with hash that needs reCAPTCHA to get final download link
  */
 class Multimoviesshg : ExtractorApi() {
     override val name = "Multimoviesshg"
@@ -256,19 +262,76 @@ class Multimoviesshg : ExtractorApi() {
         try {
             Log.d(name, "Starting extraction: $url")
 
-            // Convert /e/{id} to /f/{id} (download page)
-            val fileId = Regex("""/[ef]/([a-zA-Z0-9]+)""").find(url)?.groupValues?.get(1)
-                ?: url.substringAfterLast("/")
-            val downloadPageUrl = "$mainUrl/f/$fileId"
+            val cleanUrl = url.substringBefore("?") 
+            val fileIdPattern = Regex("""/f/([a-zA-Z0-9]+)""")
+            val match = fileIdPattern.find(cleanUrl)
+            
+            if (match == null) {
+                Log.e(name, "Could not extract file ID from URL: $url")
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+                return
+            }
+
+            val fileId = match.groupValues[1]
+            val qualityMode = cleanUrl.substringAfterLast("_", "")
+
+            val downloadPageUrl = if (qualityMode.isNotEmpty() && listOf("h", "n", "l").contains(qualityMode)) {
+                "$mainUrl/f/${fileId}_$qualityMode"
+            } else {
+                "$mainUrl/f/$fileId"
+            }
 
             Log.d(name, "Download page: $downloadPageUrl")
             val doc = app.get(downloadPageUrl, referer = referer ?: mainUrl).document
 
-            // Parse download quality options
             val downloadItems = doc.select("a.downloadv-item")
 
             if (downloadItems.isEmpty()) {
-                Log.d(name, "No download items found, trying direct URL")
+                val form = doc.selectFirst("form#F1")
+                if (form != null) {
+                    val op = form.selectFirst("input[name=op]")?.attr("value") ?: "download_orig"
+                    val id = form.selectFirst("input[name=id]")?.attr("value") ?: fileId
+                    val mode = form.selectFirst("input[name=mode]")?.attr("value") ?: qualityMode.ifEmpty { "h" }
+                    val hash = form.selectFirst("input[name=hash]")?.attr("value") ?: ""
+                    val recaptchaPub = form.selectFirst("input[name=recaptcha3_pub]")?.attr("value") ?: ""
+
+                    val filename = doc.selectFirst("b")?.text()?.trim() 
+                        ?: doc.selectFirst("h3")?.text()?.trim()
+                        ?: "Video"
+
+                    val sizeText = doc.selectFirst("small")?.text()?.trim() ?: ""
+
+                    val quality = when {
+                        mode == "h" || sizeText.contains("1080") || sizeText.contains("1920") -> Qualities.P1080.value
+                        mode == "n" || sizeText.contains("720") || sizeText.contains("1280") -> Qualities.P720.value
+                        mode == "l" || sizeText.contains("480") || sizeText.contains("852") -> Qualities.P480.value
+                        else -> Qualities.Unknown.value
+                    }
+
+                    val formActionUrl = "$downloadPageUrl?op=$op&id=$id&mode=$mode&hash=$hash"
+
+                    Log.d(name, "Form URL: $formActionUrl")
+
+                    callback.invoke(
+                        newExtractorLink(
+                            name,
+                            "$name $filename ${sizeText.ifBlank { "" }}".trim(),
+                            formActionUrl,
+                            ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = mainUrl
+                            this.quality = quality
+                        }
+                    )
+                    return
+                }
+
+                Log.d(name, "No download items or form found")
                 callback.invoke(
                     newExtractorLink(name, name, downloadPageUrl, ExtractorLinkType.VIDEO) {
                         this.referer = mainUrl
@@ -307,14 +370,20 @@ class Multimoviesshg : ExtractorApi() {
             }
         } catch (e: Exception) {
             Log.e(name, "Extraction failed: ${e.message}")
+            callback.invoke(
+                newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                    this.referer = mainUrl
+                    this.quality = Qualities.Unknown.value
+                }
+            )
         }
     }
 }
 
 /**
  * UnsBio (server1.uns.bio / UpnShare)
- * URL pattern: https://server1.uns.bio/#{hash}
- * dl=1 parameter triggers download mode
+ * URL pattern: https://server1.uns.bio/#{hash} or #{hash}&dl=1
+ * Hash-based file access with download mode
  */
 class UnsBio : ExtractorApi() {
     override val name = "UnsBio"
@@ -332,91 +401,150 @@ class UnsBio : ExtractorApi() {
 
             val hash = url.substringAfter("#").substringBefore("&")
             if (hash.isBlank() || hash == url) {
-                Log.e(name, "No hash found in URL")
+                Log.e(name, "No hash found in URL: $url")
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
                 return
             }
 
-            // Try download mode with dl=1
-            val downloadUrl = "$mainUrl/#$hash&dl=1"
             val baseUrl = getBaseUrl(url)
+            val isDownloadMode = url.contains("dl=1")
 
-            // Fetch the page to find API endpoint or direct link
-            val pageResponse = app.get(
-                "$baseUrl/dl/$hash",
-                referer = referer ?: url,
-                allowRedirects = true
-            )
-
-            // Check for redirect to actual file
-            val finalUrl = pageResponse.url
-            if (finalUrl.contains(".mp4") || finalUrl.contains(".mkv") || finalUrl.contains(".avi")) {
-                callback.invoke(
-                    newExtractorLink(name, "$name Download", finalUrl, ExtractorLinkType.VIDEO) {
-                        this.referer = baseUrl
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-                return
+            val pageUrl = if (isDownloadMode) {
+                "$mainUrl/#$hash&dl=1"
+            } else {
+                "$mainUrl/#$hash"
             }
 
-            // Parse page for download link
-            val doc = pageResponse.document
-            val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download], a.btn-download")
-                ?.attr("href")
-
-            if (!dlLink.isNullOrBlank()) {
-                val fullDlUrl = if (dlLink.startsWith("http")) dlLink else "$baseUrl$dlLink"
-                callback.invoke(
-                    newExtractorLink(name, "$name Download", fullDlUrl, ExtractorLinkType.VIDEO) {
-                        this.referer = baseUrl
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-                return
-            }
-
-            // Try API endpoint pattern
             try {
-                val apiResponse = app.post(
-                    "$baseUrl/api/file/$hash",
-                    data = mapOf("hash" to hash, "dl" to "1"),
-                    referer = url
-                )
-                val json = JSONObject(apiResponse.text)
-                val fileUrl = json.optString("url", "")
-                    .ifBlank { json.optString("file", "") }
-                    .ifBlank { json.optString("source", "") }
-                    .ifBlank { json.optString("download", "") }
+                val response = app.get(pageUrl, referer = referer ?: mainUrl, allowRedirects = true)
+                val finalUrl = response.url
+                val doc = response.document
+                val html = doc.html()
 
-                if (fileUrl.isNotBlank()) {
+                val title = doc.selectFirst("h1")?.text()?.trim() ?: "Video"
+
+                val buttonLink = doc.selectFirst("button.downloader-button")?.parent()?.selectFirst("a[href]")?.attr("href")
+
+                val scriptRegex = Regex("""target1_urls\s*:\s*\[([^\]]+)\]""")
+                val scriptMatch = scriptRegex.find(html)
+                
+                if (scriptMatch != null) {
+                    val urlsContent = scriptMatch.groupValues[1]
+                    val urlRegex = Regex("""['"](https?://[^'"]+)['"]""")
+                    val urlMatches = urlRegex.findAll(urlsContent)
+                    
+                    for (urlMatch in urlMatches) {
+                        val videoUrl = urlMatch.groupValues[1]
+                        if (!isStreamingUrl(videoUrl)) {
+                            callback.invoke(
+                                newExtractorLink(
+                                    name,
+                                    "$name $title",
+                                    videoUrl,
+                                    ExtractorLinkType.VIDEO
+                                ) {
+                                    this.referer = baseUrl
+                                    this.quality = Qualities.Unknown.value
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (buttonLink != null && buttonLink.startsWith("http")) {
+                    if (!isStreamingUrl(buttonLink)) {
+                        callback.invoke(
+                            newExtractorLink(
+                                name,
+                                "$name Watch Online $title",
+                                buttonLink,
+                                ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = baseUrl
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
+                }
+
+                try {
+                    val apiResponse = app.get(
+                        "$mainUrl/d/$hash",
+                        referer = pageUrl,
+                        allowRedirects = true
+                    )
+                    val apiDoc = apiResponse.document
+                    val apiHtml = apiDoc.html()
+
+                    val apiScriptMatch = scriptRegex.find(apiHtml)
+                    if (apiScriptMatch != null) {
+                        val urlsContent = apiScriptMatch.groupValues[1]
+                        val urlRegex = Regex("""['"](https?://[^'"]+)['"]""")
+                        val urlMatches = urlRegex.findAll(urlsContent)
+                        
+                        for (urlMatch in urlMatches) {
+                            val videoUrl = urlMatch.groupValues[1]
+                            if (!isStreamingUrl(videoUrl)) {
+                                callback.invoke(
+                                    newExtractorLink(
+                                        name,
+                                        "$name API $title",
+                                        videoUrl,
+                                        ExtractorLinkType.VIDEO
+                                    ) {
+                                        this.referer = baseUrl
+                                        this.quality = Qualities.Unknown.value
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(name, "API /d/ attempt: ${e.message}")
+                }
+
+                if (!isStreamingUrl(finalUrl)) {
                     callback.invoke(
-                        newExtractorLink(name, "$name Download", fileUrl, ExtractorLinkType.VIDEO) {
+                        newExtractorLink(
+                            name,
+                            "$name $title",
+                            pageUrl,
+                            ExtractorLinkType.VIDEO
+                        ) {
                             this.referer = baseUrl
                             this.quality = Qualities.Unknown.value
                         }
                     )
-                    return
                 }
-            } catch (e: Exception) {
-                Log.d(name, "API attempt: ${e.message}")
-            }
 
-            // Fallback: use download URL directly
+            } catch (e: Exception) {
+                Log.e(name, "Page fetch error: ${e.message}")
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Extraction failed: ${e.message}")
             callback.invoke(
-                newExtractorLink(name, name, downloadUrl, ExtractorLinkType.VIDEO) {
-                    this.referer = baseUrl
+                newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                    this.referer = mainUrl
                     this.quality = Qualities.Unknown.value
                 }
             )
-        } catch (e: Exception) {
-            Log.e(name, "Extraction failed: ${e.message}")
         }
     }
 }
 
 /**
  * RpmHub (multimovies.rpmhub.site / RpmShare)
- * URL pattern: https://multimovies.rpmhub.site/#{hash}
  */
 class RpmHub : ExtractorApi() {
     override val name = "RpmHub"
@@ -440,7 +568,6 @@ class RpmHub : ExtractorApi() {
 
             val baseUrl = getBaseUrl(url)
 
-            // Try fetching page with the hash as path
             try {
                 val response = app.get(
                     "$baseUrl/$hash",
@@ -449,11 +576,10 @@ class RpmHub : ExtractorApi() {
                 )
                 val doc = response.document
 
-                // Look for video source or download link
                 val videoSrc = doc.selectFirst("video source")?.attr("src")
                     ?: doc.selectFirst("source[src]")?.attr("src")
 
-                if (!videoSrc.isNullOrBlank()) {
+                if (!videoSrc.isNullOrBlank() && !isStreamingUrl(videoSrc)) {
                     val fullUrl = if (videoSrc.startsWith("http")) videoSrc else "$baseUrl$videoSrc"
                     callback.invoke(
                         newExtractorLink(name, name, fullUrl, ExtractorLinkType.VIDEO) {
@@ -464,10 +590,8 @@ class RpmHub : ExtractorApi() {
                     return
                 }
 
-                // Try to find download link in page
-                val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")
-                    ?.attr("href")
-                if (!dlLink.isNullOrBlank()) {
+                val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")?.attr("href")
+                if (!dlLink.isNullOrBlank() && !isStreamingUrl(dlLink)) {
                     val fullUrl = if (dlLink.startsWith("http")) dlLink else "$baseUrl$dlLink"
                     callback.invoke(
                         newExtractorLink(name, "$name Download", fullUrl, ExtractorLinkType.VIDEO) {
@@ -481,7 +605,6 @@ class RpmHub : ExtractorApi() {
                 Log.d(name, "Page fetch: ${e.message}")
             }
 
-            // Try API call
             try {
                 val apiResponse = app.post(
                     "$baseUrl/api/source/$hash",
@@ -493,7 +616,7 @@ class RpmHub : ExtractorApi() {
                     .ifBlank { json.optString("file", "") }
                     .ifBlank { json.optString("source", "") }
 
-                if (fileUrl.isNotBlank()) {
+                if (fileUrl.isNotBlank() && !isStreamingUrl(fileUrl)) {
                     callback.invoke(
                         newExtractorLink(name, name, fileUrl, ExtractorLinkType.VIDEO) {
                             this.referer = baseUrl
@@ -506,13 +629,14 @@ class RpmHub : ExtractorApi() {
                 Log.d(name, "API attempt: ${e.message}")
             }
 
-            // Fallback
-            callback.invoke(
-                newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
-                    this.referer = baseUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+            if (!isStreamingUrl(url)) {
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = baseUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
         } catch (e: Exception) {
             Log.e(name, "Extraction failed: ${e.message}")
         }
@@ -521,7 +645,6 @@ class RpmHub : ExtractorApi() {
 
 /**
  * P2pPlay (multimovies.p2pplay.pro / StreamP2p)
- * URL pattern: https://multimovies.p2pplay.pro/#{hash}
  */
 class P2pPlay : ExtractorApi() {
     override val name = "P2pPlay"
@@ -545,7 +668,6 @@ class P2pPlay : ExtractorApi() {
 
             val baseUrl = getBaseUrl(url)
 
-            // Try direct page fetch
             try {
                 val response = app.get(
                     "$baseUrl/$hash",
@@ -557,7 +679,7 @@ class P2pPlay : ExtractorApi() {
                 val videoSrc = doc.selectFirst("video source")?.attr("src")
                     ?: doc.selectFirst("source[src]")?.attr("src")
 
-                if (!videoSrc.isNullOrBlank()) {
+                if (!videoSrc.isNullOrBlank() && !isStreamingUrl(videoSrc)) {
                     val fullUrl = if (videoSrc.startsWith("http")) videoSrc else "$baseUrl$videoSrc"
                     callback.invoke(
                         newExtractorLink(name, name, fullUrl, ExtractorLinkType.VIDEO) {
@@ -568,9 +690,8 @@ class P2pPlay : ExtractorApi() {
                     return
                 }
 
-                val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")
-                    ?.attr("href")
-                if (!dlLink.isNullOrBlank()) {
+                val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")?.attr("href")
+                if (!dlLink.isNullOrBlank() && !isStreamingUrl(dlLink)) {
                     val fullUrl = if (dlLink.startsWith("http")) dlLink else "$baseUrl$dlLink"
                     callback.invoke(
                         newExtractorLink(name, "$name Download", fullUrl, ExtractorLinkType.VIDEO) {
@@ -584,7 +705,6 @@ class P2pPlay : ExtractorApi() {
                 Log.d(name, "Page fetch: ${e.message}")
             }
 
-            // Try API
             try {
                 val apiResponse = app.post(
                     "$baseUrl/api/source/$hash",
@@ -595,7 +715,7 @@ class P2pPlay : ExtractorApi() {
                 val fileUrl = json.optString("url", "")
                     .ifBlank { json.optString("file", "") }
 
-                if (fileUrl.isNotBlank()) {
+                if (fileUrl.isNotBlank() && !isStreamingUrl(fileUrl)) {
                     callback.invoke(
                         newExtractorLink(name, name, fileUrl, ExtractorLinkType.VIDEO) {
                             this.referer = baseUrl
@@ -608,13 +728,14 @@ class P2pPlay : ExtractorApi() {
                 Log.d(name, "API attempt: ${e.message}")
             }
 
-            // Fallback
-            callback.invoke(
-                newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
-                    this.referer = baseUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+            if (!isStreamingUrl(url)) {
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = baseUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
         } catch (e: Exception) {
             Log.e(name, "Extraction failed: ${e.message}")
         }
@@ -623,7 +744,6 @@ class P2pPlay : ExtractorApi() {
 
 /**
  * SmoothPre (smoothpre.com / EarnVids)
- * URL pattern: https://smoothpre.com/v/{id}
  */
 class SmoothPre : ExtractorApi() {
     override val name = "SmoothPre"
@@ -641,11 +761,10 @@ class SmoothPre : ExtractorApi() {
 
             val doc = app.get(url, referer = referer ?: mainUrl).document
 
-            // Look for video source
             val videoSrc = doc.selectFirst("video source")?.attr("src")
                 ?: doc.selectFirst("source[src]")?.attr("src")
 
-            if (!videoSrc.isNullOrBlank()) {
+            if (!videoSrc.isNullOrBlank() && !isStreamingUrl(videoSrc)) {
                 val fullUrl = if (videoSrc.startsWith("http")) videoSrc else "$mainUrl$videoSrc"
                 callback.invoke(
                     newExtractorLink(name, name, fullUrl, ExtractorLinkType.VIDEO) {
@@ -656,11 +775,10 @@ class SmoothPre : ExtractorApi() {
                 return
             }
 
-            // Check for packed/obfuscated JS with file URLs
             val pageHtml = doc.html()
             val fileRegex = Regex("""(https?://[^\s"'<>]+\.(mp4|mkv|avi|m4v)[^\s"'<>]*)""")
             val fileMatch = fileRegex.find(pageHtml)
-            if (fileMatch != null) {
+            if (fileMatch != null && !isStreamingUrl(fileMatch.groupValues[1])) {
                 callback.invoke(
                     newExtractorLink(name, name, fileMatch.groupValues[1], ExtractorLinkType.VIDEO) {
                         this.referer = mainUrl
@@ -670,10 +788,8 @@ class SmoothPre : ExtractorApi() {
                 return
             }
 
-            // Try download link
-            val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")
-                ?.attr("href")
-            if (!dlLink.isNullOrBlank()) {
+            val dlLink = doc.selectFirst("a[href*=download], a.download-btn, a[download]")?.attr("href")
+            if (!dlLink.isNullOrBlank() && !isStreamingUrl(dlLink)) {
                 val fullUrl = if (dlLink.startsWith("http")) dlLink else "$mainUrl$dlLink"
                 callback.invoke(
                     newExtractorLink(name, "$name Download", fullUrl, ExtractorLinkType.VIDEO) {
@@ -684,13 +800,14 @@ class SmoothPre : ExtractorApi() {
                 return
             }
 
-            // Fallback
-            callback.invoke(
-                newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
-                    this.referer = mainUrl
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+            if (!isStreamingUrl(url)) {
+                callback.invoke(
+                    newExtractorLink(name, name, url, ExtractorLinkType.VIDEO) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
         } catch (e: Exception) {
             Log.e(name, "Extraction failed: ${e.message}")
         }

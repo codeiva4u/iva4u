@@ -279,7 +279,6 @@ class MultiMoviesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         try {
-            // Determine URL - data can be URL or JSON (LinkData)
             val pageUrl = if (data.startsWith("{")) {
                 try {
                     val linkData = parseJson<LinkData>(data)
@@ -293,7 +292,6 @@ class MultiMoviesProvider : MainAPI() {
 
             Log.d("MultiMovies", "loadLinks for: $pageUrl")
 
-            // Step 1: Get page and extract iframe src
             val doc = app.get(pageUrl, interceptor = cfKiller).document
             val iframeSrc = doc.selectFirst("#dooplay_player_response iframe")?.attr("src")
                 ?: doc.selectFirst("iframe.metaframe")?.attr("src")
@@ -306,10 +304,8 @@ class MultiMoviesProvider : MainAPI() {
 
             Log.d("MultiMovies", "Iframe src: $iframeSrc")
 
-            // Step 2: Fetch embed page from stream.techinmind.space
             val embedHtml = app.get(iframeSrc, referer = pageUrl).text
 
-            // Step 3: Extract JS variables for API call
             val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
             val idType = Regex("""let\s+idType\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
             val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
@@ -321,25 +317,27 @@ class MultiMoviesProvider : MainAPI() {
 
             Log.d("MultiMovies", "FinalID=$finalId, idType=$idType")
 
-            // Step 4: Determine API URL from embed page
             val apiUrlPattern = Regex("""let\s+apiUrl\s*=\s*`([^`]+)`""").find(embedHtml)?.groupValues?.get(1)
             val apiUrl = apiUrlPattern
                 ?.replace("\${idType}", idType)
                 ?.replace("\${FinalID}", finalId)
                 ?.replace("\${myKey}", myKey)
 
-            // Extract base URL for evid links
             val baseEvidUrl = Regex("""let\s+baseUrl\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
                 ?: "https://ssn.techinmind.space/evid/"
 
-            // Step 5: Call API to get quality links
-            data class QualityItem(val fileslug: String, val filename: String, val priority: Int)
+            data class QualityItem(
+                val fileslug: String,
+                val filename: String,
+                val priority: Int,
+                val sizeMB: Double = Double.MAX_VALUE
+            )
             val qualityItems = mutableListOf<QualityItem>()
 
             if (!apiUrl.isNullOrBlank()) {
                 try {
-                    val apiResponse = app.get(apiUrl, referer = iframeSrc).text
-                    val json = JSONObject(apiResponse)
+                    val apiResponseText = app.get(apiUrl, referer = iframeSrc).text
+                    val json = JSONObject(apiResponseText)
 
                     if (json.optBoolean("success", false)) {
                         val dataArray = json.getJSONArray("data")
@@ -347,9 +345,17 @@ class MultiMoviesProvider : MainAPI() {
                             val item = dataArray.getJSONObject(i)
                             val fileslug = item.optString("fileslug", "")
                             val filename = item.optString("filename", "")
+                            val sizeStr = item.optString("size", "")
+                            val sizeMB = parseFileSizeMB(sizeStr)
+                            
                             if (fileslug.isNotEmpty()) {
                                 qualityItems.add(
-                                    QualityItem(fileslug, filename, getQualityPriority(filename))
+                                    QualityItem(
+                                        fileslug, 
+                                        filename, 
+                                        getQualityPriority(filename),
+                                        sizeMB
+                                    )
                                 )
                             }
                         }
@@ -359,7 +365,6 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
 
-            // Fallback: try to extract from pre-rendered HTML quality links
             if (qualityItems.isEmpty()) {
                 val qualityLinks = Regex("""data-link=["']([^"']+)["'][^>]*>([^<]+)""").findAll(embedHtml)
                 for (match in qualityLinks) {
@@ -379,11 +384,11 @@ class MultiMoviesProvider : MainAPI() {
                 return false
             }
 
-            // Sort by quality priority (X264 1080p first)
-            qualityItems.sortBy { it.priority }
-            Log.d("MultiMovies", "Found ${qualityItems.size} quality items")
+            qualityItems.sortWith(compareBy({ it.priority }, { it.sizeMB }))
+            Log.d("MultiMovies", "Found ${qualityItems.size} quality items, sorted by priority")
 
-            // Step 6: For each quality, fetch server links via embedhelper API
+            val allLinks = mutableListOf<ExtractorLink>()
+
             for (qualityItem in qualityItems) {
                 try {
                     val serverLinks = fetchSvidServerLinks(qualityItem.fileslug)
@@ -391,24 +396,24 @@ class MultiMoviesProvider : MainAPI() {
 
                     for ((serverUrl, sourceKey) in serverLinks) {
                         try {
-                            // Try registered extractors first
-                            val extractorHandled = loadExtractor(
-                                serverUrl, pageUrl, subtitleCallback, callback
-                            )
-
-                            // If no extractor matched, add as direct link
-                            if (!extractorHandled) {
-                                callback.invoke(
-                                    newExtractorLink(
-                                        "MultiMovies",
-                                        "MultiMovies ${qualityItem.filename} [$sourceKey]",
-                                        serverUrl,
-                                        ExtractorLinkType.VIDEO
-                                    ) {
-                                        this.referer = pageUrl
-                                        this.quality = qualityValue
-                                    }
+                            if (!isStreamingUrl(serverUrl)) {
+                                val extractorHandled = loadExtractor(
+                                    serverUrl, pageUrl, subtitleCallback, callback
                                 )
+
+                                if (!extractorHandled) {
+                                    allLinks.add(
+                                        newExtractorLink(
+                                            "MultiMovies",
+                                            "MultiMovies ${qualityItem.filename} [$sourceKey]",
+                                            serverUrl,
+                                            ExtractorLinkType.VIDEO
+                                        ) {
+                                            this.referer = pageUrl
+                                            this.quality = qualityValue
+                                        }
+                                    )
+                                }
                             }
                         } catch (e: Exception) {
                             Log.d("MultiMovies", "Server $sourceKey error: ${e.message}")
@@ -417,6 +422,36 @@ class MultiMoviesProvider : MainAPI() {
                 } catch (e: Exception) {
                     Log.e("MultiMovies", "Quality ${qualityItem.filename} error: ${e.message}")
                 }
+            }
+
+            if (allLinks.isEmpty()) {
+                Log.e("MultiMovies", "No valid download links found")
+                return false
+            }
+
+            val sortedLinks = allLinks.sortedWith(
+                compareByDescending<ExtractorLink> { link ->
+                    when {
+                        link.quality == Qualities.P1080.value -> 1000
+                        link.quality == Qualities.P720.value -> 700
+                        link.quality == Qualities.P480.value -> 500
+                        link.quality == Qualities.P360.value -> 300
+                        else -> 100
+                    }
+                }.thenBy { link ->
+                    val sizeMatch = Regex("""(\d+\.?\d*)\s*(GB|MB)""").find(link.name ?: "")
+                    if (sizeMatch != null) {
+                        val size = sizeMatch.groupValues[1].toDoubleOrNull() ?: Double.MAX_VALUE
+                        val unit = sizeMatch.groupValues[2]
+                        if (unit.equals("GB", ignoreCase = true)) size * 1024 else size
+                    } else {
+                        Double.MAX_VALUE
+                    }
+                }
+            )
+
+            for (link in sortedLinks) {
+                callback.invoke(link)
             }
 
             return true
