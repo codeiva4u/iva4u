@@ -592,6 +592,8 @@ class TechInMind : ExtractorApi() {
                 } catch (e: Exception) {
                     Log.e(tag, "JsUnpacker विफल: ${e.message}")
                 }
+            } catch (e: Exception) {
+                Log.e("GDMirror", "API call failed: ${e.message}")
             }
 
             // विधि 2: JSON API रिस्पॉन्स — कुछ VidSrc एम्बेड JSON लौटाते हैं
