@@ -26,9 +26,11 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import kotlinx.coroutines.runBlocking
+import okhttp3.FormBody
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
@@ -266,184 +268,155 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // AJAX रिस्पॉन्स डेटा क्लास — DooPlay थीम iframe URL लौटाती है
+    // ════════════════════════════════════════════════════════════════════════
+    data class ResponseHash(
+        @JsonProperty("embed_url") val embed_url: String,
+        @JsonProperty("type") val type: String? = null,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    // loadLinks — वीडियो स्ट्रीम URL निकालने का मुख्य फ़ंक्शन
+    // ════════════════════════════════════════════════════════════════════════
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("MultiMovies", "loadLinks called for: $data")
+        val tag = "MultiMoviesLinks"
 
-        // Check if data is episode URL, movie URL, or JSON LinkData
-        var directPostData: LinkData? = null
-        
-        val pageUrl: String = if (data.startsWith("http")) {
-            data
+        // जाँच: data URL है या LinkData JSON
+        val isUrl = data.startsWith("http")
+
+        if (isUrl) {
+            // ═══ मूवी या एपिसोड href URL ═══
+            // पेज फ़ेच करके playeroptionsul से सभी प्लेयर ऑप्शन्स निकालना
+            Log.d(tag, "URL-आधारित डेटा: $data")
+            try {
+                val document = app.get(data, interceptor = cfKiller).document
+
+                // प्लेयर ऑप्शन्स पार्स करना (trailer छोड़कर)
+                val playerOptions = document.select("ul#playeroptionsul > li")
+                    .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+
+                Log.d(tag, "${playerOptions.size} प्लेयर ऑप्शन्स मिले")
+
+                // प्रत्येक ऑप्शन के लिए AJAX कॉल करना
+                playerOptions.amap { element ->
+                    val type = element.attr("data-type")
+                    val post = element.attr("data-post")
+                    val nume = element.attr("data-nume")
+                    val serverName = element.selectFirst("span.title")?.text() ?: "Unknown"
+
+                    Log.d(tag, "प्लेयर ऑप्शन: $serverName (type=$type, post=$post, nume=$nume)")
+
+                    try {
+                        val iframeUrl = getIframeUrl(type, post, nume)
+                        if (!iframeUrl.isNullOrEmpty()) {
+                            Log.d(tag, "iframe URL प्राप्त: $iframeUrl")
+                            loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(tag, "ऑप्शन '$serverName' विफल: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "पेज लोड विफल: ${e.message}")
+            }
         } else {
-            // Try to parse as JSON LinkData (for TV Series episodes with player data)
+            // ═══ LinkData JSON — playeroptionsul से बने एपिसोड ═══
+            Log.d(tag, "LinkData JSON आधारित डेटा")
             try {
-                directPostData = com.lagradost.cloudstream3.utils.AppUtils.parseJson<LinkData>(data)
-                directPostData.url
-            } catch (e: Exception) {
-                data
-            }
-        }
+                val linkData = AppUtils.parseJson<LinkData>(data)
+                Log.d(tag, "LinkData: name=${linkData.name}, type=${linkData.type}, post=${linkData.post}, nume=${linkData.nume}")
 
-        val document = app.get(pageUrl, interceptor = cfKiller).document
-        
-        // If we have direct post data (from episode), use it directly
-        if (directPostData != null && directPostData.post.isNotEmpty()) {
-            try {
-                Log.d("MultiMovies", "Using direct post data: post=${directPostData.post}, nume=${directPostData.nume}")
-                
-                val embedResponse = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to directPostData.post,
-                        "nume" to directPostData.nume,
-                        "type" to directPostData.type
-                    ),
-                    referer = pageUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
-                    interceptor = cfKiller
-                )
-                
-                val embedUrl = extractEmbedUrl(embedResponse.text)
-                if (!embedUrl.isNullOrBlank()) {
-                    processEmbedUrl(embedUrl, pageUrl, subtitleCallback, callback)
-                    return true
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
+                if (!iframeUrl.isNullOrEmpty()) {
+                    Log.d(tag, "iframe URL प्राप्त: $iframeUrl")
+                    loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
                 }
             } catch (e: Exception) {
-                Log.e("MultiMovies", "Error with direct post data: ${e.message}")
-            }
-        }
-        
-        // Standard player options extraction
-        val playerOptions = document.select("ul#playeroptionsul li").filter {
-            !it.attr("data-nume").equals("trailer", ignoreCase = true)
-        }
-
-        if (playerOptions.isEmpty()) {
-            Log.w("MultiMovies", "No player options found")
-            return false
-        }
-
-        playerOptions.amap { option ->
-            try {
-                val postId = option.attr("data-post")
-                val nume = option.attr("data-nume")
-                val type = option.attr("data-type")
-
-                Log.d("MultiMovies", "Processing player: post=$postId, nume=$nume, type=$type")
-
-                val embedResponse = app.post(
-                    url = "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "doo_player_ajax",
-                        "post" to postId,
-                        "nume" to nume,
-                        "type" to type
-                    ),
-                    referer = pageUrl,
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
-                    interceptor = cfKiller
-                )
-
-                val embedUrl = extractEmbedUrl(embedResponse.text)
-                if (embedUrl.isNullOrBlank()) {
-                    Log.w("MultiMovies", "No embed URL found for post=$postId")
-                    return@amap
-                }
-
-                processEmbedUrl(embedUrl, pageUrl, subtitleCallback, callback)
-                
-            } catch (e: Exception) {
-                Log.e("MultiMovies", "Error processing player option: ${e.message}")
+                Log.e(tag, "LinkData पार्सिंग विफल: ${e.message}")
             }
         }
 
         return true
     }
-    
-    private suspend fun processEmbedUrl(
-        embedUrl: String,
+
+    // ════════════════════════════════════════════════════════════════════════
+    // DooPlay AJAX कॉल — admin-ajax.php से iframe URL प्राप्त करता है
+    // ════════════════════════════════════════════════════════════════════════
+    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
+        return try {
+            // FormBody बनाना — DooPlay थीम का मानक AJAX अनुरोध
+            val requestBody = FormBody.Builder()
+                .addEncoded("action", "doo_player_ajax")
+                .addEncoded("post", post)
+                .addEncoded("nume", nume)
+                .addEncoded("type", type)
+                .build()
+
+            val response = app.post(
+                "$mainUrl/wp-admin/admin-ajax.php",
+                requestBody = requestBody,
+                headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to mainUrl
+                ),
+                interceptor = cfKiller
+            ).parsedSafe<ResponseHash>()
+
+            response?.embed_url
+        } catch (e: Exception) {
+            Log.e("AjaxHelper", "AJAX कॉल विफल: ${e.message}")
+            null
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // एक्सट्रैक्टर डिस्पैचर — iframe URL को सही एक्सट्रैक्टर को भेजता है
+    // ════════════════════════════════════════════════════════════════════════
+    private suspend fun loadExtractorLink(
+        url: String,
         referer: String,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        Log.d("MultiMovies", "Embed URL: $embedUrl")
+        val tag = "ExtractorDispatch"
+        Log.d(tag, "डिस्पैच: $url")
 
-        // Skip YouTube/trailer links
-        if (embedUrl.contains("youtube", ignoreCase = true) ||
-            embedUrl.contains("youtu.be", ignoreCase = true)) {
-            Log.d("MultiMovies", "Skipping YouTube link")
-            return
-        }
+        try {
+            when {
+                // GDMirrorBot → pro.iqsmartgames.com रीडायरेक्ट चेन
+                url.contains("gdmirrorbot", true) || url.contains("iqsmartgames", true) ->
+                    GDMirrorBot().getUrl(url, referer, subtitleCallback, callback)
 
-        // Route based on URL type
-        when {
-            embedUrl.contains("stream.techinmind.space") -> {
-                Log.d("MultiMovies", "Using TechInMindStream for: $embedUrl")
-                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
-            }
-            embedUrl.contains("ssn.techinmind.space") -> {
-                Log.d("MultiMovies", "Using TechInMindSSN for: $embedUrl")
-                TechInMindSSN().getUrl(embedUrl, referer, subtitleCallback, callback)
-            }
-            embedUrl.contains("ddn.iqsmartgames.com") -> {
-                Log.d("MultiMovies", "Using GDMirrorDownload for: $embedUrl")
-                GDMirrorDownload().getUrl(embedUrl, referer, subtitleCallback, callback)
-            }
-            else -> {
-                // Try TechInMindStream as default
-                Log.d("MultiMovies", "Using default TechInMindStream for: $embedUrl")
-                TechInMindStream().getUrl(embedUrl, referer, subtitleCallback, callback)
-            }
-        }
-    }
+                // MultiMoviesSHG — JWPlayer m3u8
+                url.contains("multimoviesshg", true) ->
+                    MultiMoviesSHG().getUrl(url, referer, subtitleCallback, callback)
 
-    private fun extractEmbedUrl(responseText: String): String? {
-        return try {
-            val json = JSONObject(responseText)
-            var embedUrl = json.optString("embed_url", "")
-            
-            // Clean up escaped characters
-            embedUrl = embedUrl
-                .replace("\\/", "/")
-                .replace("\\\"", "\"")
-                .trim()
-            
-            // If still contains quotes, extract the URL
-            if (embedUrl.startsWith("\"") || embedUrl.contains("\"")) {
-                embedUrl = embedUrl
-                    .substringAfter("\"")
-                    .substringBefore("\"")
-                    .trim()
-            }
-            
-            if (embedUrl.isNotBlank() && embedUrl.startsWith("http")) {
-                embedUrl
-            } else {
-                null
+                // RpmShare — rpmhub.site
+                url.contains("rpmhub", true) ->
+                    RpmShare().getUrl(url, referer, subtitleCallback, callback)
+
+                // SmoothPre — smoothpre.com (EarnVids)
+                url.contains("smoothpre", true) ->
+                    SmoothPre().getUrl(url, referer, subtitleCallback, callback)
+
+                // TechInMind — stream.techinmind.space (TV शो)
+                url.contains("techinmind", true) ->
+                    TechInMind().getUrl(url, referer, subtitleCallback, callback)
+
+                // अज्ञात डोमेन — GDMirrorBot से ट्राई करना (अक्सर रीडायरेक्ट होता है)
+                else -> {
+                    Log.d(tag, "अज्ञात डोमेन, GDMirrorBot फ़ॉलबैक: $url")
+                    GDMirrorBot().getUrl(url, referer, subtitleCallback, callback)
+                }
             }
         } catch (e: Exception) {
-            Log.e("MultiMovies", "Failed to parse embed URL: ${e.message}")
-            // Fallback regex extraction
-            val urlMatch = Regex("""https?://[^"'\s\\]+""").find(responseText)
-            urlMatch?.value?.replace("\\/", "/")
+            Log.e(tag, "एक्सट्रैक्टर विफल: ${e.message}")
         }
-    }
-
-    data class ResponseHash(
-        @param:JsonProperty("embed_url") val embed_url: String,
-        @param:JsonProperty("key") val key: String? = null,
-        @param:JsonProperty("type") val type: String? = null,
-    )
-
-    private fun Element.getImageAttr(): String? {
-        return this.attr("data-src")
-            .takeIf { it.isNotBlank() && it.startsWith("http") }
-            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
     }
 }
