@@ -78,17 +78,18 @@ fun isStreamingUrl(url: String): Boolean {
 // ====== SVID Page Parser ======
 
 /**
- * Follows evid redirect to SVID page and parses server links from HTML.
+ * Calls the /embedhelper.php API on the SVID domain to get server links.
  *
- * Verified SVID page structure (from deep scraping):
- * - DDN download link: a.dlvideoLinks[href]
- *   e.g. https://ddn.iqsmartgames.com/file/rzujlij
- * - Server items: li.server-item[data-link][data-source-key]
- *   e.g. data-source-key="smwh" -> multimoviesshg.com/e/{id}
- *        data-source-key="rpmshre" -> multimovies.rpmhub.site/#{hash}
- *        data-source-key="upnshr" -> server1.uns.bio/#{hash}
- *        data-source-key="strmp2" -> multimovies.p2pplay.pro/#{hash}
- * - Hidden input: #gdmrfid contains fileslug
+ * The SVID page HTML is empty (server links loaded via JS AJAX).
+ * The underlying API: POST /embedhelper.php with sid=<fileslug>
+ *
+ * Response JSON contains:
+ *   - siteUrls: {"smwh":"https://multimoviesshg.com/e/",...}
+ *   - mresult: base64-encoded JSON {"smwh":"z2fo4kvtve65",...}
+ *   - sid: fileslug (for DDN link construction)
+ *
+ * Full server URL = siteUrls[key] + mresult[key]
+ * DDN URL = https://ddn.iqsmartgames.com/file/<sid>
  *
  * @param fileslug The file slug from the API (e.g. "rzujlij")
  * @param baseEvidUrl The base URL for evid pages (e.g. "https://ssn.techinmind.space/evid/")
@@ -100,50 +101,65 @@ suspend fun fetchSvidServerLinks(
 ): List<Pair<String, String>> {
     val serverLinks = mutableListOf<Pair<String, String>>()
     try {
-        Log.d("SvidParser", "Fetching SVID page for fileslug: $fileslug")
+        Log.d("SvidParser", "Fetching server links for fileslug: $fileslug")
 
-        // Construct evid URL — follows redirect to SVID page
-        // evid URL: https://ssn.techinmind.space/evid/rzujlij
-        // Redirects to: https://ssn.techinmind.space/svid/{encoded}
-        val evidUrl = if (fileslug.startsWith("http")) fileslug else "$baseEvidUrl$fileslug"
-        val response = app.get(evidUrl, allowRedirects = true)
-        val doc = response.document
-        val svidUrl = response.url
-        Log.d("SvidParser", "SVID page URL: $svidUrl")
+        // Determine the API domain from baseEvidUrl
+        val apiBaseUrl = getBaseUrl(baseEvidUrl).ifBlank { "https://ssn.techinmind.space" }
+        val apiUrl = "$apiBaseUrl/embedhelper.php"
 
-        // Extract DDN download link (highest priority — direct download)
-        val ddnLink = doc.selectFirst("a.dlvideoLinks")?.attr("href")?.trim()
-        if (!ddnLink.isNullOrBlank()) {
-            serverLinks.add(Pair(ddnLink, "ddn"))
-            Log.d("SvidParser", "DDN download link: $ddnLink")
-        }
+        // DDN link is always: ddn.iqsmartgames.com/file/<fileslug>
+        val ddnUrl = "https://ddn.iqsmartgames.com/file/$fileslug"
+        serverLinks.add(Pair(ddnUrl, "ddn"))
+        Log.d("SvidParser", "DDN download link: $ddnUrl")
 
-        // Extract all server links from li.server-item elements
-        val serverItems = doc.select("li.server-item[data-link]")
-        for (item in serverItems) {
-            val serverUrl = item.attr("data-link").trim()
-            val sourceKey = item.attr("data-source-key").trim()
-            if (serverUrl.isNotBlank()) {
-                serverLinks.add(Pair(serverUrl, sourceKey))
-                Log.d("SvidParser", "Server [$sourceKey]: $serverUrl")
+        // Call embedhelper.php API to get server links
+        val response = app.post(
+            apiUrl,
+            data = mapOf(
+                "sid" to fileslug,
+                "UserFavSite" to "",
+                "currentDomain" to "[]"
+            )
+        )
+
+        val json = JSONObject(response.text)
+
+        // Parse siteUrls (base URLs for each server)
+        val siteUrls = json.optJSONObject("siteUrls")
+        // Parse mresult (base64-encoded JSON with slugs for each server)
+        val mresultB64 = json.optString("mresult", "")
+        val mresult = if (mresultB64.isNotBlank()) {
+            try {
+                JSONObject(String(android.util.Base64.decode(mresultB64, android.util.Base64.DEFAULT)))
+            } catch (e: Exception) {
+                Log.e("SvidParser", "Failed to decode mresult: ${e.message}")
+                null
             }
-        }
+        } else null
 
-        // Fallback: if no links found at all, construct DDN URL from fileslug
-        if (serverLinks.isEmpty()) {
-            val gdmrfid = doc.selectFirst("input#gdmrfid")?.attr("value")?.trim()
-            val slug = gdmrfid ?: fileslug
-            val ddnUrl = "https://ddn.iqsmartgames.com/file/$slug"
-            serverLinks.add(Pair(ddnUrl, "ddn"))
-            Log.d("SvidParser", "Fallback DDN URL: $ddnUrl")
+        if (siteUrls != null && mresult != null) {
+            // Construct full URLs: siteUrls[key] + mresult[key]
+            val keys = mresult.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val baseUrl = siteUrls.optString(key, "")
+                val slug = mresult.optString(key, "")
+                if (baseUrl.isNotBlank() && slug.isNotBlank()) {
+                    val fullUrl = "$baseUrl$slug"
+                    serverLinks.add(Pair(fullUrl, key))
+                    Log.d("SvidParser", "Server [$key]: $fullUrl")
+                }
+            }
         }
 
         Log.d("SvidParser", "Total server links found: ${serverLinks.size}")
     } catch (e: Exception) {
-        Log.e("SvidParser", "SVID page error: ${e.message}")
-        // Fallback to direct DDN URL
-        val ddnUrl = "https://ddn.iqsmartgames.com/file/$fileslug"
-        serverLinks.add(Pair(ddnUrl, "ddn"))
+        Log.e("SvidParser", "API error: ${e.message}")
+        // Fallback to direct DDN URL if API fails
+        if (serverLinks.isEmpty()) {
+            val ddnUrl = "https://ddn.iqsmartgames.com/file/$fileslug"
+            serverLinks.add(Pair(ddnUrl, "ddn"))
+        }
     }
     return serverLinks
 }

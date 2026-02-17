@@ -347,39 +347,35 @@ class MultiMoviesProvider : MainAPI() {
 
             // === FLOW 1: Direct SVID page (gdmirrorbot.nl redirects here) ===
             if (embedFinalUrl.contains("/svid/") || embedHtml.contains("id=\"videoLinks\"")) {
-                Log.d("MultiMovies", "Direct SVID page detected, parsing server links")
+                Log.d("MultiMovies", "Direct SVID page detected")
                 val svidDoc = org.jsoup.Jsoup.parse(embedHtml)
 
-                // Extract DDN direct download link
-                val ddnLink = svidDoc.selectFirst("a.dlvideoLinks")?.attr("href")
-                if (!ddnLink.isNullOrBlank()) {
-                    processedLinks.add(ddnLink)
-                    val handled = loadExtractor(ddnLink, pageUrl, subtitleCallback, callback)
+                // Extract fileslug from hidden input on SVID page
+                val fileslug = svidDoc.selectFirst("input#gdmrfid")?.attr("value")?.trim()
+                if (fileslug.isNullOrBlank()) {
+                    Log.e("MultiMovies", "Could not extract fileslug from SVID page")
+                    return false
+                }
+
+                Log.d("MultiMovies", "SVID fileslug: $fileslug")
+
+                // Use the API-based approach to get server links from embedhelper.php
+                val svidBaseUrl = getBaseUrl(embedFinalUrl).ifBlank { "https://ssn.techinmind.space" }
+                val serverLinks = fetchSvidServerLinks(fileslug, "$svidBaseUrl/evid/")
+
+                for ((serverUrl, sourceKey) in serverLinks) {
+                    if (serverUrl in processedLinks) continue
+                    if (isStreamingUrl(serverUrl)) continue
+
+                    processedLinks.add(serverUrl)
+                    val handled = loadExtractor(serverUrl, pageUrl, subtitleCallback, callback)
                     if (!handled) {
                         callback.invoke(
-                            newExtractorLink("MultiMovies", "MultiMovies DDN Direct", ddnLink, ExtractorLinkType.VIDEO) {
+                            newExtractorLink("MultiMovies", "MultiMovies [$sourceKey]", serverUrl, ExtractorLinkType.VIDEO) {
                                 this.referer = pageUrl
                                 this.quality = Qualities.Unknown.value
                             }
                         )
-                    }
-                }
-
-                // Extract server-item links (StreamHG, RpmShare, UnsBio, P2pPlay, SmoothPre etc.)
-                svidDoc.select("li.server-item[data-link]").forEach { item ->
-                    val serverUrl = item.attr("data-link").trim()
-                    val sourceKey = item.attr("data-source-key").trim()
-                    if (serverUrl.isNotBlank() && serverUrl !in processedLinks && !isStreamingUrl(serverUrl)) {
-                        processedLinks.add(serverUrl)
-                        val handled = loadExtractor(serverUrl, pageUrl, subtitleCallback, callback)
-                        if (!handled) {
-                            callback.invoke(
-                                newExtractorLink("MultiMovies", "MultiMovies [$sourceKey]", serverUrl, ExtractorLinkType.VIDEO) {
-                                    this.referer = pageUrl
-                                    this.quality = Qualities.Unknown.value
-                                }
-                            )
-                        }
                     }
                 }
 
