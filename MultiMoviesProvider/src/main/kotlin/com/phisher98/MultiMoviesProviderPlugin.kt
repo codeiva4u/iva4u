@@ -9,12 +9,10 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerMainAPI(MultiMoviesProvider())
         
         // Register all Extractors
-        registerExtractorAPI(Multimoviesshg())
-        registerExtractorAPI(VidStack())  // Base VidStack
-        registerExtractorAPI(RpmHub())    // VidStack subclass
-        registerExtractorAPI(UnsBio())    // VidStack subclass
-        registerExtractorAPI(P2pPlay())   // VidStack subclass
-        registerExtractorAPI(SmoothPre())
-        registerExtractorAPI(Techinmind())
+        registerExtractorAPI(GDMirrorExtractor())
+        registerExtractorAPI(StreamHGExtractor())
+        registerExtractorAPI(RpmShareExtractor())
+        registerExtractorAPI(UpnShareExtractor())
+        registerExtractorAPI(StreamP2pExtractor())
     }
 }

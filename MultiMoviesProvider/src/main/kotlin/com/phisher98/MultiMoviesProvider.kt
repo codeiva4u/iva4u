@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -27,8 +28,8 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
@@ -291,15 +292,6 @@ class MultiMoviesProvider : MainAPI() {
         }
     }
 
-    /**
-     * loadLinks — simplified flow:
-     * 1. Get iframe URL (direct from page HTML, or via AJAX for LinkData)
-     * 2. Parse embed page for JS variables (FinalID, idType, myKey, season, episode)
-     * 3. Call mymovieapi to get quality items (fileslug, filename, fsize)
-     * 4. Sort by quality priority (X264 1080p > X264 720p > X265 1080p > ...)
-     * 5. For each quality item, fetch SVID server links via fetchSvidServerLinks()
-     * 6. For each server link, delegate to registered extractors via loadExtractor()
-     */
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -307,110 +299,73 @@ class MultiMoviesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         try {
-            Log.d("MultiMovies", "loadLinks called with data: ${data.take(200)}")
+            Log.d("MultiMovies", "loadLinks called with data: $data")
 
-            // Determine if data is LinkData JSON or a direct URL
-            val linkData = try { parseJson<LinkData>(data) } catch (_: Exception) { null }
+            // Determine if data is a URL or serialized LinkData JSON
+            val isUrl = data.startsWith("http")
 
-            val iframeUrls = mutableListOf<String>()
+            if (isUrl) {
+                // Movie or Episode direct URL
+                val doc = app.get(data, interceptor = cfKiller).document
 
-            if (linkData != null) {
-                // Data is LinkData JSON — use DooPlay AJAX to get player iframe
-                Log.d("MultiMovies", "LinkData mode — post=${linkData.post}, type=${linkData.type}, nume=${linkData.nume}")
-                try {
-                    val ajaxResponse = app.post(
-                        "$mainUrl/wp-admin/admin-ajax.php",
-                        data = mapOf(
-                            "action" to "doo_player_ajax",
-                            "post" to linkData.post,
-                            "type" to linkData.type,
-                            "nume" to linkData.nume
-                        ),
-                        referer = linkData.url,
-                        interceptor = cfKiller
-                    ).text
-
-                    // Parse the JSON response to get iframe URL
-                    val ajaxJson = try { JSONObject(ajaxResponse) } catch (_: Exception) { null }
-                    val embedUrl = ajaxJson?.optString("embed_url")?.takeIf { it.isNotBlank() }
-
-                    if (embedUrl != null) {
-                        iframeUrls.add(embedUrl)
-                    } else {
-                        // Fallback: try to extract iframe from the response HTML
-                        val iframeSrc = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                            .find(ajaxResponse)?.groupValues?.get(1)
-                        if (!iframeSrc.isNullOrBlank()) {
-                            iframeUrls.add(iframeSrc)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MultiMovies", "AJAX call failed: ${e.message}")
-                }
-            } else {
-                // Data is a direct URL (movie page or episode page)
-                Log.d("MultiMovies", "URL mode — fetching page: ${data.take(100)}")
-                val pageDoc = app.get(data, interceptor = cfKiller).document
-
-                // Method 1: Get iframe from the default loaded player
-                val defaultIframe = pageDoc.selectFirst("#dooplay_player_response iframe.metaframe, #dooplay_player_response iframe")
-                    ?.attr("src")
-                if (!defaultIframe.isNullOrBlank()) {
-                    iframeUrls.add(defaultIframe)
-                }
-
-                // Method 2: Get all player options and fetch each via AJAX
-                val playerOptions = pageDoc.select("ul#playeroptionsul > li")
+                // Get all player options
+                val playerOptions = doc.select("ul#playeroptionsul > li")
                     .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
 
-                for (option in playerOptions) {
+                if (playerOptions.isEmpty()) {
+                    Log.e("MultiMovies", "No player options found on page: $data")
+                    return false
+                }
+
+                val isMovie = data.contains("/movies/")
+                val type = if (isMovie) "movie" else "tv"
+
+                playerOptions.amap { option ->
                     val post = option.attr("data-post")
-                    val type = option.attr("data-type")
                     val nume = option.attr("data-nume")
+                    val serverName = option.selectFirst("span.title")?.text()?.trim() ?: "Server $nume"
 
-                    if (post.isBlank() || type.isBlank() || nume.isBlank()) continue
-
-                    try {
-                        val ajaxResponse = app.post(
-                            "$mainUrl/wp-admin/admin-ajax.php",
-                            data = mapOf(
-                                "action" to "doo_player_ajax",
-                                "post" to post,
-                                "type" to type,
-                                "nume" to nume
-                            ),
-                            referer = data,
-                            interceptor = cfKiller
-                        ).text
-
-                        val ajaxJson = try { JSONObject(ajaxResponse) } catch (_: Exception) { null }
-                        val embedUrl = ajaxJson?.optString("embed_url")?.takeIf { it.isNotBlank() }
-
-                        if (embedUrl != null && !iframeUrls.contains(embedUrl)) {
-                            iframeUrls.add(embedUrl)
-                        } else {
-                            val iframeSrc = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                                .find(ajaxResponse)?.groupValues?.get(1)
-                            if (!iframeSrc.isNullOrBlank() && !iframeUrls.contains(iframeSrc)) {
-                                iframeUrls.add(iframeSrc)
-                            }
+                    if (post.isNotEmpty() && nume.isNotEmpty()) {
+                        try {
+                            extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
+                        } catch (e: Exception) {
+                            Log.e("MultiMovies", "Error extracting from $serverName: ${e.message}")
                         }
-                    } catch (e: Exception) {
-                        Log.e("MultiMovies", "AJAX for option $nume failed: ${e.message}")
                     }
                 }
-            }
-
-            Log.d("MultiMovies", "Found ${iframeUrls.size} iframe URLs")
-
-            // Delegate each iframe URL to the appropriate extractor
-            for (iframeUrl in iframeUrls) {
+            } else {
+                // Serialized LinkData JSON (from TV series list fallback in load function)
                 try {
-                    val fixedUrl = if (iframeUrl.startsWith("//")) "https:$iframeUrl" else iframeUrl
-                    Log.d("MultiMovies", "Loading extractor for: $fixedUrl")
-                    loadExtractor(fixedUrl, "$mainUrl/", subtitleCallback, callback)
+                    val linkData = parseJson<LinkData>(data)
+                    val type = linkData.type
+                    val post = linkData.post
+                    val nume = linkData.nume
+                    val serverName = linkData.name ?: "Server $nume"
+
+                    extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
                 } catch (e: Exception) {
-                    Log.e("MultiMovies", "Extractor failed for $iframeUrl: ${e.message}")
+                    Log.e("MultiMovies", "Failed to parse LinkData: ${e.message}")
+                    // Try as direct URL fallback
+                    if (data.contains("http")) {
+                        val doc = app.get(data, interceptor = cfKiller).document
+                        val playerOptions = doc.select("ul#playeroptionsul > li")
+                            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
+
+                        playerOptions.amap { option ->
+                            val post = option.attr("data-post")
+                            val nume = option.attr("data-nume")
+                            val type = option.attr("data-type")
+                            val serverName = option.selectFirst("span.title")?.text()?.trim() ?: "Server $nume"
+
+                            if (post.isNotEmpty() && nume.isNotEmpty()) {
+                                try {
+                                    extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
+                                } catch (ex: Exception) {
+                                    Log.e("MultiMovies", "Error: ${ex.message}")
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -418,5 +373,112 @@ class MultiMoviesProvider : MainAPI() {
             Log.e("MultiMovies", "loadLinks failed: ${e.message}")
         }
         return true
+    }
+
+    private suspend fun extractFromPlayerOption(
+        post: String,
+        type: String,
+        nume: String,
+        serverName: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        Log.d("MultiMovies", "Extracting: post=$post, type=$type, nume=$nume, server=$serverName")
+
+        // DooPlay REST API endpoint
+        val apiUrl = "$mainUrl/wp-json/dooplayer/v2/$post/$type/$nume"
+
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer" to mainUrl,
+            "Accept" to "application/json, text/plain, */*",
+            "X-Requested-With" to "XMLHttpRequest"
+        )
+
+        try {
+            val response = app.get(apiUrl, headers = headers)
+            val responseText = response.text
+
+            // Try JSON response first
+            var iframeSrc: String? = null
+            try {
+                val json = JSONObject(responseText)
+                // DooPlay returns: {"type":"iframe","embed_url":"..."}
+                iframeSrc = json.optString("embed_url")
+                if (iframeSrc.isNullOrBlank()) {
+                    iframeSrc = json.optString("url")
+                }
+                if (iframeSrc.isNullOrBlank()) {
+                    // Try extracting from HTML in response
+                    val embedHtml = json.optString("embed_url", json.optString("type", ""))
+                    iframeSrc = Regex("""src=["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
+                }
+            } catch (_: Exception) {
+                // Response might be HTML directly
+                iframeSrc = Regex("""<iframe[^>]+src=["']([^"']+)["']""").find(responseText)?.groupValues?.get(1)
+            }
+
+            if (iframeSrc.isNullOrBlank()) {
+                Log.e("MultiMovies", "Could not extract iframe URL from API response for $serverName")
+                return
+            }
+
+            Log.d("MultiMovies", "Got iframe src: $iframeSrc for $serverName")
+
+            // Dispatch to appropriate extractor based on iframe URL domain
+            when {
+                iframeSrc.contains("techinmind.space") -> {
+                    GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+                iframeSrc.contains("multimoviesshg") -> {
+                    StreamHGExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+                iframeSrc.contains("rpmhub.site") -> {
+                    RpmShareExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+                iframeSrc.contains("uns.bio") -> {
+                    UpnShareExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+                iframeSrc.contains("p2pplay.pro") -> {
+                    StreamP2pExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+                else -> {
+                    // Try GDMirror as generic handler for unknown domains
+                    Log.d("MultiMovies", "Unknown iframe domain, trying GDMirror: $iframeSrc")
+                    GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e("MultiMovies", "API call failed for $serverName: ${e.message}")
+
+            // Fallback: Try admin-ajax.php method
+            try {
+                val ajaxUrl = "$mainUrl/wp-admin/admin-ajax.php"
+                val ajaxResponse = app.post(ajaxUrl, headers = headers, data = mapOf(
+                    "action" to "doo_player_ajax",
+                    "post" to post,
+                    "type" to type,
+                    "nume" to nume
+                ))
+
+                val iframeSrc = Regex("""src=["']([^"']+)["']""").find(ajaxResponse.text)?.groupValues?.get(1)
+                if (iframeSrc != null) {
+                    when {
+                        iframeSrc.contains("techinmind.space") -> {
+                            GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                        }
+                        iframeSrc.contains("multimoviesshg") -> {
+                            StreamHGExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                        }
+                        else -> {
+                            GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                        }
+                    }
+                }
+            } catch (ex: Exception) {
+                Log.e("MultiMovies", "Admin-ajax fallback also failed: ${ex.message}")
+            }
+        }
     }
 }
