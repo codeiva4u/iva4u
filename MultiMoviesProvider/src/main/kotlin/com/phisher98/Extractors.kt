@@ -1,6 +1,5 @@
 package com.phisher98
 
-import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
@@ -191,7 +190,8 @@ class DDNIqsmartgames : ExtractorApi() {
                 .find(html)
 
             if (fileurlMatch != null) {
-                val directUrl = fileurlMatch.groupValues[1]
+                // Unescape JSON-encoded slashes (\/ → /) from the JS variable value
+                val directUrl = fileurlMatch.groupValues[1].replace("\\/", "/")
                 Log.d(name, "Found direct download URL via fileurl")
 
                 if (!isStreamingUrl(directUrl) && directUrl.startsWith("http")) {
@@ -309,7 +309,7 @@ class DDNIqsmartgames : ExtractorApi() {
  */
 class Multimoviesshg : ExtractorApi() {
     override val name = "Multimoviesshg"
-    override val mainUrl = "https://multimoviesshg.com"
+    override val mainUrl = MultiMoviesProvider.getMultimoviesshgUrl()
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -489,7 +489,7 @@ class Multimoviesshg : ExtractorApi() {
  */
 class UnsBio : ExtractorApi() {
     override val name = "UnsBio"
-    override val mainUrl = "https://server1.uns.bio"
+    override val mainUrl = MultiMoviesProvider.getUnsBioUrl()
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -876,7 +876,7 @@ class SmoothPre : ExtractorApi() {
  *
  * Verified SVID page structure:
  * - Server items: li.server-item[data-link][data-source-key]
- * - DDN download link: a.dlvideoLinks[href]
+ * - DDN download link: a.dlvideoLinks
  */
 class Techinmind : ExtractorApi() {
     override val name = "Techinmind"
