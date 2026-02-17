@@ -305,7 +305,6 @@ class MultiMoviesProvider : MainAPI() {
             val pageUrl: String
 
             if (data.startsWith("{")) {
-                // LinkData from player options (TV show without season structure)
                 val linkData = parseJson<LinkData>(data)
                 pageUrl = linkData.url
                 iframeSrc = getIframeViaAjax(linkData.post, linkData.type, linkData.nume, pageUrl)
@@ -313,12 +312,10 @@ class MultiMoviesProvider : MainAPI() {
                 pageUrl = data
                 val doc = app.get(pageUrl, interceptor = cfKiller).document
 
-                // Try to find iframe directly in page HTML
                 iframeSrc = doc.selectFirst("#dooplay_player_response iframe")?.attr("src")
                     ?: doc.selectFirst("iframe.metaframe")?.attr("src")
                     ?: doc.selectFirst(".pframe iframe")?.attr("src")
 
-                // If no iframe found, try AJAX with first non-trailer player option
                 if (iframeSrc.isNullOrBlank()) {
                     val playerOption = doc.select("ul#playeroptionsul > li")
                         .firstOrNull { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
@@ -339,9 +336,57 @@ class MultiMoviesProvider : MainAPI() {
 
             Log.d("MultiMovies", "Iframe src: $iframeSrc")
 
-            // Load embed page and extract JS variables
-            val embedHtml = app.get(iframeSrc, referer = pageUrl).text
+            // Load embed page — follow redirects to detect SVID direct redirect
+            val embedResponse = app.get(iframeSrc, referer = pageUrl)
+            val embedHtml = embedResponse.text
+            val embedFinalUrl = embedResponse.url
 
+            Log.d("MultiMovies", "Embed final URL: $embedFinalUrl")
+
+            val processedLinks = mutableSetOf<String>()
+
+            // === FLOW 1: Direct SVID page (gdmirrorbot.nl redirects here) ===
+            if (embedFinalUrl.contains("/svid/") || embedHtml.contains("id=\"videoLinks\"")) {
+                Log.d("MultiMovies", "Direct SVID page detected, parsing server links")
+                val svidDoc = org.jsoup.Jsoup.parse(embedHtml)
+
+                // Extract DDN direct download link
+                val ddnLink = svidDoc.selectFirst("a.dlvideoLinks")?.attr("href")
+                if (!ddnLink.isNullOrBlank()) {
+                    processedLinks.add(ddnLink)
+                    val handled = loadExtractor(ddnLink, pageUrl, subtitleCallback, callback)
+                    if (!handled) {
+                        callback.invoke(
+                            newExtractorLink("MultiMovies", "MultiMovies DDN Direct", ddnLink, ExtractorLinkType.VIDEO) {
+                                this.referer = pageUrl
+                                this.quality = Qualities.Unknown.value
+                            }
+                        )
+                    }
+                }
+
+                // Extract server-item links (StreamHG, RpmShare, UnsBio, P2pPlay, SmoothPre etc.)
+                svidDoc.select("li.server-item[data-link]").forEach { item ->
+                    val serverUrl = item.attr("data-link").trim()
+                    val sourceKey = item.attr("data-source-key").trim()
+                    if (serverUrl.isNotBlank() && serverUrl !in processedLinks && !isStreamingUrl(serverUrl)) {
+                        processedLinks.add(serverUrl)
+                        val handled = loadExtractor(serverUrl, pageUrl, subtitleCallback, callback)
+                        if (!handled) {
+                            callback.invoke(
+                                newExtractorLink("MultiMovies", "MultiMovies [$sourceKey]", serverUrl, ExtractorLinkType.VIDEO) {
+                                    this.referer = pageUrl
+                                    this.quality = Qualities.Unknown.value
+                                }
+                            )
+                        }
+                    }
+                }
+
+                return processedLinks.isNotEmpty()
+            }
+
+            // === FLOW 2: Techinmind embed page (stream.techinmind.space) ===
             val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
             val idType = Regex("""let\s+idType\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
             val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
@@ -353,16 +398,13 @@ class MultiMoviesProvider : MainAPI() {
 
             Log.d("MultiMovies", "FinalID=$finalId, idType=$idType")
 
-            // Extract API URL template and base evid URL
             val apiUrlTemplate = Regex("""let\s+apiUrl\s*=\s*`([^`]+)`""").find(embedHtml)?.groupValues?.get(1)
             val baseEvidUrl = Regex("""let\s+baseUrl\s*=\s*["']([^"']+)["']""").find(embedHtml)?.groupValues?.get(1)
                 ?: "https://ssn.techinmind.space/evid/"
 
-            // Extract season/episode for TV show API calls
             val seasonVar = Regex("""let\s+season\s*=\s*["']?(\d+)["']?""").find(embedHtml)?.groupValues?.get(1)
             val episodeVar = Regex("""let\s+episode\s*=\s*["']?(\d+)["']?""").find(embedHtml)?.groupValues?.get(1)
 
-            // Build the actual API URL by replacing template variables
             val apiUrl = apiUrlTemplate
                 ?.replace("\${idType}", idType)
                 ?.replace("\${FinalID}", finalId)
@@ -374,7 +416,6 @@ class MultiMoviesProvider : MainAPI() {
                     result
                 }
 
-            // Data class for quality tracking
             data class QualityItem(
                 val fileslug: String,
                 val filename: String,
@@ -384,7 +425,6 @@ class MultiMoviesProvider : MainAPI() {
 
             val qualityItems = mutableListOf<QualityItem>()
 
-            // Call mymovieapi to get file data
             if (!apiUrl.isNullOrBlank()) {
                 try {
                     val apiResponseText = app.get(apiUrl, referer = iframeSrc).text
@@ -411,7 +451,7 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
 
-            // Fallback: try data-link attributes from embed page HTML
+            // Fallback: data-link attributes from embed page
             if (qualityItems.isEmpty()) {
                 val qualityLinks = Regex("""data-link=["']([^"']+)["'][^>]*>([^<]+)""").findAll(embedHtml)
                 for (match in qualityLinks) {
@@ -430,20 +470,14 @@ class MultiMoviesProvider : MainAPI() {
                 return false
             }
 
-            // Sort: quality priority first, then file size (smaller preferred)
             qualityItems.sortWith(compareBy({ it.priority }, { it.sizeMB }))
             Log.d("MultiMovies", "Found ${qualityItems.size} quality items, sorted by priority")
 
-            val processedLinks = mutableSetOf<String>()
-
-            // Process each quality item — fetch SVID server links, delegate to extractors
             for (qualityItem in qualityItems) {
                 try {
                     val qualityValue = getQualityFromName(qualityItem.filename)
-
                     Log.d("MultiMovies", "Processing: ${qualityItem.filename} (priority: ${qualityItem.priority})")
 
-                    // Fetch all server links from SVID page for this fileslug
                     val serverLinks = fetchSvidServerLinks(qualityItem.fileslug, baseEvidUrl)
 
                     for ((serverUrl, sourceKey) in serverLinks) {
@@ -452,13 +486,11 @@ class MultiMoviesProvider : MainAPI() {
 
                         processedLinks.add(serverUrl)
 
-                        // Try registered extractors first (match by URL domain)
                         val extractorHandled = loadExtractor(
                             serverUrl, pageUrl, subtitleCallback, callback
                         )
 
                         if (!extractorHandled) {
-                            // Fallback: emit as direct link with quality info
                             callback.invoke(
                                 newExtractorLink(
                                     "MultiMovies",
