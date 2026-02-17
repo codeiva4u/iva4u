@@ -118,7 +118,7 @@ fun shouldBlockUrl(url: String): Boolean {
 }
 
 /**
- * ROT13 decode function for gadgetsweb.xyz URL obfuscation
+ * ROT13 decode function for cryptonewz.one URL obfuscation
  * Used in the decode chain: base64 -> base64 -> rot13 -> base64
  */
 fun rot13(input: String): String {
@@ -132,10 +132,10 @@ fun rot13(input: String): String {
 }
 
 /**
- * Decode gadgetsweb localStorage data to extract final hblinks URL
+ * Decode cryptonewz localStorage data to extract final hblinks URL
  * Decode chain: base64 -> base64 -> rot13 -> base64 -> JSON parse -> base64 decode 'o' field
  */
-fun decodeGadgetswebData(encodedData: String): String? {
+fun decodecryptonewzData(encodedData: String): String? {
     return try {
         // Decode chain: base64 -> base64 -> rot13 -> base64
         val step1 = base64Decode(encodedData)  // First base64 decode
@@ -577,9 +577,9 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
-                // gadgetsweb.xyz/?id=ENCRYPTED - NEW v2.0 approach
-                newUrl.contains("gadgetsweb.xyz") && newUrl.contains("?id=") -> {
-                    Log.d(tag, "Gadgetsweb v2.0 - extracting encoded data from response")
+                // cryptonewz.one/?id=ENCRYPTED - NEW v2.0 approach
+                newUrl.contains("cryptonewz.one") && newUrl.contains("?id=") -> {
+                    Log.d(tag, "cryptonewz v2.0 - extracting encoded data from response")
                     
                     var hblinksUrl: String? = null
                     
@@ -599,7 +599,7 @@ class HUBCDN : ExtractorApi() {
                         Log.d(tag, "✓ Found encoded data (${encodedData.length} chars)")
                         
                         // Step 3: Decode using the chain: base64 → base64 → rot13 → base64 → JSON → base64
-                        hblinksUrl = decodeGadgetswebData(encodedData)
+                        hblinksUrl = decodecryptonewzData(encodedData)
                         
                         if (hblinksUrl != null) {
                             Log.d(tag, "✓ Decoded hblinks URL: $hblinksUrl")
@@ -643,13 +643,13 @@ class HUBCDN : ExtractorApi() {
                         Log.d(tag, "→ Processing hblinks: $hblinksUrl")
                         Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
                     } else {
-                        Log.w(tag, "✗ Failed to extract hblinks URL from gadgetsweb")
+                        Log.w(tag, "✗ Failed to extract hblinks URL from cryptonewz")
                     }
                 }
                 
-                // gadgetsweb.xyz/homelander/ or similar mediator pages (direct access)
-                newUrl.contains("gadgetsweb.xyz") && !newUrl.contains("?id=") -> {
-                    Log.d(tag, "Gadgetsweb mediator page (direct access)")
+                // cryptonewz.one/homelander/ or similar mediator pages (direct access)
+                newUrl.contains("cryptonewz.one") && !newUrl.contains("?id=") -> {
+                    Log.d(tag, "cryptonewz mediator page (direct access)")
                     val doc = app.get(newUrl).document
                     val html = doc.html()
                     
