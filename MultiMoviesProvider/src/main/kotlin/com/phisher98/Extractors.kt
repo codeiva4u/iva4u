@@ -347,27 +347,50 @@ class Multimoviesshg : ExtractorApi() {
 
             Log.d(name, "File ID: $fileId")
 
-            // Strategy 1: Try download page /d/{id}
+            // Strategy 1: Try download page /d/{id} — has quality-specific links
+            // Deep scraping confirmed: /d/ page has hidden <a> tags pointing to
+            // /f/{id}_h (Full HD 1080p), /f/{id}_n (HD 720p), /f/{id}_l (Normal 480p)
+            // Link text contains quality label + resolution + file size
             try {
                 val dlPageUrl = "$mainUrl/d/$fileId"
                 val dlResponse = app.get(dlPageUrl, referer = referer ?: mainUrl, allowRedirects = true)
                 val dlDoc = dlResponse.document
 
-                // Look for direct download link
-                val dlLink = dlDoc.selectFirst("a#download-btn, a.download-btn, a[href*='/d/'], a[download]")
-                    ?.attr("href")
-                if (!dlLink.isNullOrBlank() && !isStreamingUrl(dlLink)) {
-                    val fullUrl = if (dlLink.startsWith("http")) dlLink else "$mainUrl$dlLink"
-                    callback.invoke(
-                        newExtractorLink(name, "$name Download", fullUrl, ExtractorLinkType.VIDEO) {
-                            this.referer = mainUrl
-                            this.quality = Qualities.Unknown.value
+                // Find quality-specific download links (href contains /f/)
+                val qualityLinks = dlDoc.select("a[href*=/f/]")
+                if (qualityLinks.isNotEmpty()) {
+                    Log.d(name, "Found ${qualityLinks.size} quality links on /d/ page")
+                    for (link in qualityLinks) {
+                        val href = link.attr("href").trim()
+                        if (href.isBlank()) continue
+
+                        val linkText = link.text().trim()
+                        // Determine quality from href suffix or link text
+                        val qualityLabel = when {
+                            href.endsWith("_h") || linkText.contains("Full HD", true) -> "1080p"
+                            href.endsWith("_n") || linkText.contains("HD quality", true) -> "720p"
+                            href.endsWith("_l") || linkText.contains("Normal", true) -> "480p"
+                            else -> ""
                         }
-                    )
+                        // Extract file size from link text (e.g. "3.3 GB", "839.4 MB")
+                        val sizeMatch = Regex("""([\d.]+\s*(?:GB|MB))""", RegexOption.IGNORE_CASE).find(linkText)
+                        val sizeStr = sizeMatch?.value ?: ""
+                        val quality = getQualityFromName(qualityLabel)
+                        val fullUrl = if (href.startsWith("http")) href else "$mainUrl$href"
+                        val displayName = "$name ${qualityLabel.ifBlank { "Video" }} ${sizeStr}".trim()
+
+                        Log.d(name, "Quality link: $displayName -> $fullUrl")
+                        callback.invoke(
+                            newExtractorLink(name, displayName, fullUrl, ExtractorLinkType.VIDEO) {
+                                this.referer = dlPageUrl
+                                this.quality = quality
+                            }
+                        )
+                    }
                     return
                 }
 
-                // Look for form-based download (StreamHG F1 form)
+                // Fallback: Look for form-based download (StreamHG F1 form)
                 val form = dlDoc.selectFirst("form#F1, form[name=F1]")
                 if (form != null) {
                     val formData = mutableMapOf<String, String>()
