@@ -9,7 +9,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerMainAPI(MultiMoviesProvider())
         
         // Register all Extractors
-        registerExtractorAPI(DDNIqsmartgames())
         registerExtractorAPI(Multimoviesshg())
         registerExtractorAPI(UnsBio())
         registerExtractorAPI(RpmHub())
