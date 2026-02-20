@@ -33,14 +33,8 @@ import okhttp3.FormBody
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
-private fun Element.getImageAttr(): String? {
-    return when {
-        this.hasAttr("data-src") -> this.attr("abs:data-src")
-        this.hasAttr("data-lazy-src") -> this.attr("abs:data-lazy-src")
-        this.hasAttr("srcset") -> this.attr("abs:srcset").substringBefore(" ")
-        else -> this.attr("abs:src")
-    }
-}
+
+import com.fasterxml.jackson.annotation.JsonProperty
 
 class MultiMoviesProvider : MainAPI() {
     override var mainUrl: String = "https://multimovies.gripe/"
@@ -366,58 +360,6 @@ class MultiMoviesProvider : MainAPI() {
             }
         }
 
-                playerOptions.amap { option ->
-                    val post = option.attr("data-post")
-                    val nume = option.attr("data-nume")
-                    val serverName = option.selectFirst("span.title")?.text()?.trim() ?: "Server $nume"
-
-                    if (post.isNotEmpty() && nume.isNotEmpty()) {
-                        try {
-                            extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
-                        } catch (e: Exception) {
-                            Log.e("MultiMovies", "Error extracting from $serverName: ${e.message}")
-                        }
-                    }
-                }
-            } else {
-                // Serialized LinkData JSON (from TV series list fallback in load function)
-                try {
-                    val linkData = parseJson<LinkData>(data)
-                    val type = linkData.type
-                    val post = linkData.post
-                    val nume = linkData.nume
-                    val serverName = linkData.name ?: "Server $nume"
-
-                    extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
-                } catch (e: Exception) {
-                    Log.e("MultiMovies", "Failed to parse LinkData: ${e.message}")
-                    // Try as direct URL fallback
-                    if (data.contains("http")) {
-                        val doc = app.get(data, interceptor = cfKiller).document
-                        val playerOptions = doc.select("ul#playeroptionsul > li")
-                            .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
-
-                        playerOptions.amap { option ->
-                            val post = option.attr("data-post")
-                            val nume = option.attr("data-nume")
-                            val type = option.attr("data-type")
-                            val serverName = option.selectFirst("span.title")?.text()?.trim() ?: "Server $nume"
-
-                            if (post.isNotEmpty() && nume.isNotEmpty()) {
-                                try {
-                                    extractFromPlayerOption(post, type, nume, serverName, subtitleCallback, callback)
-                                } catch (ex: Exception) {
-                                    Log.e("MultiMovies", "Error: ${ex.message}")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-        } catch (e: Exception) {
-            Log.e("MultiMovies", "loadLinks failed: ${e.message}")
-        }
         return true
     }
 
@@ -492,31 +434,6 @@ class MultiMoviesProvider : MainAPI() {
                 }
             }
 
-            Log.d("MultiMovies", "Got iframe src: $iframeSrc for $serverName")
-
-            // Dispatch to appropriate extractor based on iframe URL domain
-            when {
-                iframeSrc.contains("techinmind.space") -> {
-                    GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-                iframeSrc.contains("multimoviesshg") -> {
-                    StreamHGExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-                iframeSrc.contains("rpmhub.site") -> {
-                    RpmShareExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-                iframeSrc.contains("uns.bio") -> {
-                    UpnShareExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-                iframeSrc.contains("p2pplay.pro") -> {
-                    StreamP2pExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-                else -> {
-                    // Try GDMirror as generic handler for unknown domains
-                    Log.d("MultiMovies", "Unknown iframe domain, trying GDMirror: $iframeSrc")
-                    GDMirrorExtractor().getUrl(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
-            }
 
         } catch (e: Exception) {
             Log.e(tag, "एक्सट्रैक्टर विफल: ${e.message}")
