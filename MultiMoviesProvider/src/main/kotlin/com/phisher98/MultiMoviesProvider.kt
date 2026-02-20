@@ -322,7 +322,7 @@ class MultiMoviesProvider : MainAPI() {
                 Log.d(tag, "${playerOptions.size} प्लेयर ऑप्शन्स मिले")
 
                 // प्रत्येक ऑप्शन के लिए AJAX कॉल करना
-                playerOptions.amap { element ->
+                playerOptions.forEach { element ->
                     val type = element.attr("data-type")
                     val post = element.attr("data-post")
                     val nume = element.attr("data-nume")
@@ -377,13 +377,12 @@ class MultiMoviesProvider : MainAPI() {
                 .build()
 
             val response = app.post(
-                "$mainUrl/wp-admin/admin-ajax.php",
+                "${mainUrl.removeSuffix("/")}/wp-admin/admin-ajax.php",
                 requestBody = requestBody,
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl
-                ),
-                interceptor = cfKiller
+                )
             ).parsedSafe<ResponseHash>()
 
             response?.embed_url
