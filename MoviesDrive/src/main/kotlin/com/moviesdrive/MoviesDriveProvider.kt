@@ -79,7 +79,7 @@ class MoviesDriveProvider : MainAPI() {
 
         urlsFetched = true
         try {
-            val result = withTimeoutOrNull(10_000L) {  // Reduced from 3s to 2s
+            val result = withTimeoutOrNull(15_000L) {  // Reduced from 3s to 2s
                 val response = app.get(
                     "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
                 )
