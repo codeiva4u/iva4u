@@ -85,7 +85,7 @@ class HDhub4uProvider : MainAPI() {
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    override var mainUrl: String = "https://new2.hdhub4u.fo"
+    override var mainUrl: String = "https://new6.hdhub4u.fo"
 
     // Fast async domain fetch with 3s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {

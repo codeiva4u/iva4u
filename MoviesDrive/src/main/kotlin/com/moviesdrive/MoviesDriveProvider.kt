@@ -70,7 +70,7 @@ class MoviesDriveProvider : MainAPI() {
     private var cachedMainUrl: String? = null
     private var urlsFetched = false
 
-    override var mainUrl: String = "https://new1.moviesdrive.surf"
+    override var mainUrl: String = "https://new2.moviesdrives.my"
 
     // Fast async domain fetch with 2s timeout - non-blocking
     private suspend fun fetchMainUrl(): String {
