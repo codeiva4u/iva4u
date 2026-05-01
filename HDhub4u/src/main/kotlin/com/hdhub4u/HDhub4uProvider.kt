@@ -215,6 +215,9 @@ class HDhub4uProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        // Fetch latest mainUrl (async, cached) - was MISSING causing Connection Timeout
+        fetchMainUrl()
+
         Log.d(TAG, "Searching for: $query")
 
         val results = mutableListOf<SearchResponse>()
