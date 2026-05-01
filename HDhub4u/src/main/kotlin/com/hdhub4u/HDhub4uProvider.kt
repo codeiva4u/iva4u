@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -81,38 +82,30 @@ class HDhub4uProvider : MainAPI() {
         )
     }
 
-    // Cached domain URL - fetched once per session (async, no blocking)
-    private var cachedMainUrl: String? = null
-    private var urlsFetched = false
+    // Eagerly fetch domain URL at plugin init (like MultiMovies pattern)
+    // This ensures mainUrl is correct BEFORE CloudStream checks it
+    init {
+        runBlocking {
+            try {
+                withTimeoutOrNull(5_000L) {
+                    val response = app.get(
+                        "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+                    )
+                    val json = response.text
+                    val jsonObject = JSONObject(json)
+                    val urlString = jsonObject.optString("hdhub4u")
+                    if (urlString.isNotBlank()) {
+                        mainUrl = urlString
+                        Log.d(TAG, "Fetched mainUrl: $urlString")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
+            }
+        }
+    }
 
     override var mainUrl: String = "https://new6.hdhub4u.fo"
-
-    // Fast async domain fetch with 3s timeout - non-blocking
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(15_000L) {  // Reduced from 10s to 3s
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                val urlString = jsonObject.optString("hdhub4u")
-                urlString.ifBlank { null }
-            }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "Fetched mainUrl: $result")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
-        }
-        return mainUrl
-    }
 
     override var name = "HDHub4U"
     override var lang = "hi"
@@ -137,8 +130,6 @@ class HDhub4uProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        // Fetch latest mainUrl (async, cached) - only first time
-        fetchMainUrl()
 
         val url = if (page == 1) {
             "$mainUrl/${request.data}"
@@ -215,8 +206,6 @@ class HDhub4uProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // Fetch latest mainUrl (async, cached) - was MISSING causing Connection Timeout
-        fetchMainUrl()
 
         Log.d(TAG, "Searching for: $query")
 
@@ -299,8 +288,6 @@ class HDhub4uProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        // Fetch latest mainUrl (async, cached)
-        fetchMainUrl()
 
         val document = app.get(url, headers = headers).document
 
@@ -596,7 +583,6 @@ class HDhub4uProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d(TAG, "Loading links from: $data")
-        fetchMainUrl()
 
         try {
             // Parse data format: "pageUrl|||episodeNum" or just "pageUrl" (for movies)
