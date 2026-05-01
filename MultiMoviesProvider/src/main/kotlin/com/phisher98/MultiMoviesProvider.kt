@@ -71,18 +71,16 @@ class MultiMoviesProvider : MainAPI() {
         fun getUnsBioUrl(): String = unsBioBaseUrl
     }
 
-    private var mainUrlFetched = false
-
-    private suspend fun fetchMainUrl() {
-        if (mainUrlFetched) return
-        mainUrlFetched = true
-        try {
-            withTimeoutOrNull(15_000L) {
-                getLatestUrl("multimovies")?.let {
-                    mainUrl = it
+    init {
+        runBlocking {
+            try {
+                withTimeoutOrNull(5_000L) {
+                    getLatestUrl("multimovies")?.let {
+                        mainUrl = it
+                    }
                 }
-            }
-        } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
     }
 
     override var name = "MultiMovies"
@@ -112,7 +110,6 @@ class MultiMoviesProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        fetchMainUrl()
         val url = if (page == 1) "$mainUrl/${request.data}" else "$mainUrl/${request.data}page/$page/"
         val document = app.get(url, interceptor = cfKiller).document
 
@@ -181,7 +178,6 @@ class MultiMoviesProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        fetchMainUrl()
         val document = app.get("$mainUrl/?s=$query", interceptor = cfKiller).document
         return document.select("div.result-item article").mapNotNull { article ->
             val titleElement = article.selectFirst("div.details > div.title > a") ?: return@mapNotNull null
@@ -209,7 +205,6 @@ class MultiMoviesProvider : MainAPI() {
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        fetchMainUrl()
         val doc = app.get(url, interceptor = cfKiller).document
         val title = doc.selectFirst("div.sheader > div.data > h1")?.text()?.trim() ?: ""
         var poster = fixUrlNull(doc.selectFirst("div.sheader div.poster img")?.getImageAttr())
@@ -313,7 +308,6 @@ class MultiMoviesProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        fetchMainUrl()
         val tag = "MultiMoviesLinks"
 
         // जाँच: data URL है या LinkData JSON

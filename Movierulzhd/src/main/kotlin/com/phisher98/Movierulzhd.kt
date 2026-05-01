@@ -31,6 +31,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import okhttp3.FormBody
 import org.jsoup.nodes.Element
 import java.net.URI
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
@@ -38,29 +39,22 @@ open class Movierulzhd : MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
 
-    private var cachedMainUrl: String? = null
-    private var urlsFetched = false
-
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(15_000L) {
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                val urlString = jsonObject.optString("movierulzhd")
-                urlString.ifBlank { null }
-            }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-            }
-        } catch (_: Exception) {}
-        return mainUrl
+    init {
+        runBlocking {
+            try {
+                withTimeoutOrNull(5_000L) {
+                    val response = app.get(
+                        "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+                    )
+                    val json = response.text
+                    val jsonObject = JSONObject(json)
+                    val urlString = jsonObject.optString("movierulzhd")
+                    if (urlString.isNotBlank()) {
+                        mainUrl = urlString
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
     var directUrl = ""
     override var name = "Movierulzhd"
@@ -87,7 +81,6 @@ open class Movierulzhd : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        fetchMainUrl()
         val url = if(page == 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/page/$page/"
         val document = app.get(url, timeout = 20L).document
         val home =
@@ -136,7 +129,6 @@ open class Movierulzhd : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        fetchMainUrl()
         val document = app.get("$mainUrl/search/$query").document
         return document.select("div.result-item").map {
             val title =
@@ -150,7 +142,6 @@ open class Movierulzhd : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        fetchMainUrl()
         val request = app.get(url)
         val document = request.document
         directUrl = getBaseUrl(request.url)
@@ -311,7 +302,6 @@ open class Movierulzhd : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        fetchMainUrl()
 
         // Check if data is a URL or LinkData JSON
         val isUrl = data.startsWith("http")
