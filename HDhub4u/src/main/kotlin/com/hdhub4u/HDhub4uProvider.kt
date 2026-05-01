@@ -82,6 +82,8 @@ class HDhub4uProvider : MainAPI() {
         )
     }
 
+    override var mainUrl: String = "https://new6.hdhub4u.fo"
+
     // Eagerly fetch domain URL at plugin init (like MultiMovies pattern)
     // This ensures mainUrl is correct BEFORE CloudStream checks it
     init {
@@ -104,8 +106,6 @@ class HDhub4uProvider : MainAPI() {
             }
         }
     }
-
-    override var mainUrl: String = "https://new6.hdhub4u.fo"
 
     override var name = "HDHub4U"
     override var lang = "hi"
