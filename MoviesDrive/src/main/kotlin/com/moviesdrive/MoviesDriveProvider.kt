@@ -212,6 +212,7 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        fetchMainUrl()
         val results = mutableListOf<SearchResponse>()
 
         try {
@@ -501,6 +502,7 @@ class MoviesDriveProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        fetchMainUrl()
         try {
             val parts = data.split("|||")
             val pageUrl = parts[0]

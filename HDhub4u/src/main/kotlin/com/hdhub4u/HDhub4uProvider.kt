@@ -596,6 +596,7 @@ class HDhub4uProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d(TAG, "Loading links from: $data")
+        fetchMainUrl()
 
         try {
             // Parse data format: "pageUrl|||episodeNum" or just "pageUrl" (for movies)
