@@ -21,6 +21,7 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.Episode
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Document
@@ -66,37 +67,28 @@ class MoviesDriveProvider : MainAPI() {
         )
     }
 
-    // Cached domain URL - fetched once per session (async, no blocking)
-    private var cachedMainUrl: String? = null
-    private var urlsFetched = false
-
     override var mainUrl: String = "https://new1.moviesdrives.my"
 
-    // Fast async domain fetch with 2s timeout - non-blocking
-    private suspend fun fetchMainUrl(): String {
-        if (cachedMainUrl != null) return cachedMainUrl!!
-        if (urlsFetched) return mainUrl
-
-        urlsFetched = true
-        try {
-            val result = withTimeoutOrNull(15_000L) {  // Reduced from 3s to 2s
-                val response = app.get(
-                    "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                )
-                val json = response.text
-                val jsonObject = JSONObject(json)
-                val urlString = jsonObject.optString("moviesdrive")
-                urlString.ifBlank { null }
+    // Eagerly fetch domain URL at plugin init
+    init {
+        runBlocking {
+            try {
+                withTimeoutOrNull(5_000L) {
+                    val response = app.get(
+                        "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
+                    )
+                    val json = response.text
+                    val jsonObject = JSONObject(json)
+                    val urlString = jsonObject.optString("moviesdrive")
+                    if (urlString.isNotBlank()) {
+                        mainUrl = urlString
+                        Log.d(TAG, "Fetched mainUrl: $urlString")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
             }
-            if (result != null) {
-                cachedMainUrl = result
-                mainUrl = result
-                Log.d(TAG, "✅ Fetched mainUrl: $result")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to fetch mainUrl: ${e.message}")
         }
-        return mainUrl
     }
 
     override var name = "MoviesDrive"
@@ -127,8 +119,6 @@ class MoviesDriveProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        // Fetch latest mainUrl (async, cached) - only first time
-        fetchMainUrl()
 
         val url = if (page == 1) {
             "$mainUrl/${request.data}"
@@ -212,7 +202,6 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        fetchMainUrl()
         val results = mutableListOf<SearchResponse>()
 
         try {
@@ -257,8 +246,6 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        // Fetch latest mainUrl (async, cached)
-        fetchMainUrl()
 
         val document: Document = app.get(url, headers = headers).document
 
@@ -502,7 +489,6 @@ class MoviesDriveProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        fetchMainUrl()
         try {
             val parts = data.split("|||")
             val pageUrl = parts[0]
