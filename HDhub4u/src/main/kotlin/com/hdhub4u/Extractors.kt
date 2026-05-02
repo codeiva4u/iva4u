@@ -6,7 +6,6 @@ import org.json.JSONObject
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.PixelDrain
-
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
@@ -14,6 +13,15 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
+
+val VIDEO_HEADERS = mapOf(
+    "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
+    "Accept" to "*/*",
+    "Accept-Encoding" to "identity",
+    "Connection" to "keep-alive",
+    "Range" to "bytes=0-",
+    "Icy-MetaData" to "1"
+)
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // UTILITY FUNCTIONS
@@ -412,7 +420,10 @@ class HubCloud : ExtractorApi() {
                                 "$name [FSLv2]",
                                 "$name [FSLv2] $finalLabel",
                                 link
-                            ) { this.quality = score + 20 })
+                            ) {
+                                this.quality = score + 20
+                                this.headers = VIDEO_HEADERS
+                            })
                         }
 
                         // FSL Server (hub.diskcdn.buzz) - check before generic "FSL"
@@ -423,7 +434,10 @@ class HubCloud : ExtractorApi() {
                                 "$name [FSL]",
                                 "$name [FSL] $finalLabel",
                                 link
-                            ) { this.quality = score + 15 })
+                            ) {
+                                this.quality = score + 15
+                                this.headers = VIDEO_HEADERS
+                            })
                         }
 
                         // 10Gbps Server (pixel.hubcdn.fans/?id=)
@@ -431,27 +445,14 @@ class HubCloud : ExtractorApi() {
                                 (link.contains("pixel.hubcdn", true) && link.contains("?id=")) -> {
                             Log.d(tag, "10Gbps: $link")
                             try {
-                                var currentLink = link
-                                repeat(5) {
-                                    val resp = app.get(currentLink, allowRedirects = false)
-                                    val loc = resp.headers["location"]
-                                    if (loc.isNullOrBlank()) return@repeat
-                                    if (loc.contains("link=")) {
-                                        val finalLink = java.net.URLDecoder.decode(
-                                            loc.substringAfter("link="), "UTF-8"
-                                        )
-                                        callback(newExtractorLink(
-                                            "10Gbps", "10Gbps $finalLabel", finalLink
-                                        ) { this.quality = score + 10 })
-                                        return@amap
-                                    }
-                                    currentLink = if (loc.startsWith("http")) loc
-                                    else "${getBaseUrl(currentLink)}$loc"
-                                }
-                                // Use last resolved link
+                                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
+                                val finalUrl = if (dlink.contains("link=")) dlink.substringAfter("link=") else dlink
                                 callback(newExtractorLink(
-                                    "10Gbps", "10Gbps $finalLabel", currentLink
-                                ) { this.quality = score + 10 })
+                                    "10Gbps", "10Gbps $finalLabel", finalUrl
+                                ) {
+                                    this.quality = score + 10
+                                    this.headers = VIDEO_HEADERS
+                                })
                             } catch (e: Exception) {
                                 Log.e(tag, "10Gbps redirect error: ${e.message}")
                             }
@@ -465,7 +466,10 @@ class HubCloud : ExtractorApi() {
                             } else link
                             callback(newExtractorLink(
                                 "Pixeldrain", "Pixeldrain $finalLabel", finalURL
-                            ) { this.quality = score })
+                            ) {
+                                this.quality = score
+                                this.headers = VIDEO_HEADERS
+                            })
                         }
 
                         // Generic Download button (catch new server types)
@@ -473,7 +477,10 @@ class HubCloud : ExtractorApi() {
                             Log.d(tag, "Download: $link")
                             callback(newExtractorLink(
                                 "$name", "$name $finalLabel", link
-                            ) { this.quality = score })
+                            ) {
+                                this.quality = score
+                                this.headers = VIDEO_HEADERS
+                            })
                         }
                     }
                 } catch (e: Exception) {
@@ -578,7 +585,10 @@ class HUBCDN : ExtractorApi() {
                             "Instant DL [HUBCDN]",
                             downloadUrl,
                             INFER_TYPE
-                        ) { this.quality = Qualities.Unknown.value })
+                        ) {
+                            this.quality = Qualities.Unknown.value
+                            this.headers = VIDEO_HEADERS
+                        })
                     } else {
                         Log.w(tag, "Failed to extract download URL from: $newUrl")
                     }
@@ -607,7 +617,10 @@ class HUBCDN : ExtractorApi() {
                             this.name,
                             decodedUrl,
                             INFER_TYPE
-                        ) { this.quality = Qualities.Unknown.value })
+                        ) {
+                            this.quality = Qualities.Unknown.value
+                            this.headers = VIDEO_HEADERS
+                        })
                     } else {
                         // Try hubcloud fallback
                         val hubcloudLink = doc.select("a[href*=hubcloud]").attr("href")

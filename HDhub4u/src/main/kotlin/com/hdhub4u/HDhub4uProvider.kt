@@ -698,42 +698,45 @@ class HDhub4uProvider : MainAPI() {
                     }
                 )
 
-            // Process top 4 links for fast loading (each link chain = 2-3 HTTP requests)
-            sortedLinks.take(4).amap { downloadLink ->
-                try {
-                    val link = downloadLink.url
-                    Log.d(TAG, "Extracting: $link")
-                    
-                    when {
-                        // HubCloud direct links
-                        link.contains("hubcloud", true) ->
-                            HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+            // Process top links for fast loading (each link chain = 2-3 HTTP requests)
+            val linksToProcess = if (episodeNum != null) 1 else 3
+            withTimeoutOrNull(10_000L) {
+                sortedLinks.take(linksToProcess).amap { downloadLink ->
+                    try {
+                        val link = downloadLink.url
+                        Log.d(TAG, "Extracting: $link")
+                        
+                        when {
+                            // HubCloud direct links
+                            link.contains("hubcloud", true) ->
+                                HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Hblinks download pages (archives)
-                        (link.contains("hblinks", true) || link.contains("4khdhub", true)) && link.contains("/archives/", true) ->
-                            Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // Hblinks download pages (archives)
+                            (link.contains("hblinks", true) || link.contains("4khdhub", true)) && link.contains("/archives/", true) ->
+                                Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Hubdrive links
-                        link.contains("hubdrive", true) ->
-                            Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // Hubdrive links
+                            link.contains("hubdrive", true) ->
+                                Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // gadgetsweb mediator and hubcdn instant download
-                        link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
-                            HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
+                            // gadgetsweb mediator and hubcdn instant download
+                            link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
+                                HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Gofile / Pixeldrain
-                        link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
-                            com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            // Gofile / Pixeldrain
+                            link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
+                                com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
 
-                        else -> {
-                            Log.w(TAG, "No specific extractor for: $link, trying default")
-                            com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            else -> {
+                                Log.w(TAG, "No specific extractor for: $link, trying default")
+                                com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                 }
-            }
+            } ?: Log.w(TAG, "Timeout reached (10s), showing available links")
         } catch (e: Exception) {
             Log.e(TAG, "Error in loadLinks: ${e.message}")
         }
