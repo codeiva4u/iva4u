@@ -722,7 +722,18 @@ class HDhub4uProvider : MainAPI() {
                         link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
                             HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        else -> Log.w(TAG, "No extractor for: $link")
+                        // Hubstream direct
+                        link.contains("hubstream.art", true) ->
+                            callback(newExtractorLink("Hubstream", "Hubstream", link, mainUrl, Qualities.Unknown.value, isM3u8 = false))
+                            
+                        // Gofile / Pixeldrain
+                        link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
+                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+
+                        else -> {
+                            Log.w(TAG, "No specific extractor for: $link, trying default")
+                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")

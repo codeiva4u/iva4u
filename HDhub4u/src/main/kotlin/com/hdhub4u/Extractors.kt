@@ -249,8 +249,10 @@ open class Hblinks : ExtractorApi() {
                             HubCloud().getUrl(href, name, subtitleCallback, callback)
                         href.contains("hubcdn.fans", true) ->
                             HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("pixeldrain", true) ->
+                        href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
+                        href.contains("hubstream.art", true) ->
+                            callback(newExtractorLink("Hubstream", "Hubstream", href, referer, Qualities.Unknown.value, isM3u8 = false))
                         href.startsWith("http") && isDirectDownloadUrl(href) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
                     }
