@@ -89,7 +89,7 @@ class HDhub4uProvider : MainAPI() {
     init {
         runBlocking {
             try {
-                withTimeoutOrNull(5_000L) {
+                withTimeoutOrNull(10_000L) {
                     val response = app.get(
                         "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
                     )
