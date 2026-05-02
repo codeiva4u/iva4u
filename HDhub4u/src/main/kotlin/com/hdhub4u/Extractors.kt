@@ -221,7 +221,7 @@ open class Hblinks : ExtractorApi() {
         Log.d(tag, "Processing: $url")
 
         // Real-time domain fetching
-        val latestUrl = getLatestUrl(url, "hubstreamdad")
+        val latestUrl = getLatestUrl(url, "hblinks")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
 

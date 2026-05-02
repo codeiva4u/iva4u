@@ -65,14 +65,14 @@ class HDhub4uProvider : MainAPI() {
         // Download URL Pattern - Valid hosts for HDhub4u
         // Based on Brave Browser analysis: hubdrive.space, gadgetsweb.xyz, etc.
         private val DOWNLOAD_URL_REGEX = Regex(
-            """https?://(?:hubdrive\.(?:space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|hubcdn\.[a-z]+|gamerxyt\.com)[^"'<\s>]*""",
+            """https?://(?:hubdrive\.(?:space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+|gamerxyt\.com)[^"'<\s>]*""",
             RegexOption.IGNORE_CASE
         )
         
         // Valid download hosts list
         private val VALID_HOSTS = listOf(
             "hubdrive", "gadgetsweb", "hubcloud", "hubcdn",
-            "gamerxyt", "gamester", "hblinks"
+            "gamerxyt", "gamester", "hblinks", "4khdhub"
         )
         
         // Batch Download Pattern - Detects quality batch links
@@ -711,7 +711,7 @@ class HDhub4uProvider : MainAPI() {
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
                         // Hblinks download pages (archives)
-                        link.contains("hblinks", true) && link.contains("/archives/", true) ->
+                        (link.contains("hblinks", true) || link.contains("4khdhub", true)) && link.contains("/archives/", true) ->
                             Hblinks().getUrl(link, mainUrl, subtitleCallback, callback)
 
                         // Hubdrive links
