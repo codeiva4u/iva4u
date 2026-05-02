@@ -149,7 +149,7 @@ suspend fun getLatestUrl(url: String, source: String): String {
 }
 open class HubCloud : ExtractorApi() {
     override val name: String = "Hub-Cloud"
-    override val mainUrl: String = "https://hubcloud.*"
+    override val mainUrl: String = "https://hubcloud\\..*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -179,14 +179,20 @@ open class HubCloud : ExtractorApi() {
             when {
                 "hubcloud.php" in actualUrl || "gamerxyt.com" in actualUrl -> phpUrl = actualUrl
                 "/drive/" in actualUrl -> {
-                    phpUrl = actualDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
+                    val rawHref = actualDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                         ?: actualDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
+                        ?: actualDoc.selectFirst("a.btn[href*='?token=']")?.attr("href")
                         ?: actualDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
                         ?: actualDoc.selectFirst("a#download")?.attr("href")
                         ?: actualDoc.select("a.btn").firstOrNull {
                             it.attr("href").contains("gamerxyt", true)
                         }?.attr("href")
                         ?: ""
+                        
+                    if (rawHref.isNotEmpty()) {
+                        phpUrl = if (rawHref.startsWith("http")) rawHref
+                        else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    }
                 }
                 else -> {
                     val rawHref = actualDoc.select("#download").attr("href")
@@ -334,14 +340,14 @@ open class HubCloud : ExtractorApi() {
 }
 
 class GDLink : GDFlix() {
-    override var mainUrl = "https://gdlink.*"
+    override var mainUrl = "https://gdlink\\..*"
 }
 class GDFlixNet : GDFlix() {
-    override var mainUrl = "https://new1.gdflix.*"
+    override var mainUrl = "https://(.*gdflix|gdlink)\\..*"
 }
 open class GDFlix : ExtractorApi() {
     override val name = "GDFlix"
-    override val mainUrl = "https://gdflix.*"
+    override val mainUrl = "https://(.*gdflix|gdlink)\\..*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -353,11 +359,8 @@ open class GDFlix : ExtractorApi() {
         var latestUrl = getLatestUrl(url, "gdflix")
         val gdflix2 = getLatestUrl(url, "gdflix2")
         
-        // Preserve gdflix.dev as it's often the direct file link domain
-        if (url.contains("gdflix.dev", true)) {
-            latestUrl = "https://gdflix.dev"
-        } else if (gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
-            latestUrl = gdflix2 // Prefer gdflix2 generally as new17 is working
+        if (gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
+            latestUrl = gdflix2 // Prefer gdflix2 generally as it has the working new domain
         }
         
         val baseUrl = getBaseUrl(url)

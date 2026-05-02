@@ -65,6 +65,11 @@ class MoviesDriveProvider : MainAPI() {
         private val TITLE_CLEAN_REGEX = Regex(
             """(?i)(\(?\d{4}\)?|\[.*?]|\|.*$|WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip|NF|AMZN|4K|UHD|\d{3,4}p|HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?|ESubs|Download|Free|Full|Movie|HD|Watch|Hindi|English|Dual\s*Audio|Tamil|Telugu|Multi|[&+])"""
         )
+
+        // Dynamic Hosts from urls.json
+        var hubcloudHost = "hubcloud"
+        var gdflixHost = "gdflix"
+        var gdflix2Host = "gdflix"
     }
 
     override var mainUrl: String = "https://new1.moviesdrives.my"
@@ -79,14 +84,26 @@ class MoviesDriveProvider : MainAPI() {
                     )
                     val json = response.text
                     val jsonObject = JSONObject(json)
+                    
                     val urlString = jsonObject.optString("moviesdrive")
                     if (urlString.isNotBlank()) {
                         mainUrl = urlString
                         Log.d(TAG, "Fetched mainUrl: $urlString")
                     }
+                    
+                    // Fetch dynamic hosts to completely avoid hardcoded domains
+                    jsonObject.optString("hubcloud").takeIf { it.isNotBlank() }?.let { 
+                        hubcloudHost = java.net.URI(it).host ?: "hubcloud"
+                    }
+                    jsonObject.optString("gdflix").takeIf { it.isNotBlank() }?.let { 
+                        gdflixHost = java.net.URI(it).host ?: "gdflix"
+                    }
+                    jsonObject.optString("gdflix2").takeIf { it.isNotBlank() }?.let { 
+                        gdflix2Host = java.net.URI(it).host ?: "gdflix"
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
+                Log.w(TAG, "Failed to fetch dynamic URLs: ${e.message}")
             }
         }
     }
@@ -413,7 +430,8 @@ class MoviesDriveProvider : MainAPI() {
         var currentEpisode: Int? = null
         
         // Process all headers and links in order
-        document.select("h5, h4, a[href*='mdrive.lol'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='gdlink']").forEach { element ->
+        val dynamicSelector = "h5, h4, a[href*='mdrive.lol'], a[href*='$hubcloudHost'], a[href*='$gdflixHost'], a[href*='$gdflix2Host']"
+        document.select(dynamicSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
             
             if (tagName in setOf("H4", "H5")) {
@@ -429,7 +447,7 @@ class MoviesDriveProvider : MainAPI() {
                 
                 // Skip if blank, duplicate, or not a valid domain
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
-                val isValidDomain = url.contains("mdrive.lol") || url.contains("hubcloud") || url.contains("gdflix") || url.contains("gdlink")
+                val isValidDomain = url.contains("mdrive.lol") || url.contains(hubcloudHost) || url.contains(gdflixHost) || url.contains(gdflix2Host)
                 if (!isValidDomain) return@forEach
                 
                 // ❌ SKIP ZIP LINKS - they are compressed archives, not playable!
@@ -615,12 +633,12 @@ class MoviesDriveProvider : MainAPI() {
                                                         break
                                                     }
                                                     
-                                                    // Collect HubCloud/GDFlix links
+                                                    // Collect dynamic links
                                                     currentElem.select("a[href]").forEach { a ->
                                                         val href = a.attr("href")
-                                                        if (href.contains("hubcloud", true) || 
-                                                            href.contains("gdflix", true) ||
-                                                            href.contains("gdlink", true)) {
+                                                        if (href.contains(hubcloudHost, true) || 
+                                                            href.contains(gdflixHost, true) ||
+                                                            href.contains(gdflix2Host, true)) {
                                                             targetLinks.add(href)
                                                         }
                                                     }
@@ -628,12 +646,12 @@ class MoviesDriveProvider : MainAPI() {
                                                 }
                                             }
                                         } else {
-                                            // Movie: Get all HubCloud/GDFlix links
+                                            // Movie: Get all dynamic links
                                             mdriveDoc.select("a[href]").forEach { a ->
                                                 val href = a.attr("href")
-                                                if (href.contains("hubcloud", true) || 
-                                                    href.contains("gdflix", true) ||
-                                                    href.contains("gdlink", true)) {
+                                                if (href.contains(hubcloudHost, true) || 
+                                                    href.contains(gdflixHost, true) ||
+                                                    href.contains(gdflix2Host, true)) {
                                                     targetLinks.add(href)
                                                 }
                                             }
@@ -642,17 +660,17 @@ class MoviesDriveProvider : MainAPI() {
                                         Log.d(TAG, "🔗 Extracted ${targetLinks.size} direct links from mdrive.lol")
                                         
                                         // Prioritize GDFlix over HubCloud
-                                        targetLinks.sortByDescending { it.contains("gdflix", true) || it.contains("gdlink", true) }
+                                        targetLinks.sortByDescending { it.contains(gdflixHost, true) || it.contains(gdflix2Host, true) }
                                         
                                         // Process extracted links with proper extractors
                                         targetLinks.take(3).amap { extractorLink ->
                                             try {
                                                 when {
-                                                    extractorLink.contains("hubcloud", true) -> {
+                                                    extractorLink.contains(hubcloudHost, true) -> {
                                                         HubCloud().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
                                                     }
-                                                    extractorLink.contains("gdflix", true) || 
-                                                    extractorLink.contains("gdlink", true) -> {
+                                                    extractorLink.contains(gdflixHost, true) || 
+                                                    extractorLink.contains(gdflix2Host, true) -> {
                                                         GDFlix().getUrl(extractorLink, pageUrl, subtitleCallback, callback)
                                                     }
                                                 }
@@ -666,13 +684,13 @@ class MoviesDriveProvider : MainAPI() {
                                 }
                                 
                                 // Direct extractors if other hosts found
-                                link.contains("hubcloud", ignoreCase = true) || 
+                                link.contains(hubcloudHost, ignoreCase = true) || 
                                 link.contains("gamerxyt", ignoreCase = true) -> {
                                     HubCloud().getUrl(link, pageUrl, subtitleCallback, callback)
                                 }
                                 
-                                link.contains("gdflix", ignoreCase = true) || 
-                                link.contains("gdlink", ignoreCase = true) -> {
+                                link.contains(gdflixHost, ignoreCase = true) || 
+                                link.contains(gdflix2Host, ignoreCase = true) -> {
                                     GDFlix().getUrl(link, pageUrl, subtitleCallback, callback)
                                 }
                                 
