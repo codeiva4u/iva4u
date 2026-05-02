@@ -65,14 +65,14 @@ class HDhub4uProvider : MainAPI() {
         // Download URL Pattern - Valid hosts for HDhub4u
         // Based on Brave Browser analysis: hubdrive.space, gadgetsweb.xyz, etc.
         private val DOWNLOAD_URL_REGEX = Regex(
-            """https?://(?:hubdrive\.(?:space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+|gamerxyt\.com)[^"'<\s>]*""",
+            """https?://(?:hubdrive\.(?:space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+)[^"'<\s>]*""",
             RegexOption.IGNORE_CASE
         )
         
         // Valid download hosts list
         private val VALID_HOSTS = listOf(
             "hubdrive", "gadgetsweb", "hubcloud", "hubcdn",
-            "gamerxyt", "gamester", "hblinks", "4khdhub"
+            "gamester", "hblinks", "4khdhub"
         )
         
         // Batch Download Pattern - Detects quality batch links
@@ -491,7 +491,7 @@ class HDhub4uProvider : MainAPI() {
         
         // Select all relevant elements: headers (for episode detection) and links
         val relevantSelector = "h3, h4, h5, a[href*='gadgetsweb'], a[href*='hblinks'], " +
-                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubstream']"
+                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn']"
         
         document.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -707,7 +707,7 @@ class HDhub4uProvider : MainAPI() {
                     
                     when {
                         // HubCloud direct links
-                        link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                        link.contains("hubcloud", true) ->
                             HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
                         // Hblinks download pages (archives)

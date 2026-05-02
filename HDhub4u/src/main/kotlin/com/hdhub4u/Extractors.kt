@@ -5,7 +5,6 @@ import com.lagradost.cloudstream3.SubtitleFile
 import org.json.JSONObject
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorApi
@@ -73,30 +72,25 @@ fun getServerPriority(serverName: String): Int = when {
 }
 
 fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, codec: String = ""): Int {
-    // Base score by resolution
     var score = when (quality) {
         1080 -> 1000
-        2160 -> 900  // 4K lower priority (larger files)
+        2160 -> 900
         720 -> 700
         480 -> 500
         else -> 300
     }
 
-    // PRIORITY 1: X265/HEVC gets highest codec bonus (smaller files, better compression)
     if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
-        score += 150  // HEVC highest priority
-    }
-    // PRIORITY 2: X264 gets medium codec bonus (better compatibility)
-    else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
+        score += 150
+    } else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
         score += 100
     }
 
-    // PRIORITY 3: Size bonus (smaller = higher priority)
     if (quality == 1080) {
         val sizeMB = parseSizeToMB(sizeStr)
         score += when {
-            sizeMB <= 600 -> 90   // Ultra HEVC compressed
-            sizeMB <= 900 -> 75   // Highly compressed
+            sizeMB <= 600 -> 90
+            sizeMB <= 900 -> 75
             sizeMB <= 1200 -> 60
             sizeMB <= 1600 -> 45
             sizeMB <= 2000 -> 30
@@ -105,74 +99,22 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
         }
     }
 
-    // PRIORITY 4: Server speed bonus
     score += getServerPriority(serverName)
-
     return score
 }
 
-// Check if URL is a direct download (not streaming)
-fun isDirectDownloadUrl(url: String): Boolean {
-    val downloadIndicators = listOf(
-        "gamerxyt.com", "pixeldrain", "r2.dev", "gdboka.buzz",
-        "fukggl.buzz", "carnewz.site", "fsl.gigabytes", "fsl-lover.buzz",
-        "gigabytes.icu", "acek-cdn.com",
-        "/download", ".mkv", ".mp4", ".avi"
-    )
-    return downloadIndicators.any { url.contains(it, ignoreCase = true) }
-}
-
-// Check if URL should be blocked (streaming only)
+/**
+ * Check if URL should be blocked (streaming/non-download).
+ * Blocks: hdstream4u, hubstream.art, HLS streams, Telegram, VPN pages, etc.
+ */
 fun shouldBlockUrl(url: String): Boolean {
-    return url.contains(".m3u8", true) || url.contains("/hls/", true) || url.contains("hubstream", true) || url.contains("hdstream", true) || url.contains("watch", true)
-}
-
-/**
- * ROT13 decode function for cryptonewz.one URL obfuscation
- * Used in the decode chain: base64 -> base64 -> rot13 -> base64
- */
-fun rot13(input: String): String {
-    return input.map { char ->
-        when (char) {
-            in 'a'..'z' -> ((char - 'a' + 13) % 26 + 'a'.code).toChar()
-            in 'A'..'Z' -> ((char - 'A' + 13) % 26 + 'A'.code).toChar()
-            else -> char
-        }
-    }.joinToString("")
-}
-
-/**
- * Decode cryptonewz localStorage data to extract final hblinks URL
- * Decode chain: base64 -> base64 -> rot13 -> base64 -> JSON parse -> base64 decode 'o' field
- */
-fun decodecryptonewzData(encodedData: String): String? {
-    return try {
-        // Decode chain: base64 -> base64 -> rot13 -> base64
-        val step1 = base64Decode(encodedData)  // First base64 decode
-        val step2 = base64Decode(step1)         // Second base64 decode
-        val step3 = rot13(step2)                // ROT13 decode
-        val step4 = base64Decode(step3)         // Third base64 decode
-
-        // Parse JSON: {"w":10,"l":"...","o":"BASE64_URL"}
-        val oFieldPattern = Regex(""""o"\s*:\s*"([^"]+)"""")
-        val oMatch = oFieldPattern.find(step4)
-
-        if (oMatch != null) {
-            val encodedUrl = oMatch.groupValues[1]
-            base64Decode(encodedUrl)  // Final URL
-        } else {
-            null
-        }
-    } catch (e: Exception) {
-        null
-    }
-}
-
-suspend fun isValidVideoUrl(url: String): Boolean {
-    // S3 and presigned URLs often return 403 SignatureDoesNotMatch on HEAD requests.
-    // Instead of validating with HEAD, we just allow the links to pass through.
-    // HTML and ZIP files are already filtered by blocklists in the extractors.
-    return true
+    val blockList = listOf(
+        ".m3u8", "/hls/", "hubstream", "hdstream",
+        "hdstream4u", "t.me/", "tinyurl.com",
+        "google.com/search", "one.one.one.one",
+        "/tg/go"
+    )
+    return blockList.any { url.contains(it, ignoreCase = true) }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -182,8 +124,9 @@ suspend fun isValidVideoUrl(url: String): Boolean {
 /**
  * Hblinks Extractor - Download Aggregator Page
  *
- * Structure: hblinks.dad/archives/XXXXX
- * Contains links to: hubdrive, hubcloud, hubcdn.fans
+ * Flow: hblinks.dad/archives/XXX → hubcdn.fans/file/XXX, hubcloud.foo/drive/XXX, gofile.io/d/XXX
+ * Note: "hblinks" key is NOT in urls.json, so we use getBaseUrl() for hblinks.dad
+ *       and "hubstreamdad" key for 4khdhub.* domains
  */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
@@ -199,14 +142,18 @@ open class Hblinks : ExtractorApi() {
         val tag = "Hblinks"
         Log.d(tag, "Processing: $url")
 
-        // Real-time domain fetching
-        val latestUrl = getLatestUrl(url, "hblinks")
+        // hblinks.dad → use as-is (not in urls.json)
+        // 4khdhub.* → use hubstreamdad key from urls.json
+        val latestUrl = if (url.contains("4khdhub", true)) {
+            getLatestUrl(url, "hubstreamdad")
+        } else {
+            getBaseUrl(url)
+        }
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
 
         try {
             val doc = app.get(newUrl).document
-            // Select all known provider links directly, completely independent of page layout (h3, h5, entry-content etc)
             val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='hubdrive'], a[href*='pixeldrain'], a[href*='gofile.io']")
 
             Log.d(tag, "Found ${links.size} links")
@@ -227,11 +174,9 @@ open class Hblinks : ExtractorApi() {
                             Hubdrive().getUrl(href, name, subtitleCallback, callback)
                         href.contains("hubcloud", true) ->
                             HubCloud().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcdn.fans", true) ->
+                        href.contains("hubcdn", true) ->
                             HUBCDN().getUrl(href, name, subtitleCallback, callback)
                         href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                        href.startsWith("http") && isDirectDownloadUrl(href) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
                     }
                 } catch (e: Exception) {
@@ -243,6 +188,7 @@ open class Hblinks : ExtractorApi() {
         }
     }
 }
+
 /**
  * PixelDrain Dev - pixeldrain.dev direct downloads
  */
@@ -269,7 +215,6 @@ class Hubdrive : ExtractorApi() {
         val tag = "Hubdrive"
         Log.d(tag, "Processing: $url")
 
-        // Real-time domain fetching
         val latestUrl = getLatestUrl(url, "hubdrive")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
@@ -277,7 +222,6 @@ class Hubdrive : ExtractorApi() {
         try {
             val doc = app.get(newUrl, interceptor = cfKiller).documentLarge
 
-            // Find hubcloud link
             var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
             if (href.isBlank() || !href.contains("hubcloud", true)) {
                 href = doc.selectFirst("a.btn[href*=hubcloud]")?.attr("href") ?: ""
@@ -296,6 +240,18 @@ class Hubdrive : ExtractorApi() {
         }
     }
 }
+
+/**
+ * HubCloud Extractor - Main Download Server
+ *
+ * NEW Flow (2026):
+ * Step 1: hubcloud.foo/drive/XXX → find a#download with ?token= URL
+ * Step 2: hubcloud.foo/drive/XXX?token=TOKEN → actual download buttons:
+ *         - FSLv2 (fsl.gigabytes.icu / cdn.fsl-buckets.life)
+ *         - FSL (hub.diskcdn.buzz)
+ *         - PixelServer (pixeldrain.dev)
+ *         - 10Gbps (pixel.hubcdn.fans)
+ */
 class HubCloud : ExtractorApi() {
     override val name = "Hub-Cloud"
     override val mainUrl = "https://hubcloud.*"
@@ -311,39 +267,83 @@ class HubCloud : ExtractorApi() {
     ) {
         val tag = "HubCloud"
 
-        // Block streaming URLs
         if (shouldBlockUrl(url)) {
             Log.d(tag, "BLOCKED streaming URL: $url")
             return
         }
 
-        // Validate URL
         val isValidUrl = try {
             URI(url).toURL()
             true
         } catch (_: Exception) { false }
         if (!isValidUrl) return
 
-        // Real-time domain fetching
         val latestUrl = getLatestUrl(url, "hubcloud")
         val currentBaseUrl = getBaseUrl(url)
         val newUrl = url.replace(currentBaseUrl, latestUrl)
 
         Log.d(tag, "Processing: $newUrl")
 
-        // Get hubcloud.php page URL
-        var phpUrl = ""
         try {
-            var actualUrl = newUrl
-            var actualDoc = app.get(newUrl, interceptor = cfKiller).document
-            
-            // Handle search-recover.php (new API-based and old HTML-based)
-            if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
+            // ═══════════════════════════════════════════════════════════
+            // Step 1: Get drive page and find token URL
+            // ═══════════════════════════════════════════════════════════
+            val driveDoc = app.get(newUrl, interceptor = cfKiller).document
+            val driveHtml = driveDoc.html()
+
+            // Extract file info
+            val header = driveDoc.selectFirst("div.card-header")?.text() ?: ""
+            val size = driveDoc.selectFirst("i#size")?.text() ?: ""
+
+            val qualityMatch = Regex("""(\d{3,4})p""").find(header)
+            val quality = qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1080
+            val codec = when {
+                header.contains("x264", true) || header.contains("h264", true) -> "x264"
+                header.contains("hevc", true) || header.contains("x265", true) -> "hevc"
+                else -> ""
+            }
+
+            val labelExtras = buildString {
+                if (header.isNotEmpty()) append("[${cleanTitle(header)}]")
+                if (size.isNotEmpty()) append("[$size]")
+            }
+
+            Log.d(tag, "Quality: ${quality}p, Codec: $codec, Size: $size")
+
+            var tokenUrl = ""
+
+            // If URL already has ?token=, use directly
+            if (newUrl.contains("?token=")) {
+                tokenUrl = newUrl
+            }
+
+            // Find a#download link with token
+            if (tokenUrl.isBlank()) {
+                val downloadHref = driveDoc.selectFirst("a#download")?.attr("href") ?: ""
+                if (downloadHref.isNotBlank() && downloadHref.contains("token=")) {
+                    tokenUrl = if (downloadHref.startsWith("http")) downloadHref
+                    else latestUrl.trimEnd('/') + "/" + downloadHref.trimStart('/')
+                }
+            }
+
+            // Extract from JS: var url = '/drive/XXX?token=TOKEN'
+            if (tokenUrl.isBlank()) {
+                val jsPattern = Regex("""var\s+url\s*=\s*['"]([^'"]*\?token=[^'"]+)['"]""")
+                val jsMatch = jsPattern.find(driveHtml)
+                if (jsMatch != null) {
+                    val jsUrl = jsMatch.groupValues[1]
+                    tokenUrl = if (jsUrl.startsWith("http")) jsUrl
+                    else latestUrl.trimEnd('/') + "/" + jsUrl.trimStart('/')
+                }
+            }
+
+            // Handle search-recover.php redirect
+            if (tokenUrl.isBlank() && newUrl.contains("search-recover.php", true)) {
                 try {
-                    val match = Regex("""Q_INITIAL\s*=\s*"([^"]+)"""").find(actualDoc.html())
-                    val qInitial = match?.groupValues?.get(1) ?: ""
-                    val fromAc = actualUrl.substringAfter("from_ac=").substringBefore("&")
-                    
+                    val qMatch = Regex("""Q_INITIAL\s*=\s*"([^"]+)"""").find(driveHtml)
+                    val qInitial = qMatch?.groupValues?.get(1) ?: ""
+                    val fromAc = newUrl.substringAfter("from_ac=").substringBefore("&")
+
                     if (qInitial.isNotEmpty() && !qInitial.contains("<html") && fromAc.isNotEmpty()) {
                         val apiLink = "$latestUrl/drive/search-recover.php?api=search&q=${java.net.URLEncoder.encode(qInitial, "UTF-8")}&from_ac=$fromAc"
                         val jsonResponse = app.get(apiLink, headers = mapOf("Accept" to "application/json")).text
@@ -351,221 +351,145 @@ class HubCloud : ExtractorApi() {
                         if (hits != null && hits.length() > 0) {
                             val firstUrl = hits.optJSONObject(0)?.optString("url")
                             if (!firstUrl.isNullOrEmpty()) {
-                                actualUrl = firstUrl
-                                actualDoc = app.get(actualUrl, interceptor = cfKiller).document
+                                HubCloud().getUrl(firstUrl, referer, subtitleCallback, callback)
+                                return
                             }
-                        }
-                    } else {
-                        var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
-                        if (searchLink.isNotEmpty()) {
-                            if (!searchLink.startsWith("http")) searchLink = latestUrl + searchLink
-                            actualUrl = searchLink
-                            actualDoc = app.get(actualUrl, interceptor = cfKiller).document
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(tag, "Error parsing search-recover.php API: ${e.message}")
+                    Log.e(tag, "search-recover error: ${e.message}")
                 }
             }
 
-            when {
-                "hubcloud.php" in actualUrl || "gamerxyt.com" in actualUrl -> phpUrl = actualUrl
-                "/drive/" in actualUrl -> {
-                    phpUrl = actualDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
-                        ?: actualDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
-                        ?: actualDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
-                        ?: actualDoc.selectFirst("a#download")?.attr("href")
-                        ?: actualDoc.select("a.btn").firstOrNull {
-                            it.attr("href").contains("gamerxyt", true)
-                        }?.attr("href")
-                        ?: ""
+            if (tokenUrl.isBlank()) {
+                Log.w(tag, "No token URL found for: $newUrl")
+                return
+            }
+
+            Log.d(tag, "Token URL: $tokenUrl")
+
+            // ═══════════════════════════════════════════════════════════
+            // Step 2: Fetch token page and extract download buttons
+            // ═══════════════════════════════════════════════════════════
+            val document = app.get(tokenUrl, interceptor = cfKiller).document
+
+            // Re-extract file info if not found earlier
+            val finalHeader = header.ifEmpty { document.selectFirst("div.card-header")?.text() ?: "" }
+            val finalSize = size.ifEmpty { document.selectFirst("i#size")?.text() ?: "" }
+            val finalLabel = labelExtras.ifEmpty {
+                buildString {
+                    if (finalHeader.isNotEmpty()) append("[${cleanTitle(finalHeader)}]")
+                    if (finalSize.isNotEmpty()) append("[$finalSize]")
                 }
-                else -> {
-                    val rawHref = actualDoc.select("#download").attr("href")
-                    if (rawHref.isNotEmpty()) {
-                        phpUrl = if (rawHref.startsWith("http")) rawHref
-                        else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
-                    }
+            }
+
+            // Process download buttons
+            document.select("div.card-body a, a.btn").amap { element ->
+                val link = element.attr("href")
+                val text = element.text()
+
+                if (link.isBlank() || !link.startsWith("http")) return@amap
+                if (shouldBlockUrl(link)) return@amap
+
+                // Skip non-download buttons
+                val skipTexts = listOf("Telegram", "IDM", "IDA", "VPN", "Tutorial", "Copy", "Login", "Create", "How", "Report")
+                if (skipTexts.any { text.contains(it, true) }) return@amap
+
+                // Skip ZipDisk server
+                if (text.contains("ZipDisk", true) || link.contains("zipdisk", true) ||
+                    link.endsWith(".zip", true) || link.contains("cloudserver", true)) {
+                    Log.d(tag, "SKIPPED ZipDisk: $link")
+                    return@amap
                 }
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to get PHP URL: ${e.message}")
-        }
 
-        if (phpUrl.isBlank()) {
-            Log.w(tag, "No valid PHP URL for: $newUrl")
-            return
-        }
+                val score = calculateQualityScore(quality, finalSize, text, codec)
 
-        Log.d(tag, "PHP URL: $phpUrl")
-
-        // Parse gamerxyt.com download page
-        val document = app.get(phpUrl, interceptor = cfKiller).document
-        val size = document.selectFirst("i#size")?.text() ?: ""
-        val header = document.selectFirst("div.card-header")?.text() ?: ""
-
-        // Extract quality and codec from header
-        val qualityMatch = Regex("""(\d{3,4})p""").find(header)
-        val quality = qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1080
-        val codec = when {
-            header.contains("x264", true) || header.contains("h264", true) -> "x264"
-            header.contains("hevc", true) || header.contains("x265", true) -> "hevc"
-            else -> ""
-        }
-
-        val labelExtras = buildString {
-            if (header.isNotEmpty()) append("[${cleanTitle(header)}]")
-            if (size.isNotEmpty()) append("[$size]")
-        }
-
-        Log.d(tag, "Quality: ${quality}p, Codec: $codec, Size: $size")
-
-        // Process each download button
-        document.select("div.card-body a.btn").amap { element ->
-            val link = element.attr("href")
-            val text = element.text()
-
-            // Skip streaming/blocked URLs
-            if (shouldBlockUrl(link)) {
-                Log.d(tag, "SKIPPED streaming: $link")
-                return@amap
-            }
-
-            // Skip ZipDisk server (downloads ZIP files instead of video)
-            if (text.contains("ZipDisk", true) || link.contains("zipdisk", true) ||
-                link.endsWith(".zip", true) || link.contains(".zip?", true) ||
-                link.contains("cloudserver", true)) {
-                Log.d(tag, "SKIPPED ZipDisk (ZIP not video): $link")
-                return@amap
-            }
-
-            // Skip BuzzServer / Telegram fake links (bloggingvector.shop)
-            if (link.contains("bloggingvector", true) || text.contains("Telegram", true)) {
-                Log.d(tag, "SKIPPED BuzzServer/Telegram: $link")
-                return@amap
-            }
-
-            val score = calculateQualityScore(quality, size, text, codec)
-
-            try {
-                when {
-                    // Instant DL - Fastest
-                    text.contains("Instant", true) || text.contains("🚀") -> {
-                        // Validate before adding
-                        if (isValidVideoUrl(link)) {
-                            callback(newExtractorLink(
-                                "$referer [Instant DL]",
-                                "$referer [Instant DL] $labelExtras",
-                                link
-                            ) { this.quality = score + 50 })
-                        }
-                    }
-
-                    // FSL Server
-                    link.contains("fsl.gigabytes", true) ||
-                            link.contains("fsl-lover.buzz", true) ||
-                            (link.contains("gigabytes.icu", true) && !link.contains("gdboka")) -> {
-                        if (isValidVideoUrl(link)) {
-                            callback(newExtractorLink(
-                                "$referer [FSL]",
-                                "$referer [FSL] $labelExtras",
-                                link
-                            ) { this.quality = score + 15 })
-                        }
-                    }
-
-                    // FSLv2 - R2/CDN
-                    link.contains("r2.dev", true) ||
-                            link.contains("gdboka.buzz", true) ||
-                            link.contains("fukggl.buzz", true) ||
-                            link.contains("carnewz.site", true) -> {
-                        if (isValidVideoUrl(link)) {
+                try {
+                    when {
+                        // FSLv2 Server
+                        text.contains("FSLv2", true) || link.contains("fsl-buckets", true) ||
+                                link.contains("fsl.gigabytes", true) -> {
+                            Log.d(tag, "FSLv2: $link")
                             callback(newExtractorLink(
                                 "$referer [FSLv2]",
-                                "$referer [FSLv2] $labelExtras",
+                                "$referer [FSLv2] $finalLabel",
                                 link
                             ) { this.quality = score + 20 })
                         }
-                    }
 
-                    // Download File button
-                    text.contains("Download", true) -> {
-                        if (isValidVideoUrl(link)) {
+                        // FSL Server (hub.diskcdn.buzz) - check before generic "FSL"
+                        link.contains("diskcdn.buzz", true) ||
+                                (text.contains("FSL", true) && !text.contains("FSLv2", true)) -> {
+                            Log.d(tag, "FSL: $link")
                             callback(newExtractorLink(
-                                "$referer",
-                                "$referer $labelExtras",
+                                "$referer [FSL]",
+                                "$referer [FSL] $finalLabel",
                                 link
-                            ) { this.quality = score })
+                            ) { this.quality = score + 15 })
                         }
-                    }
 
-                    // PixelDrain
-                    link.contains("pixeldrain", true) ||
-                            link.contains("hubcdn.fans", true) -> {
-                        val finalURL = when {
-                            link.contains("pixeldrain.dev/u/") || link.contains("pixeldrain.com/u/") ->
-                                "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
-                            link.contains("hubcdn.fans") -> {
-                                try {
-                                    val redirectResp = app.get(link, allowRedirects = false)
-                                    val loc = redirectResp.headers["location"]
-                                    if (!loc.isNullOrBlank() && loc.contains("pixeldrain")) {
-                                        "${getBaseUrl(loc)}/api/file/${loc.substringAfterLast("/")}?download"
-                                    } else link
-                                } catch (_: Exception) { link }
-                            }
-                            else -> link
-                        }
-                        // PixelDrain URLs are usually reliable, skip validation
-                        callback(newExtractorLink(
-                            "Pixeldrain",
-                            "Pixeldrain $labelExtras",
-                            finalURL
-                        ) { this.quality = score })
-                    }
-
-                    // 10Gbps Server
-                    text.contains("10Gbps", true) -> {
-                        var currentLink = link
-                        repeat(3) {
-                            val response = app.get(currentLink, allowRedirects = false)
-                            val redirectUrl = response.headers["location"] ?: return@amap
-                            if ("link=" in redirectUrl) {
-                                val finalLink = redirectUrl.substringAfter("link=")
-                                if (isValidVideoUrl(finalLink)) {
-                                    callback(newExtractorLink(
-                                        "10Gbps",
-                                        "10Gbps $labelExtras",
-                                        finalLink
-                                    ) { this.quality = score })
+                        // 10Gbps Server (pixel.hubcdn.fans/?id=)
+                        text.contains("10Gbps", true) ||
+                                (link.contains("pixel.hubcdn", true) && link.contains("?id=")) -> {
+                            Log.d(tag, "10Gbps: $link")
+                            try {
+                                var currentLink = link
+                                repeat(5) {
+                                    val resp = app.get(currentLink, allowRedirects = false)
+                                    val loc = resp.headers["location"]
+                                    if (loc.isNullOrBlank()) return@repeat
+                                    if (loc.contains("link=")) {
+                                        val finalLink = java.net.URLDecoder.decode(
+                                            loc.substringAfter("link="), "UTF-8"
+                                        )
+                                        callback(newExtractorLink(
+                                            "10Gbps", "10Gbps $finalLabel", finalLink
+                                        ) { this.quality = score + 10 })
+                                        return@amap
+                                    }
+                                    currentLink = if (loc.startsWith("http")) loc
+                                    else "${getBaseUrl(currentLink)}$loc"
                                 }
-                                return@amap
+                                // Use last resolved link
+                                callback(newExtractorLink(
+                                    "10Gbps", "10Gbps $finalLabel", currentLink
+                                ) { this.quality = score + 10 })
+                            } catch (e: Exception) {
+                                Log.e(tag, "10Gbps redirect error: ${e.message}")
                             }
-                            currentLink = redirectUrl
                         }
-                    }
 
-                    // Other direct download links
-                    link.startsWith("http") && isDirectDownloadUrl(link) -> {
-                        if (isValidVideoUrl(link)) {
+                        // PixelDrain (pixeldrain.dev/u/XXX)
+                        link.contains("pixeldrain", true) -> {
+                            Log.d(tag, "PixelDrain: $link")
+                            val finalURL = if (link.contains("/u/")) {
+                                "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
+                            } else link
                             callback(newExtractorLink(
-                                "$referer [Direct]",
-                                "$referer [Direct] $labelExtras",
-                                link
+                                "Pixeldrain", "Pixeldrain $finalLabel", finalURL
+                            ) { this.quality = score })
+                        }
+
+                        // Generic Download button (catch new server types)
+                        text.contains("Download", true) && !link.contains("google.com", true) -> {
+                            Log.d(tag, "Download: $link")
+                            callback(newExtractorLink(
+                                "$referer", "$referer $finalLabel", link
                             ) { this.quality = score })
                         }
                     }
+                } catch (e: Exception) {
+                    Log.e(tag, "Error processing: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e(tag, "Error processing link: ${e.message}")
             }
+        } catch (e: Exception) {
+            Log.e(tag, "Error: ${e.message}")
         }
     }
 
     private fun cleanTitle(title: String): String {
         val parts = title.split(".", "-", "_")
         val qualityTags = listOf("WEBRip", "WEB-DL", "WEB", "BluRay", "HDRip", "DVDRip", "HDTV", "HD")
-        val codecTags = listOf("x264", "x265", "H264", "HEVC", "AVC", "AAC", "DD5", "EAC3")
 
         val startIndex = parts.indexOfFirst { part ->
             qualityTags.any { part.contains(it, true) }
@@ -579,6 +503,13 @@ class HubCloud : ExtractorApi() {
     }
 }
 
+/**
+ * HUBCDN Extractor - Instant Download & Legacy hubcdn
+ *
+ * NEW Flow (2026):
+ * hubcdn.fans/file/XXX → redirects to hubcdn.fans/dl/?link=FINAL_URL
+ * Parse final URL from redirect or page "Download Here" link
+ */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
     override val mainUrl = "https://hubcdn.*"
@@ -592,7 +523,6 @@ class HUBCDN : ExtractorApi() {
     ) {
         val tag = "HUBCDN"
 
-        // Real-time domain fetching
         val latestUrl = getLatestUrl(url, "hubcdn")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
@@ -601,124 +531,79 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
-                // cryptonewz.one/?id=ENCRYPTED - NEW v2.0 approach
-                newUrl.contains("cryptonewz.one") && newUrl.contains("?id=") -> {
-                    Log.d(tag, "cryptonewz v2.0 - extracting encoded data from response")
+                // hubcdn.fans/file/XXX - Instant download (primary flow)
+                newUrl.contains("/file/") -> {
+                    Log.d(tag, "Instant download: $newUrl")
 
-                    var hblinksUrl: String? = null
+                    // Follow redirects - final URL will be hubcdn.fans/dl/?link=FINAL_URL
+                    val response = app.get(newUrl, allowRedirects = true)
+                    val finalPageUrl = response.url
+                    val doc = response.document
 
-                    // Step 1: Fetch WITHOUT following redirects to get the JS with encoded data
-                    val response = app.get(newUrl, allowRedirects = false)
-                    val html = response.text
+                    var downloadUrl: String? = null
 
-                    Log.d(tag, "Response status: ${response.code}, length: ${html.length}")
+                    // Method 1: Extract from redirect URL parameter (?link=)
+                    if (finalPageUrl.contains("link=")) {
+                        downloadUrl = java.net.URLDecoder.decode(
+                            finalPageUrl.substringAfter("link="), "UTF-8"
+                        )
+                        Log.d(tag, "Got URL from redirect param: $downloadUrl")
+                    }
 
-                    // Step 2: Extract encoded data from s('o','ENCODED_DATA',...)
-                    // Pattern: s('o','Y214WE0xWjNZbXRh....',180*1000);
-                    val sPattern = Regex("""s\s*\(\s*['"]o['"]\s*,\s*['"]([A-Za-z0-9+/=]+)['"]""")
-                    val sMatch = sPattern.find(html)
-
-                    if (sMatch != null) {
-                        val encodedData = sMatch.groupValues[1]
-                        Log.d(tag, "✓ Found encoded data (${encodedData.length} chars)")
-
-                        // Step 3: Decode using the chain: base64 → base64 → rot13 → base64 → JSON → base64
-                        hblinksUrl = decodecryptonewzData(encodedData)
-
-                        if (hblinksUrl != null) {
-                            Log.d(tag, "✓ Decoded hblinks URL: $hblinksUrl")
-                        } else {
-                            Log.w(tag, "✗ Failed to decode data")
-                        }
-                    } else {
-                        Log.d(tag, "s() function not found, trying legacy redirect method")
-
-                        // Fallback: Follow redirect and try legacy extraction
-                        val redirectResponse = app.get(newUrl, allowRedirects = true)
-                        val finalUrl = redirectResponse.url
-                        val doc = redirectResponse.document
-                        val fullHtml = doc.html()
-
-                        Log.d(tag, "Redirected to: $finalUrl")
-
-                        // Try regex patterns in HTML
-                        val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
-
-                        doc.select("script").forEach { script ->
-                            val scriptData = script.data()
-                            val match = hblinksPattern.find(scriptData)
-                            if (match != null && hblinksUrl == null) {
-                                hblinksUrl = match.value
-                                Log.d(tag, "✓ Found hblinks in script: $hblinksUrl")
-                            }
-                        }
-
-                        if (hblinksUrl == null) {
-                            val match = hblinksPattern.find(fullHtml)
-                            if (match != null) {
-                                hblinksUrl = match.value
-                                Log.d(tag, "✓ Found hblinks in HTML: $hblinksUrl")
-                            }
+                    // Method 2: Find "Download Here" link on the dl page
+                    if (downloadUrl.isNullOrBlank()) {
+                        val dlLink = doc.selectFirst("a[href]:contains(Download Here)")?.attr("href")
+                            ?: doc.selectFirst("a.btn[href^=http]")?.attr("href")
+                        if (!dlLink.isNullOrBlank() && !dlLink.contains("hubcdn.fans")) {
+                            downloadUrl = dlLink
+                            Log.d(tag, "Got URL from Download Here link: $downloadUrl")
                         }
                     }
 
-                    // Step 4: Process hblinks URL
-                    if (!hblinksUrl.isNullOrBlank()) {
-                        Log.d(tag, "→ Processing hblinks: $hblinksUrl")
-                        Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
+                    // Method 3: Legacy - try reurl JS variable
+                    if (downloadUrl.isNullOrBlank()) {
+                        val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
+                        val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
+                            .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
+                        if (encodedUrl != null) {
+                            try {
+                                downloadUrl = com.lagradost.cloudstream3.base64Decode(encodedUrl)
+                                    .substringAfterLast("link=")
+                                Log.d(tag, "Got URL from reurl JS: $downloadUrl")
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    if (!downloadUrl.isNullOrBlank() && downloadUrl.startsWith("http")) {
+                        callback(newExtractorLink(
+                            "Instant DL",
+                            "Instant DL [HUBCDN]",
+                            downloadUrl,
+                            INFER_TYPE
+                        ) { this.quality = Qualities.Unknown.value })
                     } else {
-                        Log.w(tag, "✗ Failed to extract hblinks URL from cryptonewz")
+                        Log.w(tag, "Failed to extract download URL from: $newUrl")
                     }
                 }
 
-                // cryptonewz.one/homelander/ or similar mediator pages (direct access)
-                newUrl.contains("cryptonewz.one") && !newUrl.contains("?id=") -> {
-                    Log.d(tag, "cryptonewz mediator page (direct access)")
-                    val doc = app.get(newUrl).document
-                    val html = doc.html()
-
-                    val hblinksPattern = Regex("""https?://(?:hblinks|4khdhub)\.[a-z]+/archives/\d+""")
-                    val match = hblinksPattern.find(html)
-
-                    if (match != null) {
-                        val hblinksUrl = match.value
-                        Log.d(tag, "✓ Found hblinks: $hblinksUrl")
-                        Hblinks().getUrl(hblinksUrl, referer, subtitleCallback, callback)
-                    } else {
-                        Log.w(tag, "✗ No hblinks URL found in mediator page")
-                    }
-                }
-
-                // hubcdn.fans/file/XXX - Instant download
-                newUrl.contains("hubcdn.fans/file/") || newUrl.contains("hubcdn.") && newUrl.contains("/file/") -> {
-                    Log.d(tag, "Instant download")
-                    val doc = app.get(newUrl).document
-
-                    val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
-                    val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
-                        .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
-
-                    val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
-
-                    val finalUrl = decodedUrl ?: url
-                    callback(newExtractorLink(
-                        "Instant DL",
-                        "Instant DL [hubcdn.fans]",
-                        finalUrl,
-                        INFER_TYPE
-                    ) { this.quality = Qualities.Unknown.value })
-                }
-
-                // Legacy hubcdn format
+                // hubcdn with hubcloud link fallback
                 newUrl.contains("hubcdn") -> {
                     val doc = app.get(newUrl).document
+
+                    // Try reurl JS variable first
                     val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
                     val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
                         .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
 
-                    val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
+                    var decodedUrl: String? = null
+                    if (encodedUrl != null) {
+                        try {
+                            decodedUrl = com.lagradost.cloudstream3.base64Decode(encodedUrl)
+                                .substringAfterLast("link=")
+                        } catch (_: Exception) {}
+                    }
 
-                    if (decodedUrl != null) {
+                    if (!decodedUrl.isNullOrBlank()) {
                         callback(newExtractorLink(
                             this.name,
                             this.name,
@@ -739,5 +624,3 @@ class HUBCDN : ExtractorApi() {
         }
     }
 }
-
-
