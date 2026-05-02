@@ -158,7 +158,7 @@ open class HubCloud : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val latestUrl = getLatestUrl(url, "hubcloud")
+        var latestUrl = getLatestUrl(url, "hubcloud")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
         val doc = app.get(newUrl).document
@@ -270,11 +270,12 @@ open class HubCloud : ExtractorApi() {
             }
             else if (text.contains("Download [Server : 10Gbps]")) {
                 val dlink = app.get(btnLink, allowRedirects = false).headers["location"] ?: ""
+                val finalUrl = if (dlink.contains("link=")) dlink.substringAfter("link=") else dlink
                 callback.invoke(
                     newExtractorLink(
                         "$name[Download]",
                         "$name[Download] $header[$size]",
-                        dlink.substringAfter("link="),
+                        finalUrl,
                     ) {
                         this.quality = serverQuality
                         this.headers = VIDEO_HEADERS
@@ -317,7 +318,15 @@ open class GDFlix : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val latestUrl = getLatestUrl(url, "gdflix")
+        var latestUrl = getLatestUrl(url, "gdflix")
+        val gdflix2 = getLatestUrl(url, "gdflix2")
+        // Use gdflix2 for gdflix.dev links or if gdflix is dead
+        if (url.contains("gdflix.dev", true) && gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
+            latestUrl = gdflix2
+        } else if (gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
+            latestUrl = gdflix2 // Prefer gdflix2 generally as new17 is working
+        }
+        
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
         val document = app.get(newUrl).document
@@ -377,7 +386,6 @@ open class GDFlix : ExtractorApi() {
                                     this.headers = VIDEO_HEADERS
                                 }
                             )
-                            return // Early return - first working link found
                         }
                     }
                     text.contains("DIRECT DL") || text.contains("DIRECT SERVER") -> {
@@ -387,7 +395,6 @@ open class GDFlix : ExtractorApi() {
                                 this.headers = VIDEO_HEADERS
                             }
                         )
-                        return // Early return
                     }
                     text.contains("CLOUD DOWNLOAD [R2]") -> {
                         val cloudLink = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
@@ -397,7 +404,6 @@ open class GDFlix : ExtractorApi() {
                                 this.headers = VIDEO_HEADERS
                             }
                         )
-                        return // Early return
                     }
                     link.contains("pixeldra") -> {
                         val baseUrlLink = getBaseUrl(link)
@@ -409,7 +415,6 @@ open class GDFlix : ExtractorApi() {
                                 this.headers = VIDEO_HEADERS
                             }
                         )
-                        return // Early return
                     }
                 }
             } catch (e: Exception) {
@@ -440,7 +445,6 @@ open class GDFlix : ExtractorApi() {
                                         this.headers = VIDEO_HEADERS
                                     }
                                 )
-                                return // Early return
                             }
                         }
                     }
@@ -484,7 +488,6 @@ open class GDFlix : ExtractorApi() {
                                         this.headers = VIDEO_HEADERS
                                     }
                                 )
-                                return // Early return
                             }
                         }
                     }
@@ -495,7 +498,6 @@ open class GDFlix : ExtractorApi() {
                             val gofileLink = gofileAnchor.attr("href")
                             if (gofileLink.contains("gofile")) {
                                 Gofile().getUrl(gofileLink, "", subtitleCallback, callback)
-                                return // Early return
                             }
                         }
                     }

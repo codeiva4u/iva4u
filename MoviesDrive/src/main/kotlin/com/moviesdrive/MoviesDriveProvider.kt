@@ -639,6 +639,9 @@ class MoviesDriveProvider : MainAPI() {
                                         
                                         Log.d(TAG, "🔗 Extracted ${targetLinks.size} direct links from mdrive.lol")
                                         
+                                        // Prioritize GDFlix over HubCloud
+                                        targetLinks.sortByDescending { it.contains("gdflix", true) || it.contains("gdlink", true) }
+                                        
                                         // Process extracted links with proper extractors
                                         targetLinks.take(3).amap { extractorLink ->
                                             try {
