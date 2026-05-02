@@ -124,7 +124,7 @@ fun isDirectDownloadUrl(url: String): Boolean {
 
 // Check if URL should be blocked (streaming only)
 fun shouldBlockUrl(url: String): Boolean {
-    return url.contains(".m3u8", true) || url.contains("/hls/", true)
+    return url.contains(".m3u8", true) || url.contains("/hls/", true) || url.contains("hubstream", true) || url.contains("hdstream", true) || url.contains("watch", true)
 }
 
 /**
@@ -208,7 +208,7 @@ suspend fun isValidVideoUrl(url: String): Boolean {
  */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
-    override val mainUrl = "https://hblinks.*"
+    override val mainUrl = "https://(?:hblinks|4khdhub).*"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -221,7 +221,7 @@ open class Hblinks : ExtractorApi() {
         Log.d(tag, "Processing: $url")
 
         // Real-time domain fetching
-        val latestUrl = getLatestUrl(url, "hblinks")
+        val latestUrl = getLatestUrl(url, "hubstreamdad")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
 
@@ -251,13 +251,6 @@ open class Hblinks : ExtractorApi() {
                             HUBCDN().getUrl(href, name, subtitleCallback, callback)
                         href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
-                        href.contains("hubstream.art", true) ->
-                            callback(newExtractorLink(
-                                "Hubstream", 
-                                "Hubstream", 
-                                href, 
-                                INFER_TYPE
-                            ) { this.quality = Qualities.Unknown.value })
                         href.startsWith("http") && isDirectDownloadUrl(href) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
                     }

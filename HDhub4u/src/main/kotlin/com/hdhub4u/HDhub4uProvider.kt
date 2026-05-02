@@ -722,15 +722,6 @@ class HDhub4uProvider : MainAPI() {
                         link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
                             HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                        // Hubstream direct
-                        link.contains("hubstream.art", true) ->
-                            callback(com.lagradost.cloudstream3.utils.newExtractorLink(
-                                "Hubstream", 
-                                "Hubstream", 
-                                link, 
-                                com.lagradost.cloudstream3.utils.INFER_TYPE
-                            ) { this.quality = com.lagradost.cloudstream3.utils.Qualities.Unknown.value })
-                            
                         // Gofile / Pixeldrain
                         link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
                             com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
