@@ -169,31 +169,10 @@ fun decodecryptonewzData(encodedData: String): String? {
 }
 
 suspend fun isValidVideoUrl(url: String): Boolean {
-    return try {
-        val response = com.lagradost.cloudstream3.app.head(url)
-        val contentType = response.headers["content-type"]?.lowercase() ?: ""
-        val contentDisposition = response.headers["content-disposition"]?.lowercase() ?: ""
-
-        // Check for invalid content types
-        val isZip = contentType.contains("zip") ||
-                contentType.contains("octet-stream") && url.contains(".zip") ||
-                contentDisposition.contains(".zip")
-        val isHtml = contentType.contains("text/html")
-        val isError = response.code >= 400
-
-        // Valid if video/* or application/octet-stream (for mkv/mp4)
-        val isVideo = contentType.contains("video/") ||
-                (contentType.contains("octet-stream") && !isZip)
-
-        if (isZip) Log.d("URLValidator", "BLOCKED ZIP: $url")
-        if (isHtml) Log.d("URLValidator", "BLOCKED HTML response: $url")
-        if (isError) Log.d("URLValidator", "BLOCKED HTTP error ${response.code}: $url")
-
-        !isZip && !isHtml && !isError && (isVideo || contentType.isEmpty())
-    } catch (e: Exception) {
-        Log.d("URLValidator", "Validation failed (allowing): ${e.message}")
-        true  // Allow if validation fails (don't block on timeout)
-    }
+    // S3 and presigned URLs often return 403 SignatureDoesNotMatch on HEAD requests.
+    // Instead of validating with HEAD, we just allow the links to pass through.
+    // HTML and ZIP files are already filtered by blocklists in the extractors.
+    return true
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -227,7 +206,8 @@ open class Hblinks : ExtractorApi() {
 
         try {
             val doc = app.get(newUrl).document
-            val links = doc.select("h3 a[href], h5 a[href], div.entry-content a[href]")
+            // Select all known provider links directly, completely independent of page layout (h3, h5, entry-content etc)
+            val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='hubdrive'], a[href*='pixeldrain'], a[href*='gofile.io']")
 
             Log.d(tag, "Found ${links.size} links")
 
