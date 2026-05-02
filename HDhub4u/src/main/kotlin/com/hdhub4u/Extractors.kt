@@ -352,30 +352,43 @@ class HubCloud : ExtractorApi() {
         Log.d(tag, "Processing: $newUrl")
 
         // Get hubcloud.php page URL
-        val phpUrl = try {
+        var phpUrl = ""
+        try {
+            var actualUrl = newUrl
+            var actualDoc = app.get(newUrl, interceptor = cfKiller).document
+            
+            // Handle search-recover.php
+            if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
+                var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
+                if (searchLink.isNotEmpty()) {
+                    if (!searchLink.startsWith("http")) searchLink = latestUrl + searchLink
+                    actualUrl = searchLink
+                    actualDoc = app.get(actualUrl, interceptor = cfKiller).document
+                }
+            }
+
             when {
-                "hubcloud.php" in newUrl || "gamerxyt.com" in newUrl -> newUrl
-                "/drive/" in newUrl -> {
-                    val driveDoc = app.get(newUrl, interceptor = cfKiller).document
-                    driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
-                        ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
-                        ?: driveDoc.selectFirst("a#download")?.attr("href")
-                        ?: driveDoc.select("a.btn").firstOrNull {
+                "hubcloud.php" in actualUrl || "gamerxyt.com" in actualUrl -> phpUrl = actualUrl
+                "/drive/" in actualUrl -> {
+                    phpUrl = actualDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
+                        ?: actualDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
+                        ?: actualDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
+                        ?: actualDoc.selectFirst("a#download")?.attr("href")
+                        ?: actualDoc.select("a.btn").firstOrNull {
                             it.attr("href").contains("gamerxyt", true)
                         }?.attr("href")
                         ?: ""
                 }
                 else -> {
-                    val rawHref = app.get(newUrl, interceptor = cfKiller)
-                        .document.select("#download").attr("href")
-                    if (rawHref.startsWith("http")) rawHref
-                    else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    val rawHref = actualDoc.select("#download").attr("href")
+                    if (rawHref.isNotEmpty()) {
+                        phpUrl = if (rawHref.startsWith("http")) rawHref
+                        else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to get PHP URL: ${e.message}")
-            ""
         }
 
         if (phpUrl.isBlank()) {
