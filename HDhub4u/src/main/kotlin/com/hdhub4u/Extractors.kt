@@ -6,7 +6,7 @@ import org.json.JSONObject
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.extractors.PixelDrain
-import com.lagradost.cloudstream3.network.CloudflareKiller
+
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
@@ -204,7 +204,6 @@ class Hubdrive : ExtractorApi() {
     override val mainUrl = "https://hubdrive.*"
     override val requiresReferer = false
 
-    private val cfKiller by lazy { CloudflareKiller() }
 
     override suspend fun getUrl(
         url: String,
@@ -220,7 +219,7 @@ class Hubdrive : ExtractorApi() {
         val newUrl = url.replace(baseUrl, latestUrl)
 
         try {
-            val doc = app.get(newUrl, interceptor = cfKiller).documentLarge
+            val doc = app.get(newUrl).documentLarge
 
             var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
             if (href.isBlank() || !href.contains("hubcloud", true)) {
@@ -257,7 +256,6 @@ class HubCloud : ExtractorApi() {
     override val mainUrl = "https://hubcloud.*"
     override val requiresReferer = false
 
-    private val cfKiller by lazy { CloudflareKiller() }
 
     override suspend fun getUrl(
         url: String,
@@ -288,7 +286,7 @@ class HubCloud : ExtractorApi() {
             // ═══════════════════════════════════════════════════════════
             // Step 1: Get drive page and find token URL
             // ═══════════════════════════════════════════════════════════
-            val driveDoc = app.get(newUrl, interceptor = cfKiller).document
+            val driveDoc = app.get(newUrl).document
             val driveHtml = driveDoc.html()
 
             // Extract file info
@@ -371,7 +369,7 @@ class HubCloud : ExtractorApi() {
             // ═══════════════════════════════════════════════════════════
             // Step 2: Fetch token page and extract download buttons
             // ═══════════════════════════════════════════════════════════
-            val document = app.get(tokenUrl, interceptor = cfKiller).document
+            val document = app.get(tokenUrl).document
 
             // Re-extract file info if not found earlier
             val finalHeader = header.ifEmpty { document.selectFirst("div.card-header")?.text() ?: "" }
@@ -411,8 +409,8 @@ class HubCloud : ExtractorApi() {
                                 link.contains("fsl.gigabytes", true) -> {
                             Log.d(tag, "FSLv2: $link")
                             callback(newExtractorLink(
-                                "$referer [FSLv2]",
-                                "$referer [FSLv2] $finalLabel",
+                                "$name [FSLv2]",
+                                "$name [FSLv2] $finalLabel",
                                 link
                             ) { this.quality = score + 20 })
                         }
@@ -422,8 +420,8 @@ class HubCloud : ExtractorApi() {
                                 (text.contains("FSL", true) && !text.contains("FSLv2", true)) -> {
                             Log.d(tag, "FSL: $link")
                             callback(newExtractorLink(
-                                "$referer [FSL]",
-                                "$referer [FSL] $finalLabel",
+                                "$name [FSL]",
+                                "$name [FSL] $finalLabel",
                                 link
                             ) { this.quality = score + 15 })
                         }
@@ -474,7 +472,7 @@ class HubCloud : ExtractorApi() {
                         text.contains("Download", true) && !link.contains("google.com", true) -> {
                             Log.d(tag, "Download: $link")
                             callback(newExtractorLink(
-                                "$referer", "$referer $finalLabel", link
+                                "$name", "$name $finalLabel", link
                             ) { this.quality = score })
                         }
                     }

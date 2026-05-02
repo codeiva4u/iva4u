@@ -698,9 +698,8 @@ class HDhub4uProvider : MainAPI() {
                     }
                 )
 
-            // Process top 8 links (extractors do the heavy work)
-            // Increased from 5 to 8 to handle more episode links
-            sortedLinks.take(8).amap { downloadLink ->
+            // Process top 4 links for fast loading (each link chain = 2-3 HTTP requests)
+            sortedLinks.take(4).amap { downloadLink ->
                 try {
                     val link = downloadLink.url
                     Log.d(TAG, "Extracting: $link")
