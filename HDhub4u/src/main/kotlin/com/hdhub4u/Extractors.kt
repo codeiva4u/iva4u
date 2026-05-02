@@ -364,13 +364,34 @@ class HubCloud : ExtractorApi() {
             var actualUrl = newUrl
             var actualDoc = app.get(newUrl, interceptor = cfKiller).document
             
-            // Handle search-recover.php
+            // Handle search-recover.php (new API-based and old HTML-based)
             if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
-                var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
-                if (searchLink.isNotEmpty()) {
-                    if (!searchLink.startsWith("http")) searchLink = latestUrl + searchLink
-                    actualUrl = searchLink
-                    actualDoc = app.get(actualUrl, interceptor = cfKiller).document
+                try {
+                    val match = Regex("""Q_INITIAL\s*=\s*"([^"]+)"""").find(actualDoc.html())
+                    val qInitial = match?.groupValues?.get(1) ?: ""
+                    val fromAc = actualUrl.substringAfter("from_ac=").substringBefore("&")
+                    
+                    if (qInitial.isNotEmpty() && !qInitial.contains("<html") && fromAc.isNotEmpty()) {
+                        val apiLink = "$latestUrl/drive/search-recover.php?api=search&q=${java.net.URLEncoder.encode(qInitial, "UTF-8")}&from_ac=$fromAc"
+                        val jsonResponse = app.get(apiLink, headers = mapOf("Accept" to "application/json")).text
+                        val hits = JSONObject(jsonResponse).optJSONArray("hits")
+                        if (hits != null && hits.length() > 0) {
+                            val firstUrl = hits.optJSONObject(0)?.optString("url")
+                            if (!firstUrl.isNullOrEmpty()) {
+                                actualUrl = firstUrl
+                                actualDoc = app.get(actualUrl, interceptor = cfKiller).document
+                            }
+                        }
+                    } else {
+                        var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
+                        if (searchLink.isNotEmpty()) {
+                            if (!searchLink.startsWith("http")) searchLink = latestUrl + searchLink
+                            actualUrl = searchLink
+                            actualDoc = app.get(actualUrl, interceptor = cfKiller).document
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Error parsing search-recover.php API: ${e.message}")
                 }
             }
 
