@@ -38,7 +38,7 @@ class MoviesDriveProvider : MainAPI() {
         // Series Detection Pattern
         // Matches: "Season 1", "S01", "Episode", "EP", "Complete", "All Episodes"
         private val SERIES_DETECTION_REGEX = Regex(
-            """(?i)(\bSeason\s*\d+|\bS\d+(?:E\d+)?\b|\bEpisode|\bEP\s*\d+|\bComplete\b|\bAll\s*Episodes|\bWeb[-\s]?Series)"""
+            """(?i)(\bSeason\s*\d+|\bS\d+(?:E\d+)?\b(?!\s*K)|\bEpisode|\bEP\s*\d+|\bComplete\b|\bAll\s*Episodes|\bWeb[-\s]?Series)"""
         )
         
         // Episode Number Extraction Pattern

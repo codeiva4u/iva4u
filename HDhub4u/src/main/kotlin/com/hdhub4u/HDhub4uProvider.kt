@@ -37,7 +37,7 @@ class HDhub4uProvider : MainAPI() {
         // Series Detection Pattern
         // Matches: "Season 1", "S01", "Episode", "EP-01", "Complete", "All Episodes", "EP Added"
         private val SERIES_DETECTION_REGEX = Regex(
-            """(?i)(\bSeason\s*\d*|\bS0?\d+(?:E\d+)?\b|\bEpisode|\bEP[-\s]?\d+|\bComplete\b|\bAll\s*Episodes|\bEP\s*Added\b)"""
+            """(?i)(\bSeason\s*\d*|\bS0?\d+(?:E\d+)?\b(?!\s*K)|\bEpisode|\bEP[-\s]?\d+|\bComplete\b|\bAll\s*Episodes|\bEP\s*Added\b)"""
         )
         
         // Episode Number Extraction Pattern

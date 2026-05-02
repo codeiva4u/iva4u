@@ -161,36 +161,57 @@ open class HubCloud : ExtractorApi() {
         var latestUrl = getLatestUrl(url, "hubcloud")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
-        var actualUrl = newUrl
-        var actualDoc = app.get(newUrl).document
-        
-        if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
-            var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
-            if (searchLink.isNotEmpty()) {
-                if (!searchLink.startsWith("https://")) searchLink = latestUrl + searchLink
-                actualUrl = searchLink
-                actualDoc = app.get(searchLink).document
+        var phpUrl = ""
+        try {
+            var actualUrl = newUrl
+            var actualDoc = app.get(newUrl).document
+            
+            // Handle search-recover.php
+            if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
+                var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
+                if (searchLink.isNotEmpty()) {
+                    if (!searchLink.startsWith("http")) searchLink = latestUrl + searchLink
+                    actualUrl = searchLink
+                    actualDoc = app.get(actualUrl).document
+                }
             }
-        }
-        
-        var link = if (actualUrl.contains("drive")) {
-            val scriptTag = actualDoc.selectFirst("script:containsData(url)")?.toString() ?: ""
-            Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
-        } else {
-            actualDoc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+
+            when {
+                "hubcloud.php" in actualUrl || "gamerxyt.com" in actualUrl -> phpUrl = actualUrl
+                "/drive/" in actualUrl -> {
+                    phpUrl = actualDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
+                        ?: actualDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
+                        ?: actualDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
+                        ?: actualDoc.selectFirst("a#download")?.attr("href")
+                        ?: actualDoc.select("a.btn").firstOrNull {
+                            it.attr("href").contains("gamerxyt", true)
+                        }?.attr("href")
+                        ?: ""
+                }
+                else -> {
+                    val rawHref = actualDoc.select("#download").attr("href")
+                    if (rawHref.isNotEmpty()) {
+                        phpUrl = if (rawHref.startsWith("http")) rawHref
+                        else latestUrl.trimEnd('/') + "/" + rawHref.trimStart('/')
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("HubCloud", "Failed to get PHP URL: ${e.message}")
         }
 
-        if (!link.startsWith("https://")) {
-            link = latestUrl + link
+        if (phpUrl.isBlank()) {
+            Log.w("HubCloud", "No valid PHP URL for: $newUrl")
+            return
         }
 
-        val document = app.get(link).document
+        val document = app.get(phpUrl).document
         val div = document.selectFirst("div.card-body")
         val header = document.select("div.card-header").text()
         val size = document.select("i#size").text()
         val baseQuality = getIndexQuality(header)
 
-        div?.select("h2 a.btn")?.amap {
+        div?.select("h2 a.btn, a.btn")?.amap {
             val btnLink = it.attr("href")
             val text = it.text()
             val serverQuality = getAdjustedQuality(baseQuality, size, text, header)
@@ -331,9 +352,10 @@ open class GDFlix : ExtractorApi() {
     ) {
         var latestUrl = getLatestUrl(url, "gdflix")
         val gdflix2 = getLatestUrl(url, "gdflix2")
-        // Use gdflix2 for gdflix.dev links or if gdflix is dead
-        if (url.contains("gdflix.dev", true) && gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
-            latestUrl = gdflix2
+        
+        // Preserve gdflix.dev as it's often the direct file link domain
+        if (url.contains("gdflix.dev", true)) {
+            latestUrl = "https://gdflix.dev"
         } else if (gdflix2.isNotEmpty() && !gdflix2.contains("gdflix2")) {
             latestUrl = gdflix2 // Prefer gdflix2 generally as new17 is working
         }
