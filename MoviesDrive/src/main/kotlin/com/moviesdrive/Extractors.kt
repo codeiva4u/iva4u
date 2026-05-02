@@ -161,12 +161,23 @@ open class HubCloud : ExtractorApi() {
         var latestUrl = getLatestUrl(url, "hubcloud")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
-        val doc = app.get(newUrl).document
-        var link = if (newUrl.contains("drive")) {
-            val scriptTag = doc.selectFirst("script:containsData(url)")?.toString() ?: ""
+        var actualUrl = newUrl
+        var actualDoc = app.get(newUrl).document
+        
+        if (actualUrl.contains("search-recover.php", ignoreCase = true)) {
+            var searchLink = actualDoc.selectFirst("a[href*='/drive/']")?.attr("href") ?: ""
+            if (searchLink.isNotEmpty()) {
+                if (!searchLink.startsWith("https://")) searchLink = latestUrl + searchLink
+                actualUrl = searchLink
+                actualDoc = app.get(searchLink).document
+            }
+        }
+        
+        var link = if (actualUrl.contains("drive")) {
+            val scriptTag = actualDoc.selectFirst("script:containsData(url)")?.toString() ?: ""
             Regex("var url = '([^']*)'").find(scriptTag)?.groupValues?.get(1) ?: ""
         } else {
-            doc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
+            actualDoc.selectFirst("div.vd > center > a")?.attr("href") ?: ""
         }
 
         if (!link.startsWith("https://")) {

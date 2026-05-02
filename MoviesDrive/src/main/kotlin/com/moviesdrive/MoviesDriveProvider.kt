@@ -38,13 +38,13 @@ class MoviesDriveProvider : MainAPI() {
         // Series Detection Pattern
         // Matches: "Season 1", "S01", "Episode", "EP", "Complete", "All Episodes"
         private val SERIES_DETECTION_REGEX = Regex(
-            """(?i)(Season\s*\d+|S\d+|Episode|EP\s*\d+|Complete|All\s*Episodes|Web[-\s]?Series)"""
+            """(?i)(\bSeason\s*\d+|\bS\d+(?:E\d+)?\b|\bEpisode|\bEP\s*\d+|\bComplete\b|\bAll\s*Episodes|\bWeb[-\s]?Series)"""
         )
         
         // Episode Number Extraction Pattern
         // Matches: "S01 E01", "Ep01", "Episode 1", "E01", "Ep 1"
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:S\d+\s*)?(?:EP?|Episode)[\s-]*(\d+)"""
+            """(?i)(?:\bS\d+\s*)?(?:\bEP?|Episode)[\s-]*(\d+)"""
         )
         
         // Quality Extraction Pattern
@@ -413,7 +413,7 @@ class MoviesDriveProvider : MainAPI() {
         var currentEpisode: Int? = null
         
         // Process all headers and links in order
-        document.select("h5, h4, a[href*='mdrive.lol']").forEach { element ->
+        document.select("h5, h4, a[href*='mdrive.lol'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='gdlink']").forEach { element ->
             val tagName = element.tagName().uppercase()
             
             if (tagName in setOf("H4", "H5")) {
@@ -427,8 +427,10 @@ class MoviesDriveProvider : MainAPI() {
                 val url = element.attr("href")
                 val linkText = element.text()
                 
-                // Skip if blank, duplicate, or not mdrive.lol
-                if (url.isBlank() || seenUrls.contains(url) || !url.contains("mdrive.lol")) return@forEach
+                // Skip if blank, duplicate, or not a valid domain
+                if (url.isBlank() || seenUrls.contains(url)) return@forEach
+                val isValidDomain = url.contains("mdrive.lol") || url.contains("hubcloud") || url.contains("gdflix") || url.contains("gdlink")
+                if (!isValidDomain) return@forEach
                 
                 // ❌ SKIP ZIP LINKS - they are compressed archives, not playable!
                 if (linkText.contains("Zip", ignoreCase = true) || 
