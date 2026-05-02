@@ -724,15 +724,20 @@ class HDhub4uProvider : MainAPI() {
 
                         // Hubstream direct
                         link.contains("hubstream.art", true) ->
-                            callback(newExtractorLink("Hubstream", "Hubstream", link, mainUrl, Qualities.Unknown.value, isM3u8 = false))
+                            callback(com.lagradost.cloudstream3.utils.newExtractorLink(
+                                "Hubstream", 
+                                "Hubstream", 
+                                link, 
+                                com.lagradost.cloudstream3.utils.INFER_TYPE
+                            ) { this.quality = com.lagradost.cloudstream3.utils.Qualities.Unknown.value })
                             
                         // Gofile / Pixeldrain
                         link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
-                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
 
                         else -> {
                             Log.w(TAG, "No specific extractor for: $link, trying default")
-                            loadExtractor(link, mainUrl, subtitleCallback, callback)
+                            com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
                         }
                     }
                 } catch (e: Exception) {

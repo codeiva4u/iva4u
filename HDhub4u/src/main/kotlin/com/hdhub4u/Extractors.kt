@@ -252,7 +252,12 @@ open class Hblinks : ExtractorApi() {
                         href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
                         href.contains("hubstream.art", true) ->
-                            callback(newExtractorLink("Hubstream", "Hubstream", href, referer, Qualities.Unknown.value, isM3u8 = false))
+                            callback(newExtractorLink(
+                                "Hubstream", 
+                                "Hubstream", 
+                                href, 
+                                INFER_TYPE
+                            ) { this.quality = Qualities.Unknown.value })
                         href.startsWith("http") && isDirectDownloadUrl(href) ->
                             loadExtractor(href, referer, subtitleCallback, callback)
                     }
