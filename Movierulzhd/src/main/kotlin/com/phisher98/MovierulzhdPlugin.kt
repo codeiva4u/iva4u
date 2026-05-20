@@ -13,6 +13,11 @@ class MovierulzhdPlugin: Plugin() {
     override fun load(context: Context) {
         pluginContext = context
         
+        // Initialize ActivityTracker to track current foreground activity
+        (context.applicationContext as? android.app.Application)?.let {
+            com.phisher98.stealth.ActivityTracker.init(it)
+        }
+        
         // Register main provider
         registerMainAPI(Movierulzhd())
         

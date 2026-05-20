@@ -29,12 +29,11 @@ class CloudflareInterceptor(
         val isBlocked = response.code == 403 || response.code == 503
 
         if (isBlocked && isCloudflare) {
-            response.close() // Close the current blocked stream
-            
-            // Acquire solved cookies by running StealthWebView on the main thread
+            // Acquire solved cookies by running StealthWebView
             val cookiesAcquired = acquireCloudflareClearance(request.url.toString())
             
             if (cookiesAcquired) {
+                response.close() // Close the current blocked stream ONLY on retry success
                 val cookieManager = android.webkit.CookieManager.getInstance()
                 val cookieString = cookieManager.getCookie(request.url.toString())
                 val builder = request.newBuilder()
@@ -54,28 +53,29 @@ class CloudflareInterceptor(
 
         mainHandler.post {
             try {
-                val currentActivity = context as? Activity
-                if (currentActivity == null || currentActivity.isFinishing || currentActivity.isDestroyed) {
-                    latch.countDown()
-                    return@post
-                }
-
-                // Create the StealthWebView instance dynamically
-                val stealthWebView = StealthWebView(context)
+                // Dynamically fetch currently active foreground activity
+                val currentActivity = ActivityTracker.currentActivity
+                
+                // Fallback to Application Context if no Activity is active
+                val webViewContext = currentActivity ?: context.applicationContext
+                val stealthWebView = StealthWebView(webViewContext)
                 
                 // Configure and attach the StealthWebViewClient
                 val client = StealthWebViewClient(stealthWebView) {
                     success = true
-                    // Remove the WebView from parent container upon completion
-                    removeWebViewSafely(currentActivity, stealthWebView)
+                    if (currentActivity != null && !currentActivity.isFinishing && !currentActivity.isDestroyed) {
+                        removeWebViewSafely(currentActivity, stealthWebView)
+                    }
                     latch.countDown()
                 }
                 stealthWebView.webViewClient = client
 
-                // Inject the webview into the activity view hierarchy invisibly (1x1 size)
-                val params = FrameLayout.LayoutParams(1, 1)
-                val rootLayout = currentActivity.findViewById<ViewGroup>(android.R.id.content)
-                rootLayout.addView(stealthWebView, params)
+                // Only attach to hierarchy if we have a valid and alive Activity context
+                if (currentActivity != null && !currentActivity.isFinishing && !currentActivity.isDestroyed) {
+                    val params = FrameLayout.LayoutParams(1, 1)
+                    val rootLayout = currentActivity.findViewById<ViewGroup>(android.R.id.content)
+                    rootLayout.addView(stealthWebView, params)
+                }
 
                 // Load the target blocked URL
                 stealthWebView.loadUrl(url)
