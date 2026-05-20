@@ -50,8 +50,11 @@ open class Movierulzhd : MainAPI() {
                     )
                     val json = response.text
                     val jsonObject = JSONObject(json)
-                    val urlString = jsonObject.optString("movierulzhd")
+                    var urlString = jsonObject.optString("movierulzhd")
                     if (urlString.isNotBlank()) {
+                        if (urlString.contains("123moviesfree9.fun")) {
+                            urlString = "https://123movies9.fun"
+                        }
                         mainUrl = urlString
                     }
                 }
@@ -174,17 +177,20 @@ open class Movierulzhd : MainAPI() {
         } catch (_: Exception) {
             null
         }
-        val actors = document.select("div.persons > div[itemprop=actor]").map {
-            Actor(
-                it.select("meta[itemprop=name]").attr("content"),
-                it.select("img:last-child").attr("src")
-            )
+        val actors = document.select("div.persons > div[itemprop=actor], div.persons > div.person").mapNotNull {
+            val name = it.selectFirst("meta[itemprop=name]")?.attr("content") ?: it.selectFirst("div.name a")?.text() ?: return@mapNotNull null
+            val img = it.selectFirst("img")?.attr("src") ?: ""
+            Actor(name, img)
         }
 
-        val recommendations = document.select("div.owl-item").map {
-            val recName = it.selectFirst("a")!!.attr("href").removeSuffix("/").split("/").last()
-            val recHref = it.selectFirst("a")!!.attr("href")
-            val recPosterUrl = it.selectFirst("img")?.getImageAttr()
+        val recommendations = document.select("div.owl-item article").mapNotNull {
+            val anchor = it.selectFirst("a") ?: return@mapNotNull null
+            val recHref = anchor.attr("href")
+            val img = anchor.selectFirst("img") ?: return@mapNotNull null
+            val recName = img.attr("alt").ifEmpty {
+                recHref.removeSuffix("/").split("/").last()
+            }
+            val recPosterUrl = img.getImageAttr()
             newTvSeriesSearchResponse(recName, recHref, TvType.TvSeries) {
                 this.posterUrl = recPosterUrl
             }
