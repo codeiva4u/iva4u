@@ -39,7 +39,7 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 open class Movierulzhd : MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
-    private val cfKiller by lazy { CloudflareKiller() }
+    private val cfKiller by lazy { com.phisher98.stealth.CloudflareInterceptor(com.phisher98.MovierulzhdPlugin.pluginContext!!) }
 
     init {
         runBlocking {
