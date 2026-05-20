@@ -34,10 +34,12 @@ import java.net.URI
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import com.lagradost.cloudstream3.network.CloudflareKiller
 
 open class Movierulzhd : MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
+    private val cfKiller by lazy { CloudflareKiller() }
 
     init {
         runBlocking {
@@ -82,7 +84,7 @@ open class Movierulzhd : MainAPI() {
         request: MainPageRequest
     ): HomePageResponse {
         val url = if(page == 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/page/$page/"
-        val document = app.get(url, timeout = 20L).document
+        val document = app.get(url, interceptor = cfKiller, timeout = 20L).document
         val home =
             document.select("div.items.normal article, div#archive-content article, div.items.full article").mapNotNull {
                 it.toSearchResult()
@@ -129,7 +131,7 @@ open class Movierulzhd : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query").document
+        val document = app.get("$mainUrl/search/$query", interceptor = cfKiller).document
         return document.select("div.result-item").map {
             val title =
                 it.selectFirst("div.title > a")!!.text().replace(Regex("\\(\\d{4}\\)"), "").trim()
@@ -142,7 +144,7 @@ open class Movierulzhd : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val request = app.get(url)
+        val request = app.get(url, interceptor = cfKiller)
         val document = request.document
         directUrl = getBaseUrl(request.url)
         val title =
@@ -308,7 +310,7 @@ open class Movierulzhd : MainAPI() {
 
         if (isUrl) {
             // For movies, data is direct URL
-            val document = app.get(data).document
+            val document = app.get(data, interceptor = cfKiller).document
 
             // Extract player options
             document.select("ul#playeroptionsul > li")
@@ -356,7 +358,8 @@ open class Movierulzhd : MainAPI() {
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl
-                )
+                ),
+                interceptor = cfKiller
             ).parsedSafe<ResponseHash>()
 
             response?.embed_url
