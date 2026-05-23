@@ -5,7 +5,7 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import android.content.Context
 
 @CloudstreamPlugin
-class MovierulzhdPlugin: Plugin() {
+class 123Moviesfree9Plugin: Plugin() {
     companion object {
         var pluginContext: Context? = null
     }
@@ -19,7 +19,7 @@ class MovierulzhdPlugin: Plugin() {
         }
         
         // Register main provider
-        registerMainAPI(Movierulzhd())
+        registerMainAPI(123Moviesfree9())
         
         // Register Cherry extractor (using download link approach)
         registerExtractorAPI(CherryExtractor())
