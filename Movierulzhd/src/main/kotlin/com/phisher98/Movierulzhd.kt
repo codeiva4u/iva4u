@@ -36,7 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import com.lagradost.cloudstream3.network.CloudflareKiller
 
-open class Moviesfree9 : MainAPI() {
+open class  Movierulzhd: MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
 
@@ -61,7 +61,7 @@ open class Moviesfree9 : MainAPI() {
         }
     }
     var directUrl = ""
-    override var name = "123Moviesfree9"
+    override var name = "Movierulzhd"
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true
