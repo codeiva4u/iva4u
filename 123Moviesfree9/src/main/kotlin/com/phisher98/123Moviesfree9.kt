@@ -36,7 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import com.lagradost.cloudstream3.network.CloudflareKiller
 
-open class 123Moviesfree9 : MainAPI() {
+open class Moviesfree9 : MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
 
