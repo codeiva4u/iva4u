@@ -5,7 +5,7 @@ cloudstream {
     language = "hi"
     // All of these properties are optional, you can safely remove them
 
-     description = "Includes: Movierulzhd"
+     description = "Includes: 123Moviesfree9"
      authors = listOf("Phisher98,hexated")
 
     /**
@@ -24,4 +24,5 @@ cloudstream {
     iconUrl = "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/master/Movierulzhd/faviconV2.png"
 
     isCrossPlatform = false
+    requiresResources = false
 }

@@ -5,7 +5,7 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import android.content.Context
 
 @CloudstreamPlugin
-class 123Moviesfree9Plugin: Plugin() {
+class Moviesfree9Plugin: Plugin() {
     companion object {
         var pluginContext: Context? = null
     }
@@ -13,13 +13,8 @@ class 123Moviesfree9Plugin: Plugin() {
     override fun load(context: Context) {
         pluginContext = context
         
-        // Initialize ActivityTracker to track current foreground activity
-        (context.applicationContext as? android.app.Application)?.let {
-            com.phisher98.stealth.ActivityTracker.init(it)
-        }
-        
         // Register main provider
-        registerMainAPI(123Moviesfree9())
+        registerMainAPI(Moviesfree9())
         
         // Register Cherry extractor (using download link approach)
         registerExtractorAPI(CherryExtractor())

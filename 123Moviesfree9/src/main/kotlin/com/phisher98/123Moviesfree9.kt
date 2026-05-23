@@ -39,7 +39,6 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 open class 123Moviesfree9 : MainAPI() {
 
     override var mainUrl = "https://123moviesfree9.tattoo"
-    private val cfKiller by lazy { com.phisher98.stealth.CloudflareInterceptor(com.phisher98.MovierulzhdPlugin.pluginContext!!) }
 
     init {
         runBlocking {
@@ -62,7 +61,7 @@ open class 123Moviesfree9 : MainAPI() {
         }
     }
     var directUrl = ""
-    override var name = "Movierulzhd"
+    override var name = "123Moviesfree9"
     override val hasMainPage = true
     override var lang = "hi"
     override val hasDownloadSupport = true
@@ -87,7 +86,7 @@ open class 123Moviesfree9 : MainAPI() {
         request: MainPageRequest
     ): HomePageResponse {
         val url = if(page == 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/page/$page/"
-        val document = app.get(url, interceptor = cfKiller, timeout = 20L).document
+        val document = app.get(url, timeout = 20L).document
         val home =
             document.select("div.items.normal article, div#archive-content article, div.items.full article").mapNotNull {
                 it.toSearchResult()
@@ -134,7 +133,7 @@ open class 123Moviesfree9 : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query", interceptor = cfKiller).document
+        val document = app.get("$mainUrl/search/$query").document
         return document.select("div.result-item").map {
             val title =
                 it.selectFirst("div.title > a")!!.text().replace(Regex("\\(\\d{4}\\)"), "").trim()
@@ -147,7 +146,7 @@ open class 123Moviesfree9 : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val request = app.get(url, interceptor = cfKiller)
+        val request = app.get(url)
         val document = request.document
         directUrl = getBaseUrl(request.url)
         val title =
@@ -316,7 +315,7 @@ open class 123Moviesfree9 : MainAPI() {
 
         if (isUrl) {
             // For movies, data is direct URL
-            val document = app.get(data, interceptor = cfKiller).document
+            val document = app.get(data).document
 
             // Extract player options
             document.select("ul#playeroptionsul > li")
@@ -364,8 +363,7 @@ open class 123Moviesfree9 : MainAPI() {
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl
-                ),
-                interceptor = cfKiller
+                )
             ).parsedSafe<ResponseHash>()
 
             response?.embed_url
