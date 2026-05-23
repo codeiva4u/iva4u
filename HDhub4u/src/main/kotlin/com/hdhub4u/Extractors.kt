@@ -111,10 +111,6 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
     return score
 }
 
-/**
- * Check if URL should be blocked (streaming/non-download).
- * Blocks: hdstream4u, hubstream.art, HLS streams, Telegram, VPN pages, etc.
- */
 fun shouldBlockUrl(url: String): Boolean {
     val blockList = listOf(
         ".m3u8", "/hls/", "hubstream", "hdstream",
@@ -125,17 +121,6 @@ fun shouldBlockUrl(url: String): Boolean {
     return blockList.any { url.contains(it, ignoreCase = true) }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════════
-// EXTRACTOR CLASSES
-// ═══════════════════════════════════════════════════════════════════════════════════
-
-/**
- * Hblinks Extractor - Download Aggregator Page
- *
- * Flow: hblinks.dad/archives/XXX → hubcdn.fans/file/XXX, hubcloud.foo/drive/XXX, gofile.io/d/XXX
- * Note: "hblinks" key is NOT in urls.json, so we use getBaseUrl() for hblinks.dad
- *       and "hubstreamdad" key for 4khdhub.* domains
- */
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
     override val mainUrl = "https://(?:hblinks|4khdhub).*"
@@ -248,17 +233,6 @@ class Hubdrive : ExtractorApi() {
     }
 }
 
-/**
- * HubCloud Extractor - Main Download Server
- *
- * NEW Flow (2026):
- * Step 1: hubcloud.foo/drive/XXX → find a#download with ?token= URL
- * Step 2: hubcloud.foo/drive/XXX?token=TOKEN → actual download buttons:
- *         - FSLv2 (fsl.gigabytes.icu / cdn.fsl-buckets.life)
- *         - FSL (hub.diskcdn.buzz)
- *         - PixelServer (pixeldrain.dev)
- *         - 10Gbps (pixel.hubcdn.fans)
- */
 class HubCloud : ExtractorApi() {
     override val name = "Hub-Cloud"
     override val mainUrl = "https://hubcloud.*"
@@ -508,13 +482,6 @@ class HubCloud : ExtractorApi() {
     }
 }
 
-/**
- * HUBCDN Extractor - Instant Download & Legacy hubcdn
- *
- * NEW Flow (2026):
- * hubcdn.fans/file/XXX → redirects to hubcdn.fans/dl/?link=FINAL_URL
- * Parse final URL from redirect or page "Download Here" link
- */
 class HUBCDN : ExtractorApi() {
     override val name = "HUBCDN"
     override val mainUrl = "https://hubcdn.*"
