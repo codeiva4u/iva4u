@@ -11,9 +11,16 @@ class MultiMoviesProviderPlugin: BasePlugin() {
 
         // कस्टम एक्सट्रैक्टर्स रजिस्टर करना — प्रत्येक होस्ट के लिए अलग
         registerExtractorAPI(GDMirrorBot())
+        registerExtractorAPI(StreamsIqSmart())
         registerExtractorAPI(MultiMoviesSHG())
         registerExtractorAPI(RpmShare())
         registerExtractorAPI(SmoothPre())
+        registerExtractorAPI(Sportseera())
         registerExtractorAPI(TechInMind())
+        registerExtractorAPI(Cineverse())
+        registerExtractorAPI(ScreenScape())
+        registerExtractorAPI(PeachifyAPI())
+        registerExtractorAPI(NxshaApp())
+        registerExtractorAPI(NhdAPI())
     }
 }
