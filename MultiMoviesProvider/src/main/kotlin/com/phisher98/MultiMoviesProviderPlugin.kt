@@ -14,5 +14,8 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerExtractorAPI(StreamHG())
         registerExtractorAPI(FileMoon())
         registerExtractorAPI(EarnVids())
+        registerExtractorAPI(Gofile())
+        registerExtractorAPI(Screenscape())
+        registerExtractorAPI(Cineverse())
     }
 }

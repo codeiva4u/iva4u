@@ -114,6 +114,8 @@ suspend fun routeExtractor(
     val fmRegex = Regex("""bysetayico\.com|filemoon""")
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
     val gfRegex = Regex("""gofile""")
+    val screenscapeRegex = Regex("""screenscape\.me""")
+    val cineverseRegex = Regex("""modiplay\.xyz""")
 
     when {
         gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
@@ -130,6 +132,12 @@ suspend fun routeExtractor(
         }
         gfRegex.containsMatchIn(cleanUrl) || mName.contains("gofile") -> {
             Gofile().getUrl(url, referer, subtitleCallback, callback)
+        }
+        screenscapeRegex.containsMatchIn(cleanUrl) -> {
+            Screenscape().getUrl(url, referer, subtitleCallback, callback)
+        }
+        cineverseRegex.containsMatchIn(cleanUrl) -> {
+            Cineverse().getUrl(url, referer, subtitleCallback, callback)
         }
         else -> {
             loadExtractor(url, referer, subtitleCallback, callback)
@@ -155,11 +163,59 @@ open class GDMIRROR : ExtractorApi() {
     ) {
         val tag = "GDMIRROR"
         try {
-            // 1. Fetch embed URL (which redirects to /svid/<token>)
             val response = app.get(url, referer = referer)
             val html = response.text
+            val doc = Jsoup.parse(html)
 
-            // 2. Parse the sid (file ID)
+            // Extract quality links from the embed page
+            val qualityLinks = doc.select("#quality-links a").mapNotNull {
+                val dataLink = it.attr("data-link")
+                val text = it.text().trim()
+                if (dataLink.isNotBlank()) Pair(text, dataLink) else null
+            }
+
+            if (qualityLinks.isEmpty()) {
+                // Try treating the url itself as an evid/svid link if no quality links found
+                if (url.contains("/evid/") || url.contains("/svid/")) {
+                    processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
+                } else {
+                    Log.e(tag, "Could not find quality links on embed page")
+                }
+                return
+            }
+
+            qualityLinks.forEach { (qualityText, evidUrl) ->
+                processEvidOrSvid(evidUrl, qualityText, response.url, subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error in GDMIRROR extractor: ${e.message}")
+        }
+    }
+
+    private suspend fun processEvidOrSvid(
+        svidUrl: String,
+        qualityText: String,
+        referer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val tag = "GDMIRROR"
+        try {
+            // 1. Fetch evid/svid page
+            val response = app.get(svidUrl, referer = referer)
+            val html = response.text
+            val doc = Jsoup.parse(html)
+
+            // 2. Extract streaming mirrors from data-link attributes on svid page
+            doc.select("[data-link]").forEach { el ->
+                val link = el.attr("data-link")
+                val mirrorName = el.text().trim().substringBefore("•").trim()
+                if (link.isNotBlank() && link.startsWith("http")) {
+                    routeExtractor(link, referer = response.url, subtitleCallback, callback, mirrorName)
+                }
+            }
+
+            // 3. Parse the sid (file ID)
             val sid = Regex("""id="gdmrfid"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
                 ?: Regex("""const\s+sid\s*=\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
 
@@ -167,35 +223,38 @@ open class GDMIRROR : ExtractorApi() {
                 Log.e(tag, "Could not find sid from svid page")
                 return
             }
-            Log.d(tag, "Found sid: $sid")
 
-            // 3. Construct files URL and fetch it
+            // 4. Construct files URL and fetch it
             val filesUrl = "https://ddn.iqsmartgames.com/file/$sid"
             val filesResponse = app.get(filesUrl)
             val filesHtml = filesResponse.text
             val filesDoc = Jsoup.parse(filesHtml, filesResponse.url)
 
-            // 4. Extract direct worker streaming link if present (fileurl)
+            // 5. Extract direct worker streaming link if present (fileurl)
             val fileurl = Regex("""const\s+fileurl\s*=\s*"([^"]+)"""").find(filesHtml)
                 ?.groupValues?.get(1)
                 ?.replace("\\/", "/")
 
             if (!fileurl.isNullOrBlank()) {
-                Log.d(tag, "Found direct fileurl: $fileurl")
+                val quality = if (qualityText.contains("1080")) Qualities.P1080.value
+                else if (qualityText.contains("720")) Qualities.P720.value
+                else if (qualityText.contains("480")) Qualities.P480.value
+                else Qualities.Unknown.value
+
                 callback(
                     newExtractorLink(
                         "GDMIRROR Direct",
-                        "GDMIRROR Direct",
+                        "GDM Direct - $qualityText",
                         fileurl
                     ) {
-                        this.quality = Qualities.Unknown.value
+                        this.quality = quality
                         this.referer = "https://ddn.iqsmartgames.com/"
                         this.headers = VIDEO_HEADERS + mapOf("Referer" to "https://ddn.iqsmartgames.com/")
                     }
                 )
             }
 
-            // 5. Extract all Mirror Links from the page
+            // 6. Extract all DDN Mirror Links from the page
             val mirrors = filesDoc.select(".mirror-item")
             mirrors.forEach { item ->
                 val mirrorName = item.select(".mirror-name strong").text().trim().lowercase()
@@ -207,11 +266,9 @@ open class GDMIRROR : ExtractorApi() {
                         "https://pro.iqsmartgames.com" + if (visitUrl.startsWith("/")) visitUrl else "/$visitUrl"
                     }
 
-                    Log.d(tag, "Mirror: $mirrorName, visitUrl: $absVisitUrl")
                     try {
                         val finalResponse = app.get(absVisitUrl, referer = filesResponse.url)
                         val finalUrl = finalResponse.url
-                        Log.d(tag, "Resolved mirror: $mirrorName -> $finalUrl")
 
                         if (finalUrl.isNotBlank() && !finalUrl.contains("iqsmartgames.com")) {
                             routeExtractor(finalUrl, filesResponse.url, subtitleCallback, callback, mirrorName)
@@ -222,7 +279,7 @@ open class GDMIRROR : ExtractorApi() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error in GDMIRROR extractor: ${e.message}")
+            Log.e(tag, "Error processing evid/svid: ${e.message}")
         }
     }
 }
@@ -435,5 +492,89 @@ open class Gofile : ExtractorApi() {
     private fun getQuality(str: String?): Int {
         return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: Qualities.Unknown.value
+    }
+}
+
+open class Screenscape : ExtractorApi() {
+    override val name = "Screenscape"
+    override val mainUrl = "https://screenscape.me"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val html = response.text
+
+            // Extract the direct mp4 link proxied via workers.dev
+            val videoUrl = Regex("""<video[^>]*src=["']([^"']+)["']""").find(html)?.groupValues?.getOrNull(1)
+                ?: Regex("""source\s*[:=]\s*["'](https?://[^"']+\.mp4[^"']*)["']""").find(html)?.groupValues?.getOrNull(1)
+
+            if (!videoUrl.isNullOrBlank()) {
+                val decodedUrl = videoUrl.replace("\\/", "/")
+                callback(
+                    newExtractorLink(
+                        name,
+                        name,
+                        decodedUrl,
+                        INFER_TYPE
+                    ) {
+                        this.referer = url
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: \${e.message}")
+        }
+    }
+}
+
+open class Cineverse : ExtractorApi() {
+    override val name = "Cineverse"
+    override val mainUrl = "https://modiplay.xyz"
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val doc = Jsoup.parse(response.text)
+            
+            // Extract proxy iframe source
+            val iframeSrc = doc.select("iframe").attr("src")
+            if (iframeSrc.isNotBlank()) {
+                // Determine proxy referer base
+                val proxyBase = getBaseUrl(iframeSrc)
+                val proxyResponse = app.get(iframeSrc, referer = url)
+                
+                // Usually proxies to another embed (like rpmshare, etc)
+                // We'll extract and route it
+                val html = proxyResponse.text
+                val m3u8 = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""").find(html)?.groupValues?.getOrNull(1)
+                
+                if (!m3u8.isNullOrBlank()) {
+                    callback(
+                        newExtractorLink(
+                            name,
+                            name,
+                            m3u8,
+                            INFER_TYPE
+                        ) {
+                            this.referer = proxyBase
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: \${e.message}")
+        }
     }
 }

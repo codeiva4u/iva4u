@@ -37,7 +37,7 @@ import org.json.JSONObject
 import com.lagradost.api.Log
 
 class MultiMoviesProvider : MainAPI() { // all providers must be an instance of MainAPI
-    override var mainUrl: String = "https://multimovies.autos"
+    override var mainUrl: String = "https://multimovies.makeup"
 
     init {
         runBlocking {
@@ -296,26 +296,19 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     val source = responseJson.optString("embed_url")
 
                     if (source.isNotBlank()) {
-                        val link = Regex("""SRC="([^"]+)"""", RegexOption.IGNORE_CASE)
-                            .find(source)
-                            ?.groupValues?.getOrNull(1)
-                            ?.replace("\t", "")
-                            ?.trim()
-                            ?: source.substringAfter("\"").substringBefore("\"").trim()
+                        val link = if (source.startsWith("http", ignoreCase = true)) {
+                            source.replace("\\/", "/").trim()
+                        } else {
+                            Regex("""(?:src|SRC)\s*=\s*["']([^"']+)["']""")
+                                .find(source)
+                                ?.groupValues?.getOrNull(1)
+                                ?.replace("\\/", "/")
+                                ?.trim()
+                                ?: source
+                        }
 
-                        if (link.isNotBlank() && !link.contains("youtube")) {
-                            if (link.contains("deaddrive.xyz")) {
-                                try {
-                                    app.get(link).document.select("ul.list-server-items > li").map {
-                                        val server = it.attr("data-video")
-                                        if (server.isNotBlank()) {
-                                            routeExtractor(server, referer = link, subtitleCallback, callback)
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                            } else {
-                                routeExtractor(link, referer = mainUrl, subtitleCallback, callback)
-                            }
+                        if (link.isNotBlank() && !link.contains("youtube", ignoreCase = true)) {
+                            routeExtractor(link, referer = mainUrl, subtitleCallback, callback)
                         }
                     }
                 } catch (e: Exception) {
