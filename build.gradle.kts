@@ -47,6 +47,10 @@ subprojects {
     apply(plugin = "com.android.library")
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
+    cloudstream {
+        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/codeiva4u/iva4u")
+    }
+
     android {
         namespace = "com.phisher98"
         compileSdk = 35
@@ -104,6 +108,3 @@ tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
 
-cloudstream {
-    setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/codeiva4u/iva4u")
-}
