@@ -13,3 +13,7 @@ local.properties
 .build_log.txt
 .NUL
 /NUL
+*.js
+*.html
+*.css
+*.txt

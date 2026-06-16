@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.net.URI
 import org.jsoup.Jsoup
 import org.json.JSONObject
@@ -312,8 +313,26 @@ open class StreamHG : ExtractorApi() {
         try {
             val response = app.get(url, referer = referer)
             val html = response.text
-            val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
-            val m3u8Link = m3u8Regex.find(html)?.groupValues?.get(1)
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)""")
+            val matches = packerRegex.findAll(html)
+            
+            var m3u8Link: String? = null
+            matches.forEach { match ->
+                val packed = match.value
+                val unpacked = unpack(packed)
+                if (unpacked.isNotEmpty()) {
+                    val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
+                    val found = m3u8Regex.find(unpacked)?.groupValues?.get(1)
+                    if (found != null) {
+                        m3u8Link = found
+                    }
+                }
+            }
+            
+            if (m3u8Link == null) {
+                val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
+                m3u8Link = m3u8Regex.find(html)?.groupValues?.get(1)
+            }
             if (m3u8Link != null) {
                 callback(
                     newExtractorLink(
@@ -351,12 +370,34 @@ open class FileMoon : ExtractorApi() {
         try {
             val response = app.get(url, referer = referer)
             val html = response.text
-            val fileRegex = Regex("""file:\s*["'](https?://[^"']+\.m3u8[^"']*)["']""")
-            var m3u8 = fileRegex.find(html)?.groupValues?.get(1)
-
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)""")
+            val matches = packerRegex.findAll(html)
+            
+            var m3u8: String? = null
+            matches.forEach { match ->
+                val packed = match.value
+                val unpacked = unpack(packed)
+                if (unpacked.isNotEmpty()) {
+                    val fileRegex = Regex("""file:\s*["'](https?://[^"']+\.m3u8[^"']*)["']""")
+                    var found = fileRegex.find(unpacked)?.groupValues?.get(1)
+                    if (found == null) {
+                        val genericM3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
+                        found = genericM3u8Regex.find(unpacked)?.groupValues?.get(1)
+                    }
+                    if (found != null) {
+                        m3u8 = found
+                    }
+                }
+            }
+            
             if (m3u8 == null) {
-                val genericM3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
-                m3u8 = genericM3u8Regex.find(html)?.groupValues?.get(1)
+                val fileRegex = Regex("""file:\s*["'](https?://[^"']+\.m3u8[^"']*)["']""")
+                m3u8 = fileRegex.find(html)?.groupValues?.get(1)
+
+                if (m3u8 == null) {
+                    val genericM3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
+                    m3u8 = genericM3u8Regex.find(html)?.groupValues?.get(1)
+                }
             }
 
             if (m3u8 != null) {
@@ -412,7 +453,7 @@ open class EarnVids : ExtractorApi() {
                                 name,
                                 name,
                                 m3u8Link,
-                                INFER_TYPE
+                                ExtractorLinkType.M3U8
                             ) {
                                 this.quality = Qualities.Unknown.value
                                 this.referer = url
