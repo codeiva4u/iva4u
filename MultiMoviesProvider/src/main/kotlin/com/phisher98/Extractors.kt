@@ -165,27 +165,43 @@ open class GDMIRROR : ExtractorApi() {
         try {
             val response = app.get(url, referer = referer)
             val html = response.text
-            val doc = Jsoup.parse(html)
 
-            // Extract quality links from the embed page
-            val qualityLinks = doc.select("#quality-links a").mapNotNull {
-                val dataLink = it.attr("data-link")
-                val text = it.text().trim()
-                if (dataLink.isNotBlank()) Pair(text, dataLink) else null
-            }
+            val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
+            val idType = Regex("""let\s+idType\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "imdbid"
+            val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
+            val playerBase = Regex("""let\s+player_base\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "https://pro.iqsmartgames.com"
+            val apiUrlBase = Regex("""let\s+api_url\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "https://streams.iqsmartgames.com"
 
-            if (qualityLinks.isEmpty()) {
-                // Try treating the url itself as an evid/svid link if no quality links found
-                if (url.contains("/evid/") || url.contains("/svid/")) {
-                    processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
-                } else {
-                    Log.e(tag, "Could not find quality links on embed page")
+            if (finalId != null && myKey != null) {
+                val apiUrl = "$apiUrlBase/mymovieapi?$idType=$finalId&key=$myKey"
+                val apiResponse = app.get(apiUrl, referer = url).text
+                
+                try {
+                    val json = org.json.JSONObject(apiResponse)
+                    if (json.getBoolean("success")) {
+                        val dataArray = json.optJSONArray("data")
+                        for (i in 0 until (dataArray?.length() ?: 0)) {
+                            val item = dataArray?.getJSONObject(i)
+                            val filename = item?.optString("filename") ?: ""
+                            val fileslug = item?.optString("fileslug") ?: ""
+                            
+                            if (fileslug.isNotBlank()) {
+                                val evidUrl = "$playerBase/evid/$fileslug"
+                                processEvidOrSvid(evidUrl, filename, response.url, subtitleCallback, callback)
+                            }
+                        }
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to parse API response: ${e.message}")
                 }
-                return
             }
 
-            qualityLinks.forEach { (qualityText, evidUrl) ->
-                processEvidOrSvid(evidUrl, qualityText, response.url, subtitleCallback, callback)
+            // Try treating the url itself as an evid/svid link if API fails
+            if (url.contains("/evid/") || url.contains("/svid/")) {
+                processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
+            } else {
+                Log.e(tag, "Could not extract variables or quality links from embed page")
             }
         } catch (e: Exception) {
             Log.e(tag, "Error in GDMIRROR extractor: ${e.message}")
