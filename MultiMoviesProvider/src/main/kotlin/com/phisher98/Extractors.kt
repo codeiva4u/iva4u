@@ -3,7 +3,6 @@ package com.phisher98
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.extractors.VidhideExtractor
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
@@ -26,6 +25,63 @@ fun getBaseUrl(url: String): String {
 }
 
 private var cachedUrlsJson: JSONObject? = null
+
+val VIDEO_HEADERS = mapOf(
+    "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
+    "Accept" to "*/*",
+    "Accept-Encoding" to "identity",
+    "Connection" to "keep-alive"
+)
+
+fun decodeRadix(str: String, radix: Int): Int? {
+    if (radix <= 36) {
+        return str.toIntOrNull(radix)
+    }
+    var result = 0
+    val base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    for (char in str) {
+        val value = base62Chars.indexOf(char)
+        if (value == -1 || value >= radix) {
+            return null
+        }
+        result = result * radix + value
+    }
+    return result
+}
+
+fun unpack(packed: String): String {
+    try {
+        val pattern = Regex("""eval\(function\(p,a,c,k,e,d\).+?\}\((['"].*?['"])\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"].*?['"])\.split\(['"]\|['"]\)""", RegexOption.DOT_MATCHES_ALL)
+        val match = pattern.find(packed) ?: return ""
+        
+        var p = match.groupValues[1]
+        p = p.substring(1, p.length - 1)
+            .replace("\\'", "'")
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\")
+            
+        val a = match.groupValues[2].toInt()
+        val c = match.groupValues[3].toInt()
+        val k = match.groupValues[4].substring(1, match.groupValues[4].length - 1).split("|")
+        
+        fun getWord(n: Int): String {
+            return if (n < k.size && k[n].isNotEmpty()) k[n] else n.toString(a)
+        }
+        
+        val wordPattern = Regex("""\b\w+\b""")
+        return wordPattern.replace(p) { result ->
+            val word = result.value
+            val n = decodeRadix(word, a)
+            if (n != null && n < k.size && k[n].isNotEmpty()) {
+                k[n]
+            } else {
+                word
+            }
+        }
+    } catch (e: Exception) {
+        return ""
+    }
+}
 
 suspend fun getLatestUrl(url: String, source: String): String {
     if (cachedUrlsJson == null) {
@@ -53,7 +109,7 @@ suspend fun routeExtractor(
 ) {
     val cleanUrl = url.lowercase()
     val mName = mirrorName?.lowercase() ?: ""
-    val gdmRegex = Regex("""streams\.iqsmartgames\.com|pro\.iqsmartgames\.com|ddn\.iqsmartgames\.com""")
+    val gdmRegex = Regex("""streams\.iqsmartgames\.com|pro\.iqsmartgames\.com|ddn\.iqsmartgames\.com|gdmirrorbot""")
     val shgRegex = Regex("""multimoviesshg\.com|hanerix\.com|audinifer\.xyz""")
     val fmRegex = Regex("""bysetayico\.com|filemoon""")
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
@@ -88,7 +144,7 @@ suspend fun routeExtractor(
 
 open class GDMIRROR : ExtractorApi() {
     override val name = "GDMIRROR"
-    override val mainUrl = "https://(?:streams\\.iqsmartgames\\.com|pro\\.iqsmartgames\\.com|ddn\\.iqsmartgames\\.com)"
+    override val mainUrl = "https://(?:streams\\.iqsmartgames\\.com|pro\\.iqsmartgames\\.com|ddn\\.iqsmartgames\\.com|gdmirrorbot\\..*)"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -133,6 +189,8 @@ open class GDMIRROR : ExtractorApi() {
                         fileurl
                     ) {
                         this.quality = Qualities.Unknown.value
+                        this.referer = "https://ddn.iqsmartgames.com/"
+                        this.headers = VIDEO_HEADERS + mapOf("Referer" to "https://ddn.iqsmartgames.com/")
                     }
                 )
             }
@@ -197,6 +255,8 @@ open class StreamHG : ExtractorApi() {
                         INFER_TYPE
                     ) {
                         this.quality = Qualities.Unknown.value
+                        this.referer = url
+                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
                     }
                 )
             }
@@ -240,6 +300,8 @@ open class FileMoon : ExtractorApi() {
                         INFER_TYPE
                     ) {
                         this.quality = Qualities.Unknown.value
+                        this.referer = url
+                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
                     }
                 )
             }
@@ -249,13 +311,53 @@ open class FileMoon : ExtractorApi() {
     }
 }
 
-open class EarnVids : VidhideExtractor() {
-    override var name = "EarnVids"
-    override var mainUrl: String
+open class EarnVids : ExtractorApi() {
+    override val name = "EarnVids"
+    override val mainUrl: String
         get() = runBlocking {
             getLatestUrl("https://smoothpre.com", "earnvids")
         }
-        set(value) {}
+    override val requiresReferer = true
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, referer = referer)
+            val html = response.text
+
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)""")
+            val matches = packerRegex.findAll(html)
+            
+            matches.forEach { match ->
+                val packed = match.value
+                val unpacked = unpack(packed)
+                if (unpacked.isNotEmpty()) {
+                    val m3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
+                    m3u8Regex.findAll(unpacked).forEach { m3u8Match ->
+                        val m3u8Link = m3u8Match.value.replace("\\/", "/")
+                        callback(
+                            newExtractorLink(
+                                name,
+                                name,
+                                m3u8Link,
+                                INFER_TYPE
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                                this.referer = url
+                                this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+                            }
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
 }
 
 open class Gofile : ExtractorApi() {
