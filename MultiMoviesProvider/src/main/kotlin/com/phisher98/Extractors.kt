@@ -142,6 +142,23 @@ class GDMIRROR : ExtractorApi() {
             val embedPageUrl = embedResponse.url
             Log.d(tag, "Embed page loaded: $embedPageUrl")
 
+            // ═══ Check if it redirected to a known extractor directly ═══
+            if (embedPageUrl.contains("multimoviesshg", true)) {
+                Log.d(tag, "Redirected directly to StreamHG: $embedPageUrl")
+                StreamHG().getUrl(embedPageUrl, referer, subtitleCallback, callback)
+                return
+            }
+            if (embedPageUrl.contains("filemoon", true) || embedPageUrl.contains("bysetayico", true) || embedPageUrl.contains("kerapoxy", true)) {
+                Log.d(tag, "Redirected directly to FileMoon: $embedPageUrl")
+                FileMoon().getUrl(embedPageUrl, referer, subtitleCallback, callback)
+                return
+            }
+            if (embedPageUrl.contains("smoothpre", true) || embedPageUrl.contains("earnvids", true)) {
+                Log.d(tag, "Redirected directly to EarnVids: $embedPageUrl")
+                EarnVids().getUrl(embedPageUrl, referer, subtitleCallback, callback)
+                return
+            }
+
             // iframe src निकालना (pro.iqsmartgames.com/evid/{id})
             val iframeSrc = embedDoc.selectFirst("iframe[src]")?.attr("src")?.trim()
 
@@ -159,6 +176,23 @@ class GDMIRROR : ExtractorApi() {
             val proDoc = proResponse.document
             val proPageUrl = proResponse.url
             Log.d(tag, "Pro page loaded: $proPageUrl")
+
+            // ═══ Check if it redirected to a known extractor directly ═══
+            if (proPageUrl.contains("multimoviesshg", true)) {
+                Log.d(tag, "Redirected directly to StreamHG: $proPageUrl")
+                StreamHG().getUrl(proPageUrl, referer, subtitleCallback, callback)
+                return
+            }
+            if (proPageUrl.contains("filemoon", true) || proPageUrl.contains("bysetayico", true) || proPageUrl.contains("kerapoxy", true)) {
+                Log.d(tag, "Redirected directly to FileMoon: $proPageUrl")
+                FileMoon().getUrl(proPageUrl, referer, subtitleCallback, callback)
+                return
+            }
+            if (proPageUrl.contains("smoothpre", true) || proPageUrl.contains("earnvids", true)) {
+                Log.d(tag, "Redirected directly to EarnVids: $proPageUrl")
+                EarnVids().getUrl(proPageUrl, referer, subtitleCallback, callback)
+                return
+            }
 
             processServerPage(proDoc, proPageUrl, subtitleCallback, callback)
 
