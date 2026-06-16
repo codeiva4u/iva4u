@@ -251,7 +251,7 @@ class MultiMoviesProvider : MainAPI() {
                     }
                 }
             } else {
-                doc.select("ul#playeroptionsul > li, li.dooplay_player_option[data-post][data-nume]")
+                doc.select("ul#playeroptionsul > li")
                     .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
                     .mapIndexed { index, it ->
                         val name = it.selectFirst("span.title")?.text()
@@ -321,7 +321,7 @@ class MultiMoviesProvider : MainAPI() {
                 val document = app.get(data, interceptor = cfKiller).document
 
                 // प्लेयर ऑप्शन्स पार्स करना (trailer छोड़कर)
-                val playerOptions = document.select("ul#playeroptionsul > li, li.dooplay_player_option[data-post][data-nume]")
+                val playerOptions = document.select("ul#playeroptionsul > li")
                     .filter { !it.attr("data-nume").equals("trailer", ignoreCase = true) }
 
                 Log.d(tag, "${playerOptions.size} प्लेयर ऑप्शन्स मिले")
@@ -336,7 +336,7 @@ class MultiMoviesProvider : MainAPI() {
                     Log.d(tag, "प्लेयर ऑप्शन: $serverName (type=$type, post=$post, nume=$nume)")
 
                     try {
-                        val iframeUrl = getIframeUrl(type, post, nume, data)
+                        val iframeUrl = getIframeUrl(type, post, nume)
                         if (!iframeUrl.isNullOrEmpty()) {
                             Log.d(tag, "iframe URL प्राप्त: $iframeUrl")
                             loadExtractorLink(iframeUrl, data, subtitleCallback, callback)
@@ -355,7 +355,7 @@ class MultiMoviesProvider : MainAPI() {
                 val linkData = AppUtils.parseJson<LinkData>(data)
                 Log.d(tag, "LinkData: name=${linkData.name}, type=${linkData.type}, post=${linkData.post}, nume=${linkData.nume}")
 
-                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume, linkData.url)
+                val iframeUrl = getIframeUrl(linkData.type, linkData.post, linkData.nume)
                 if (!iframeUrl.isNullOrEmpty()) {
                     Log.d(tag, "iframe URL प्राप्त: $iframeUrl")
                     loadExtractorLink(iframeUrl, linkData.url, subtitleCallback, callback)
@@ -371,7 +371,7 @@ class MultiMoviesProvider : MainAPI() {
     // ════════════════════════════════════════════════════════════════════════
     // DooPlay AJAX कॉल — admin-ajax.php से iframe URL प्राप्त करता है
     // ════════════════════════════════════════════════════════════════════════
-    private suspend fun getIframeUrl(type: String, post: String, nume: String, refererUrl: String = mainUrl): String? {
+    private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
         return try {
             // FormBody बनाना — DooPlay थीम का मानक AJAX अनुरोध
             val requestBody = FormBody.Builder()
@@ -386,12 +386,8 @@ class MultiMoviesProvider : MainAPI() {
                 requestBody = requestBody,
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to refererUrl,
-                    "Origin" to mainUrl.removeSuffix("/")
-                ),
-                // Cloudflare के पीछे की site — admin-ajax POST को भी cfKiller से गुज़ारना ज़रूरी है,
-                // वरना challenge HTML लौटती है और embed_url null रहता है (= कोई वीडियो लिंक नहीं)।
-                interceptor = cfKiller
+                    "Referer" to mainUrl
+                )
             ).parsedSafe<ResponseHash>()
 
             response?.embed_url
@@ -415,60 +411,30 @@ class MultiMoviesProvider : MainAPI() {
 
         try {
             when {
-                url.contains("streams.iqsmartgames.com", true) ->
-                    StreamsIqSmart().getUrl(url, referer, subtitleCallback, callback)
+                // GDMIRROR — streams.iqsmartgames.com / pro.iqsmartgames.com
+                url.contains("iqsmartgames", true) || url.contains("gdmirrorbot", true) ||
+                url.contains("gdmirror", true) ->
+                    GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
 
-                // GDMirrorBot → pro.iqsmartgames.com रीडायरेक्ट चेन
-                url.contains("gdmirrorbot", true) || url.contains("iqsmartgames", true) ->
-                    GDMirrorBot().getUrl(url, referer, subtitleCallback, callback)
-
-                url.contains("sportseera", true) || url.contains("pages.dev", true) || url.contains("workers.dev", true) ->
-                    Sportseera().getUrl(url, referer, subtitleCallback, callback)
-
-                // MultiMoviesSHG — JWPlayer m3u8
+                // StreamHG — multimoviesshg.com (JWPlayer m3u8)
                 url.contains("multimoviesshg", true) ->
-                    MultiMoviesSHG().getUrl(url, referer, subtitleCallback, callback)
+                    StreamHG().getUrl(url, referer, subtitleCallback, callback)
 
-                // RpmShare — rpmhub.site / plyr.technocosmos / server1.uns.bio
-                url.contains("rpmhub", true) || url.contains("plyr.technocosmos", true) || url.contains("server1.uns.bio", true) ->
-                    RpmShare().getUrl(url, referer, subtitleCallback, callback)
+                // FileMoon — bysetayico.com / filemoon.sx
+                url.contains("filemoon", true) || url.contains("bysetayico", true) ||
+                url.contains("kerapoxy", true) ->
+                    FileMoon().getUrl(url, referer, subtitleCallback, callback)
 
-                // SmoothPre — smoothpre.com (EarnVids)
-                url.contains("smoothpre", true) ->
-                    SmoothPre().getUrl(url, referer, subtitleCallback, callback)
+                // EarnVids — smoothpre.com
+                url.contains("smoothpre", true) || url.contains("earnvids", true) ->
+                    EarnVids().getUrl(url, referer, subtitleCallback, callback)
 
-                // TechInMind — stream.techinmind.space (TV शो)
-                url.contains("techinmind", true) ->
-                    TechInMind().getUrl(url, referer, subtitleCallback, callback)
-
-                // Cineverse — rozgarlelo.modiplay.xyz
-                url.contains("modiplay", true) || url.contains("rozgarlelo", true) || url.contains("cineverse", true) ->
-                    Cineverse().getUrl(url, referer, subtitleCallback, callback)
-
-                // ScreenScape — screenscape.me
-                url.contains("screenscape", true) ->
-                    ScreenScape().getUrl(url, referer, subtitleCallback, callback)
-
-                // PeachifyAPI — peachify.top
-                url.contains("peachify", true) ->
-                    PeachifyAPI().getUrl(url, referer, subtitleCallback, callback)
-
-                // NxshaApp — web.nxsha.app
-                url.contains("nxsha", true) ->
-                    NxshaApp().getUrl(url, referer, subtitleCallback, callback)
-
-                // NhdAPI — nhdapi.com
-                url.contains("nhdapi", true) ->
-                    NhdAPI().getUrl(url, referer, subtitleCallback, callback)
-
-                // अज्ञात डोमेन — GDMirrorBot से ट्राई करना (अक्सर रीडायरेक्ट होता है)
+                // अज्ञात डोमेन — GDMIRROR फ़ॉलबैक
                 else -> {
-                    Log.d(tag, "अज्ञात डोमेन, GDMirrorBot फ़ॉलबैक: $url")
-                    GDMirrorBot().getUrl(url, referer, subtitleCallback, callback)
+                    Log.d(tag, "अज्ञात डोमेन, GDMIRROR फ़ॉलबैक: $url")
+                    GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
                 }
             }
-
-
         } catch (e: Exception) {
             Log.e(tag, "एक्सट्रैक्टर विफल: ${e.message}")
         }
