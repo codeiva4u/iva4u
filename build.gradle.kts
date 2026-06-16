@@ -13,8 +13,8 @@ buildscript {
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:9.1.1")
-        classpath("com.github.recloudstream.gradle:gradle:81b1d424d")
+        classpath("com.android.tools.build:gradle:9.2.1")
+        classpath("com.github.recloudstream.gradle:gradle:81b1d424d2")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0")
     }
 }
@@ -47,21 +47,16 @@ subprojects {
     apply(plugin = "com.android.library")
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
-    cloudstream {
-        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/phisher98/cloudstream-extensions-phisher")
-        authors = listOf("Phisher98")
-    }
-
     android {
         namespace = "com.phisher98"
-        compileSdk = 36
+        compileSdk = 37
 
         defaultConfig {
             minSdk = 21
         }
 
         lint {
-            targetSdk = 36
+            targetSdk = 37
         }
 
         compileOptions {
@@ -95,7 +90,7 @@ subprojects {
         // Do not bump above 2.13.1
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
         implementation("com.fasterxml.jackson.core:jackson-databind:2.13.1")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
         // Do not bump above 1.8.1
         implementation("org.mozilla:rhino:1.8.1")
         implementation("me.xdrop:fuzzywuzzy:1.4.0")
