@@ -217,82 +217,38 @@ open class GDMIRROR : ExtractorApi() {
     ) {
         val tag = "GDMIRROR"
         try {
-            // 1. Fetch evid/svid page
-            val response = app.get(svidUrl, referer = referer)
-            val html = response.text
-            val doc = Jsoup.parse(html)
-
-            // 2. Extract streaming mirrors from data-link attributes on svid page
-            doc.select("[data-link]").forEach { el ->
-                val link = el.attr("data-link")
-                val mirrorName = el.text().trim().substringBefore("•").trim()
-                if (link.isNotBlank() && link.startsWith("http")) {
-                    routeExtractor(link, referer = response.url, subtitleCallback, callback, mirrorName)
-                }
-            }
-
-            // 3. Parse the sid (file ID)
-            val sid = Regex("""id="gdmrfid"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
-                ?: Regex("""const\s+sid\s*=\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
-
-            if (sid.isNullOrBlank()) {
-                Log.e(tag, "Could not find sid from svid page")
-                return
-            }
-
-            // 4. Construct files URL and fetch it
-            val filesUrl = "https://ddn.iqsmartgames.com/file/$sid"
-            val filesResponse = app.get(filesUrl)
-            val filesHtml = filesResponse.text
-            val filesDoc = Jsoup.parse(filesHtml, filesResponse.url)
-
-            // 5. Extract direct worker streaming link if present (fileurl)
-            val fileurl = Regex("""const\s+fileurl\s*=\s*"([^"]+)"""").find(filesHtml)
-                ?.groupValues?.get(1)
-                ?.replace("\\/", "/")
-
-            if (!fileurl.isNullOrBlank()) {
-                val quality = if (qualityText.contains("1080")) Qualities.P1080.value
-                else if (qualityText.contains("720")) Qualities.P720.value
-                else if (qualityText.contains("480")) Qualities.P480.value
-                else Qualities.Unknown.value
-
-                callback(
-                    newExtractorLink(
-                        "GDMIRROR Direct",
-                        "GDM Direct - $qualityText",
-                        fileurl
-                    ) {
-                        this.quality = quality
-                        this.referer = "https://ddn.iqsmartgames.com/"
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to "https://ddn.iqsmartgames.com/")
-                    }
-                )
-            }
-
-            // 6. Extract all DDN Mirror Links from the page
-            val mirrors = filesDoc.select(".mirror-item")
-            mirrors.forEach { item ->
-                val mirrorName = item.select(".mirror-name strong").text().trim().lowercase()
-                val visitUrl = item.select(".mirror-actions a.mirror-btn").attr("href")
-                if (visitUrl.isNotBlank()) {
-                    val absVisitUrl = if (visitUrl.startsWith("http")) {
-                        visitUrl
-                    } else {
-                        "https://pro.iqsmartgames.com" + if (visitUrl.startsWith("/")) visitUrl else "/$visitUrl"
-                    }
-
-                    try {
-                        val finalResponse = app.get(absVisitUrl, referer = filesResponse.url)
-                        val finalUrl = finalResponse.url
-
-                        if (finalUrl.isNotBlank() && !finalUrl.contains("iqsmartgames.com")) {
-                            routeExtractor(finalUrl, filesResponse.url, subtitleCallback, callback, mirrorName)
+            val fileslug = svidUrl.substringAfterLast("/")
+            val playerBase = if (svidUrl.contains("/evid/")) svidUrl.substringBefore("/evid/") else svidUrl.substringBefore("/svid/")
+            val helperUrl = "$playerBase/embedhelper.php"
+            val currentDomain = playerBase.substringAfter("://")
+            
+            val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomain)
+            val response = app.post(helperUrl, data = postData, referer = referer)
+            val jsonStr = response.text
+            val json = org.json.JSONObject(jsonStr)
+            
+            val mresultBase64 = json.optString("mresult")
+            val siteUrls = json.optJSONObject("siteUrls")
+            val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
+            
+            if (mresultBase64.isNotBlank() && siteUrls != null) {
+                val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
+                val mresultObj = org.json.JSONObject(mresultJson)
+                
+                mresultObj.keys().forEach { key ->
+                    val value = mresultObj.getString(key)
+                    val siteUrl = siteUrls.optString(key)
+                    if (siteUrl.isNotBlank()) {
+                        val iframeUrl = siteUrl + value
+                        val mirrorName = siteFriendlyNames?.optString(key) ?: key
+                        Log.d(tag, "Found iframe link: $iframeUrl for $mirrorName")
+                        if (!iframeUrl.contains("iqsmartgames.com")) {
+                            routeExtractor(iframeUrl, referer = helperUrl, subtitleCallback, callback, mirrorName)
                         }
-                    } catch (e: Exception) {
-                        Log.e(tag, "Failed to resolve mirror $mirrorName: ${e.message}")
                     }
                 }
+            } else {
+                Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
             }
         } catch (e: Exception) {
             Log.e(tag, "Error processing evid/svid: ${e.message}")
