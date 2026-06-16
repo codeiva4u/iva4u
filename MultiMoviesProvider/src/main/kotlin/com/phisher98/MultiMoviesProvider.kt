@@ -309,12 +309,12 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                                     app.get(link).document.select("ul.list-server-items > li").map {
                                         val server = it.attr("data-video")
                                         if (server.isNotBlank()) {
-                                            loadExtractor(server, referer = link, subtitleCallback, callback)
+                                            routeExtractor(server, referer = link, subtitleCallback, callback)
                                         }
                                     }
                                 } catch (_: Exception) {}
                             } else {
-                                loadExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                                routeExtractor(link, referer = mainUrl, subtitleCallback, callback)
                             }
                         }
                     }

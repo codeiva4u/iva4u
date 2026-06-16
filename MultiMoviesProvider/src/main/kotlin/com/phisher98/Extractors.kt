@@ -44,6 +44,44 @@ suspend fun getLatestUrl(url: String, source: String): String {
     return link
 }
 
+suspend fun routeExtractor(
+    url: String,
+    referer: String?,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit,
+    mirrorName: String? = null
+) {
+    val cleanUrl = url.lowercase()
+    val mName = mirrorName?.lowercase() ?: ""
+    val gdmRegex = Regex("""streams\.iqsmartgames\.com|pro\.iqsmartgames\.com|ddn\.iqsmartgames\.com""")
+    val shgRegex = Regex("""multimoviesshg\.com|hanerix\.com|audinifer\.xyz""")
+    val fmRegex = Regex("""bysetayico\.com|filemoon""")
+    val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
+    val gfRegex = Regex("""gofile""")
+
+    when {
+        gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
+            GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
+        }
+        shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") -> {
+            StreamHG().getUrl(url, referer, subtitleCallback, callback)
+        }
+        fmRegex.containsMatchIn(cleanUrl) || mName.contains("filemoon") -> {
+            FileMoon().getUrl(url, referer, subtitleCallback, callback)
+        }
+        evRegex.containsMatchIn(cleanUrl) || mName.contains("earnvids") || mName.contains("flls") -> {
+            EarnVids().getUrl(url, referer, subtitleCallback, callback)
+        }
+        gfRegex.containsMatchIn(cleanUrl) || mName.contains("gofile") -> {
+            Gofile().getUrl(url, referer, subtitleCallback, callback)
+        }
+        else -> {
+            loadExtractor(url, referer, subtitleCallback, callback)
+        }
+    }
+}
+
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // CUSTOM EXTRACTORS
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -118,23 +156,7 @@ open class GDMIRROR : ExtractorApi() {
                         Log.d(tag, "Resolved mirror: $mirrorName -> $finalUrl")
 
                         if (finalUrl.isNotBlank() && !finalUrl.contains("iqsmartgames.com")) {
-                            when {
-                                mirrorName.contains("filemoon") -> {
-                                    FileMoon().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
-                                }
-                                mirrorName.contains("earnvids") -> {
-                                    EarnVids().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
-                                }
-                                mirrorName.contains("streamhg") -> {
-                                    StreamHG().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
-                                }
-                                mirrorName.contains("gofile") -> {
-                                    Gofile().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
-                                }
-                                else -> {
-                                    loadExtractor(finalUrl, filesResponse.url, subtitleCallback, callback)
-                                }
-                            }
+                            routeExtractor(finalUrl, filesResponse.url, subtitleCallback, callback, mirrorName)
                         }
                     } catch (e: Exception) {
                         Log.e(tag, "Failed to resolve mirror $mirrorName: ${e.message}")
