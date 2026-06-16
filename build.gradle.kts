@@ -103,3 +103,7 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+cloudstream {
+    setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/codeiva4u/iva4u")
+}
