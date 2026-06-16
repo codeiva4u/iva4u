@@ -137,7 +137,7 @@ class GDMIRROR : ExtractorApi() {
             )
 
             // ═══ Step 1: streams.iqsmartgames.com embed page फ़ेच करना ═══
-            val embedResponse = app.get(url, headers = headers, allowRedirects = true)
+            val embedResponse = app.get(url, headers = headers, allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
             val embedDoc = embedResponse.document
             val embedPageUrl = embedResponse.url
             Log.d(tag, "Embed page loaded: $embedPageUrl")
@@ -155,7 +155,7 @@ class GDMIRROR : ExtractorApi() {
             Log.d(tag, "iframe src: $iframeSrc")
 
             // ═══ Step 2: pro.iqsmartgames.com पेज फ़ेच करना (रीडायरेक्ट फ़ॉलो) ═══
-            val proResponse = app.get(iframeSrc, headers = headers, allowRedirects = true)
+            val proResponse = app.get(iframeSrc, headers = headers, allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
             val proDoc = proResponse.document
             val proPageUrl = proResponse.url
             Log.d(tag, "Pro page loaded: $proPageUrl")
@@ -232,7 +232,7 @@ class GDMIRROR : ExtractorApi() {
                             val hlsResp = app.get(serverLink, headers = mapOf(
                                 "Referer" to pageUrl,
                                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                            ), allowRedirects = true)
+                            ), allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
                             val hlsDoc = hlsResp.document
                             val hlsHtml = hlsResp.text
 
@@ -243,7 +243,7 @@ class GDMIRROR : ExtractorApi() {
                                 val innerResp = app.get(innerIframe, headers = mapOf(
                                     "Referer" to serverLink,
                                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                                ), allowRedirects = true)
+                                ), allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
                                 val innerHtml = innerResp.text
 
                                 // packed JS or raw m3u8
@@ -300,7 +300,7 @@ class GDMIRROR : ExtractorApi() {
                             val resp = app.get(serverLink, headers = mapOf(
                                 "Referer" to pageUrl,
                                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                            ), allowRedirects = true)
+                            ), allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
                             val html = resp.text
                             val currentUrl = resp.url
 
@@ -358,7 +358,7 @@ class GDMIRROR : ExtractorApi() {
                             val resp = app.get(fallbackIframe, headers = mapOf(
                                 "Referer" to pageUrl,
                                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                            ), allowRedirects = true)
+                            ), allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
                             val html = resp.text
 
                             val packed = extractFromPackedJs(html)
@@ -435,7 +435,7 @@ class StreamHG : ExtractorApi() {
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             )
 
-            val response = app.get(finalUrl, headers = headers)
+            val response = app.get(finalUrl, headers = headers, interceptor = MultiMoviesProvider.cfKiller)
             val html = response.text
 
             // === विधि 1: eval-packed JS ===
@@ -477,7 +477,7 @@ class StreamHG : ExtractorApi() {
             val innerIframe = doc.selectFirst("iframe[src]")?.attr("src")?.trim()
             if (!innerIframe.isNullOrBlank() && innerIframe != url) {
                 Log.d(tag, "inner iframe: $innerIframe")
-                val iframeResp = app.get(innerIframe, headers = headers)
+                val iframeResp = app.get(innerIframe, headers = headers, interceptor = MultiMoviesProvider.cfKiller)
                 val iframeHtml = iframeResp.text
 
                 val iframePacked = extractFromPackedJs(iframeHtml)
@@ -545,7 +545,7 @@ class FileMoon : ExtractorApi() {
                 "Referer" to (referer ?: mainUrl)
             )
 
-            val response = app.get(url, headers = headers, allowRedirects = true)
+            val response = app.get(url, headers = headers, allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
             val html = response.text
             val finalPageUrl = response.url
 
@@ -586,7 +586,7 @@ class FileMoon : ExtractorApi() {
             val innerIframe = doc.selectFirst("iframe[src]")?.attr("src")?.trim()
             if (!innerIframe.isNullOrBlank() && innerIframe != url) {
                 Log.d(tag, "inner iframe: $innerIframe")
-                val iframeResp = app.get(innerIframe, headers = headers)
+                val iframeResp = app.get(innerIframe, headers = headers, interceptor = MultiMoviesProvider.cfKiller)
                 val iframeHtml = iframeResp.text
 
                 val iframePacked = extractFromPackedJs(iframeHtml)
@@ -654,7 +654,7 @@ class EarnVids : ExtractorApi() {
                 "Referer" to (referer ?: mainUrl)
             )
 
-            val response = app.get(url, headers = headers, allowRedirects = true)
+            val response = app.get(url, headers = headers, allowRedirects = true, interceptor = MultiMoviesProvider.cfKiller)
             val html = response.text
             val finalPageUrl = response.url
 
@@ -712,7 +712,7 @@ class EarnVids : ExtractorApi() {
             val innerIframe = doc.selectFirst("iframe[src]")?.attr("src")?.trim()
             if (!innerIframe.isNullOrBlank() && innerIframe != url) {
                 Log.d(tag, "inner iframe: $innerIframe")
-                val iframeResp = app.get(innerIframe, headers = headers)
+                val iframeResp = app.get(innerIframe, headers = headers, interceptor = MultiMoviesProvider.cfKiller)
                 val iframeHtml = iframeResp.text
 
                 val iframePacked = extractFromPackedJs(iframeHtml)
@@ -749,3 +749,5 @@ class EarnVids : ExtractorApi() {
         }
     }
 }
+
+

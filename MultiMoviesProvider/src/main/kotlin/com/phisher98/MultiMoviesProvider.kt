@@ -1,5 +1,7 @@
 package com.phisher98
 
+
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
@@ -13,7 +15,6 @@ import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
@@ -34,14 +35,11 @@ import okhttp3.FormBody
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 
-
-import com.fasterxml.jackson.annotation.JsonProperty
-
 class MultiMoviesProvider : MainAPI() {
     override var mainUrl: String = "https://multimovies.makeup/"
 
     companion object {
-        private val cfKiller by lazy { CloudflareKiller() }
+        val cfKiller by lazy { CloudflareKiller() }
 
         private var cachedUrls: JSONObject? = null
 
@@ -373,21 +371,19 @@ class MultiMoviesProvider : MainAPI() {
     // ════════════════════════════════════════════════════════════════════════
     private suspend fun getIframeUrl(type: String, post: String, nume: String): String? {
         return try {
-            // FormBody बनाना — DooPlay थीम का मानक AJAX अनुरोध
-            val requestBody = FormBody.Builder()
-                .addEncoded("action", "doo_player_ajax")
-                .addEncoded("post", post)
-                .addEncoded("nume", nume)
-                .addEncoded("type", type)
-                .build()
-
             val response = app.post(
                 "${mainUrl.removeSuffix("/")}/wp-admin/admin-ajax.php",
-                requestBody = requestBody,
+                data = mapOf(
+                    "action" to "doo_player_ajax",
+                    "post" to post,
+                    "nume" to nume,
+                    "type" to type
+                ),
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl
-                )
+                ),
+                interceptor = cfKiller
             ).parsedSafe<ResponseHash>()
 
             response?.embed_url
