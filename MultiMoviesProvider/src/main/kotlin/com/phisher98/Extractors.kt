@@ -197,8 +197,8 @@ open class GDMIRROR : ExtractorApi() {
                 }
             }
 
-            // Try treating the url itself as an evid/svid link if API fails
-            if (url.contains("/evid/") || url.contains("/svid/")) {
+            // Try treating the url itself as an evid/svid/embed link if API fails
+            if (url.contains("/evid/") || url.contains("/svid/") || url.contains("/embed/")) {
                 processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
             } else {
                 Log.e(tag, "Could not extract variables or quality links from embed page")
@@ -218,7 +218,46 @@ open class GDMIRROR : ExtractorApi() {
         val tag = "GDMIRROR"
         try {
             val fileslug = svidUrl.substringAfterLast("/")
-            val playerBase = if (svidUrl.contains("/evid/")) svidUrl.substringBefore("/evid/") else svidUrl.substringBefore("/svid/")
+            val playerBase = when {
+                svidUrl.contains("/evid/") -> svidUrl.substringBefore("/evid/")
+                svidUrl.contains("/svid/") -> svidUrl.substringBefore("/svid/")
+                svidUrl.contains("/embed/") -> svidUrl.substringBefore("/embed/")
+                else -> svidUrl.substringBeforeLast("/")
+            }
+            
+            // 1. Try to extract the direct worker streaming link if present (fileurl)
+            try {
+                val filesUrl = "$playerBase/file/$fileslug"
+                val filesResponse = app.get(filesUrl, referer = referer)
+                val filesHtml = filesResponse.text
+                
+                val fileurl = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""").find(filesHtml)
+                    ?.groupValues?.get(1)
+                    ?.replace("\\/", "/")
+                
+                if (!fileurl.isNullOrBlank()) {
+                    val quality = if (qualityText.contains("1080")) Qualities.P1080.value
+                    else if (qualityText.contains("720")) Qualities.P720.value
+                    else if (qualityText.contains("480")) Qualities.P480.value
+                    else Qualities.Unknown.value
+
+                    callback(
+                        newExtractorLink(
+                            "GDMIRROR Direct",
+                            "GDM Direct - $qualityText",
+                            fileurl
+                        ) {
+                            this.quality = quality
+                            this.referer = playerBase
+                            this.headers = VIDEO_HEADERS + mapOf("Referer" to playerBase)
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to get direct fileurl: ${e.message}")
+            }
+
+            // 2. Extract mirror links using embedhelper.php
             val helperUrl = "$playerBase/embedhelper.php"
             val currentDomain = playerBase.substringAfter("://")
             
@@ -242,7 +281,7 @@ open class GDMIRROR : ExtractorApi() {
                         val iframeUrl = siteUrl + value
                         val mirrorName = siteFriendlyNames?.optString(key) ?: key
                         Log.d(tag, "Found iframe link: $iframeUrl for $mirrorName")
-                        if (!iframeUrl.contains("iqsmartgames.com")) {
+                        if (!iframeUrl.contains("iqsmartgames.com") && !iframeUrl.contains("gdmirrorbot")) {
                             routeExtractor(iframeUrl, referer = helperUrl, subtitleCallback, callback, mirrorName)
                         }
                     }
