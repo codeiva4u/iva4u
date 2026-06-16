@@ -49,14 +49,14 @@ subprojects {
 
     android {
         namespace = "com.phisher98"
-        compileSdk = 37
+        compileSdk = 35
 
         defaultConfig {
             minSdk = 21
         }
 
         lint {
-            targetSdk = 37
+            targetSdk = 35
         }
 
         compileOptions {
