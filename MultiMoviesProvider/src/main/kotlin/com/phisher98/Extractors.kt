@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.utils.INFER_TYPE
 import java.net.URI
 import org.jsoup.Jsoup
 import org.json.JSONObject
+import kotlinx.coroutines.runBlocking
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // UTILITY FUNCTIONS
@@ -101,7 +102,7 @@ open class GDMIRROR : ExtractorApi() {
             // 5. Extract all Mirror Links from the page
             val mirrors = filesDoc.select(".mirror-item")
             mirrors.forEach { item ->
-                val mirrorName = item.select(".mirror-name strong").text().trim()
+                val mirrorName = item.select(".mirror-name strong").text().trim().lowercase()
                 val visitUrl = item.select(".mirror-actions a.mirror-btn").attr("href")
                 if (visitUrl.isNotBlank()) {
                     val absVisitUrl = if (visitUrl.startsWith("http")) {
@@ -117,7 +118,23 @@ open class GDMIRROR : ExtractorApi() {
                         Log.d(tag, "Resolved mirror: $mirrorName -> $finalUrl")
 
                         if (finalUrl.isNotBlank() && !finalUrl.contains("iqsmartgames.com")) {
-                            loadExtractor(finalUrl, filesResponse.url, subtitleCallback, callback)
+                            when {
+                                mirrorName.contains("filemoon") -> {
+                                    FileMoon().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
+                                }
+                                mirrorName.contains("earnvids") -> {
+                                    EarnVids().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
+                                }
+                                mirrorName.contains("streamhg") -> {
+                                    StreamHG().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
+                                }
+                                mirrorName.contains("gofile") -> {
+                                    Gofile().getUrl(finalUrl, filesResponse.url, subtitleCallback, callback)
+                                }
+                                else -> {
+                                    loadExtractor(finalUrl, filesResponse.url, subtitleCallback, callback)
+                                }
+                            }
                         }
                     } catch (e: Exception) {
                         Log.e(tag, "Failed to resolve mirror $mirrorName: ${e.message}")
@@ -132,7 +149,10 @@ open class GDMIRROR : ExtractorApi() {
 
 open class StreamHG : ExtractorApi() {
     override val name = "StreamHG"
-    override val mainUrl = "https://(?:multimoviesshg\\.com|hanerix\\.com|audinifer\\.xyz)"
+    override val mainUrl: String
+        get() = runBlocking {
+            getLatestUrl("https://multimoviesshg.com", "multimoviesshg")
+        }
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -166,7 +186,10 @@ open class StreamHG : ExtractorApi() {
 
 open class FileMoon : ExtractorApi() {
     override val name = "FileMoon"
-    override val mainUrl = "https://(?:bysetayico\\.com|filemoon\\..*)"
+    override val mainUrl: String
+        get() = runBlocking {
+            getLatestUrl("https://bysetayico.com", "filemoon")
+        }
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -206,5 +229,87 @@ open class FileMoon : ExtractorApi() {
 
 open class EarnVids : VidhideExtractor() {
     override var name = "EarnVids"
-    override var mainUrl = "https://smoothpre.com"
+    override var mainUrl: String
+        get() = runBlocking {
+            getLatestUrl("https://smoothpre.com", "earnvids")
+        }
+        set(value) {}
+}
+
+open class Gofile : ExtractorApi() {
+    override val name = "Gofile"
+    override val mainUrl: String
+        get() = runBlocking {
+            getLatestUrl("https://gofile.io", "gofile")
+        }
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val latestMainUrl = getLatestUrl(url, "gofile")
+            val latestApiUrl = latestMainUrl.replace("://", "://api.")
+
+            val requestHeaders = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Origin" to latestMainUrl,
+                "Referer" to latestMainUrl,
+            )
+            val id = url.substringAfter("d/").substringBefore("/")
+            val genAccountRes = app.post("$latestApiUrl/accounts", headers = requestHeaders).text
+            val jsonResp = JSONObject(genAccountRes)
+            val token = jsonResp.getJSONObject("data").getString("token")
+            val globalRes = app.get("$latestMainUrl/dist/js/config.js", headers = requestHeaders).text
+            val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
+
+            val response = app.get("$latestApiUrl/contents/$id?cache=true&sortField=createTime&sortDirection=1",
+                headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Origin" to latestMainUrl,
+                    "Referer" to latestMainUrl,
+                    "Authorization" to "Bearer $token",
+                    "X-Website-Token" to wt
+                )
+            ).text
+
+            val jsonResponse = JSONObject(response)
+            val data = jsonResponse.getJSONObject("data")
+            val children = data.getJSONObject("children")
+            val oId = children.keys().next()
+            val link = children.getJSONObject(oId).getString("link")
+            val fileName = children.getJSONObject(oId).getString("name")
+            val size = children.getJSONObject(oId).getLong("size")
+            val formattedSize = if (size < 1024L * 1024 * 1024) {
+                val sizeInMB = size.toDouble() / (1024 * 1024)
+                "%.2f MB".format(sizeInMB)
+            } else {
+                val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
+                "%.2f GB".format(sizeInGB)
+            }
+
+            callback.invoke(
+                newExtractorLink(
+                    "Gofile",
+                    "Gofile $fileName[$formattedSize]",
+                    link,
+                ) {
+                    this.quality = getQuality(fileName)
+                    this.headers = mapOf(
+                        "Cookie" to "accountToken=$token"
+                    )
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+
+    private fun getQuality(str: String?): Int {
+        return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: Qualities.Unknown.value
+    }
 }
