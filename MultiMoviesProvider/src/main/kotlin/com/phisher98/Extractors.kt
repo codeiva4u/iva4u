@@ -5,17 +5,15 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.INFER_TYPE
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.network.CloudflareKiller
-import java.net.URI
-import org.jsoup.Jsoup
-import org.json.JSONObject
-import org.json.JSONArray
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.jsoup.Jsoup
+import java.net.URI
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // UTILITY FUNCTIONS
@@ -268,7 +266,12 @@ open class GDMIRROR : ExtractorApi() {
                 
                 if (serverItems.isNotEmpty()) {
                     Log.d(tag, "Parsed ${serverItems.size} server items directly from HTML")
-                    serverItems.forEach { item ->
+                    // Prioritize upnshr, rpmshre, and strmp2 mirrors (high-speed instant-play servers)
+                    val sortedItems = serverItems.sortedByDescending { item ->
+                        val key = item.attr("data-source-key").lowercase()
+                        if (key == "upnshr" || key == "rpmshre" || key == "strmp2") 2 else 1
+                    }
+                    sortedItems.forEach { item ->
                         val iframeUrl = item.attr("data-link")
                         val mirrorName = item.attr("data-source-key")
                         if (mirrorName in skipKeys) return@forEach
@@ -390,7 +393,7 @@ open class TechnocosmosPlayer : ExtractorApi() {
                                     file,
                                     ExtractorLinkType.M3U8
                                 ) {
-                                    this.quality = Qualities.Unknown.value
+                                    this.quality = Qualities.P1080.value
                                     this.referer = mainUrl
                                     this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                 }
