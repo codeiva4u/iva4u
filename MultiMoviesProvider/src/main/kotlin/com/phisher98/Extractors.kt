@@ -167,7 +167,7 @@ open class GDMIRROR : ExtractorApi() {
     ) {
         val tag = "GDMIRROR"
         try {
-            val response = app.get(url, referer = referer, interceptor = CloudflareKiller())
+            val response = app.get(url, referer = referer)
             val html = response.text
 
             val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
