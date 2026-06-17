@@ -202,8 +202,9 @@ open class GDMIRROR : ExtractorApi() {
             }
 
             // Try treating the url itself as an evid/svid/embed link if API fails
-            if (url.contains("/evid/") || url.contains("/svid/") || url.contains("/embed/")) {
-                processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
+            val targetUrl = if (response.url.contains("/evid/") || response.url.contains("/svid/") || response.url.contains("/embed/")) response.url else url
+            if (targetUrl.contains("/evid/") || targetUrl.contains("/svid/") || targetUrl.contains("/embed/")) {
+                processEvidOrSvid(targetUrl, "GDMIRROR", response.url, subtitleCallback, callback)
             } else {
                 Log.e(tag, "Could not extract variables or quality links from embed page")
             }
