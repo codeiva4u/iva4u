@@ -194,10 +194,16 @@ open class GDMIRROR : ExtractorApi() {
             val apiUrlBase = Regex("""let\s+api_url\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "https://streams.iqsmartgames.com"
 
             if (finalId != null && myKey != null) {
-                val apiUrl = "$apiUrlBase/mymovieapi?$idType=$finalId&key=$myKey"
-                val apiResponse = app.get(apiUrl, referer = url).text
+                val season = Regex("""let\s+season\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
+                val epname = Regex("""let\s+epname\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
+                val apiUrl = if (season != null && epname != null) {
+                    "$apiUrlBase/myseriesapi?$idType=$finalId&season=$season&epname=$epname&key=$myKey"
+                } else {
+                    "$apiUrlBase/mymovieapi?$idType=$finalId&key=$myKey"
+                }
                 
                 try {
+                    val apiResponse = app.get(apiUrl, referer = url).text
                     val json = org.json.JSONObject(apiResponse)
                     if (json.getBoolean("success")) {
                         val dataArray = json.optJSONArray("data")
@@ -218,7 +224,21 @@ open class GDMIRROR : ExtractorApi() {
                 }
             }
 
-            // Try treating the url itself as an evid/svid/embed link if API fails
+            // Fallback: Check for direct quality-links or player iframe src in HTML
+            val innerEvidRegex = Regex("""(?:https?://[^\s"'<>]+)?/(?:evid|svid)/[a-zA-Z0-9_-]+""")
+            val innerEvidMatches = innerEvidRegex.findAll(html).map { match ->
+                val path = match.value
+                if (path.startsWith("http")) path else getBaseUrl(response.url) + path
+            }.distinct().filter { it != response.url && it != url }.toList()
+            
+            if (innerEvidMatches.isNotEmpty()) {
+                innerEvidMatches.forEach { innerUrl ->
+                    processEvidOrSvid(innerUrl, "GDMIRROR", response.url, originalId = null, subtitleCallback, callback)
+                }
+                return
+            }
+
+            // Fallback 2: Try treating the url itself as an evid/svid/embed link
             val targetUrl = if (response.url.contains("/evid/") || response.url.contains("/svid/") || response.url.contains("/embed/")) response.url else url
             if (targetUrl.contains("/evid/") || targetUrl.contains("/svid/") || targetUrl.contains("/embed/")) {
                 val originalId = finalId ?: url.substringAfterLast("/")
