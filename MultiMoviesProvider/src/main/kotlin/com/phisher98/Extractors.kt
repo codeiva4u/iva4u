@@ -110,9 +110,8 @@ suspend fun routeExtractor(
 ) {
     val cleanUrl = url.lowercase()
     val mName = mirrorName?.lowercase() ?: ""
+    val vibuxerRegex = Regex("""vibuxer\.com""")
     val gdmRegex = Regex("""streams\.iqsmartgames\.com|pro\.iqsmartgames\.com|ddn\.iqsmartgames\.com|gdmirrorbot""")
-    val shgRegex = Regex("""multimoviesshg\.com|hanerix\.com|audinifer\.xyz""")
-    val fmRegex = Regex("""bysetayico\.com|filemoon""")
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
     val screenscapeRegex = Regex("""screenscape\.me""")
     val technocosmosRegex = Regex("""technocosmos\.surf""")
@@ -120,18 +119,14 @@ suspend fun routeExtractor(
     val nxshaRegex = Regex("""nxsha\.app""")
 
     when {
+        vibuxerRegex.containsMatchIn(cleanUrl) || mName.contains("vibuxer") -> {
+            Vibuxer().getUrl(url, referer, subtitleCallback, callback)
+        }
         gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
             GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
         }
         technocosmosRegex.containsMatchIn(cleanUrl) || mName.contains("rpmshare") || mName.contains("rpmshre") || mName.contains("upnshare") || mName.contains("upnshr") || mName.contains("strmp2") || mName.contains("streamp2p") -> {
             TechnocosmosPlayer().getUrl(url, referer, subtitleCallback, callback)
-        }
-        shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") || mName.contains("smwh") -> {
-            StreamHG().getUrl(url, referer, subtitleCallback, callback)
-        }
-        fmRegex.containsMatchIn(cleanUrl) || mName.contains("filemoon") -> {
-            // Skip FileMoon because it requires Captcha and causes >1 minute WebView delay
-            // FileMoon().getUrl(url, referer, subtitleCallback, callback)
         }
         evRegex.containsMatchIn(cleanUrl) || mName.contains("earnvids") || mName.contains("flls") -> {
             EarnVids().getUrl(url, referer, subtitleCallback, callback)
@@ -405,12 +400,9 @@ open class TechnocosmosPlayer : ExtractorApi() {
     }
 }
 
-open class StreamHG : ExtractorApi() {
-    override val name = "StreamHG"
-    override val mainUrl: String
-        get() = runBlocking {
-            getLatestUrl("https://multimoviesshg.com", "multimoviesshg")
-        }
+open class Vibuxer : ExtractorApi() {
+    override val name = "Vibuxer"
+    override val mainUrl = "https://vibuxer.com"
     override val requiresReferer = true
 
     override suspend fun getUrl(
@@ -420,7 +412,8 @@ open class StreamHG : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
+            val cleanUrl = url.replace(Regex("\\s"), "")
+            val response = app.get(cleanUrl, referer = referer)
             val html = response.text
             val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
             val matches = packerRegex.findAll(html)
@@ -429,13 +422,13 @@ open class StreamHG : ExtractorApi() {
                 val packed = match.value
                 val unpacked = unpack(packed)
                 if (unpacked.isNotEmpty()) {
-                    val m3u8Regex = Regex("""["']([^"']+\.m3u8[^"']*)["']""")
+                    val m3u8Regex = Regex("""["']hls\d*["']\s*:\s*["']([^"']+)["']""")
                     m3u8Regex.findAll(unpacked).forEach { m3u8Match ->
                         val matchedPath = m3u8Match.groupValues[1].replace("\\/", "/")
                         val m3u8Link = if (matchedPath.startsWith("http")) {
                             matchedPath
                         } else {
-                            val baseUrl = getBaseUrl(url)
+                            val baseUrl = getBaseUrl(cleanUrl)
                             if (matchedPath.startsWith("/")) {
                                 baseUrl + matchedPath
                             } else {
@@ -449,103 +442,20 @@ open class StreamHG : ExtractorApi() {
                                 m3u8Link,
                                 ExtractorLinkType.M3U8
                             ) {
-                                this.quality = Qualities.Unknown.value
-                                this.referer = url
-                                this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+                                this.quality = Qualities.P1080.value
+                                this.referer = cleanUrl
+                                this.headers = mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
                             }
                         )
                     }
                 }
             }
-            
-            val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
-            m3u8Regex.findAll(html).forEach { m3u8Match ->
-                val m3u8Link = m3u8Match.groupValues[1].replace("\\/", "/")
-                callback(
-                    newExtractorLink(
-                        name,
-                        name,
-                        m3u8Link,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = url
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
-                    }
-                )
-            }
         } catch (e: Exception) {
             Log.e(name, "Error: ${e.message}")
         }
     }
 }
 
-open class FileMoon : ExtractorApi() {
-    override val name = "FileMoon"
-    override val mainUrl: String
-        get() = runBlocking {
-            getLatestUrl("https://bysetayico.com", "filemoon")
-        }
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
-            val html = response.text
-            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
-            val matches = packerRegex.findAll(html)
-            
-            var m3u8: String? = null
-            matches.forEach { match ->
-                val packed = match.value
-                val unpacked = unpack(packed)
-                if (unpacked.isNotEmpty()) {
-                    val fileRegex = Regex("""file:\s*["'](https?://[^"']+\.m3u8[^"']*)["']""")
-                    var found = fileRegex.find(unpacked)?.groupValues?.get(1)
-                    if (found == null) {
-                        val genericM3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
-                        found = genericM3u8Regex.find(unpacked)?.groupValues?.get(1)
-                    }
-                    if (found != null) {
-                        m3u8 = found
-                    }
-                }
-            }
-            
-            if (m3u8 == null) {
-                val fileRegex = Regex("""file:\s*["'](https?://[^"']+\.m3u8[^"']*)["']""")
-                m3u8 = fileRegex.find(html)?.groupValues?.get(1)
-
-                if (m3u8 == null) {
-                    val genericM3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
-                    m3u8 = genericM3u8Regex.find(html)?.groupValues?.get(1)
-                }
-            }
-
-            if (m3u8 != null) {
-                callback(
-                    newExtractorLink(
-                        name,
-                        name,
-                        m3u8,
-                        ExtractorLinkType.M3U8
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = url
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
-                    }
-                )
-            }
-        } catch (e: Exception) {
-            Log.e(name, "Error: ${e.message}")
-        }
-    }
-}
 
 open class EarnVids : ExtractorApi() {
     override val name = "EarnVids"

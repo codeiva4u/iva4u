@@ -314,7 +314,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     val source = responseJson.optString("embed_url")
 
                     if (source.isNotBlank()) {
-                        val link = if (source.startsWith("http", ignoreCase = true)) {
+                        var link = if (source.startsWith("http", ignoreCase = true)) {
                             source.replace("\\/", "/").trim()
                         } else {
                             Regex("""(?:src|SRC)\s*=\s*["']([^"']+)["']""")
@@ -324,6 +324,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                                 ?.trim()
                                 ?: source
                         }
+
+                        link = link.replace(Regex("\\s"), "")
 
                         if (link.isNotBlank() && !link.contains("youtube", ignoreCase = true)) {
                             routeExtractor(link, referer = mainUrl, subtitleCallback, { extLink ->
@@ -347,9 +349,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val source = extLink.source.lowercase()
                 
                 when {
-                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare)
-                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") ||
-                    name.contains("rpm") || name.contains("upn") || source.contains("rpm") || source.contains("upn") -> 3
+                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare, vibuxer, centaurus)
+                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") ||
+                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") -> 3
                     
                     // Medium priority (Priority 2): Other direct HLS streams (M3U8)
                     extLink.type == ExtractorLinkType.M3U8 -> 2
