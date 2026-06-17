@@ -236,7 +236,7 @@ open class GDMIRROR : ExtractorApi() {
             val currentDomain = playerBase.substringAfter("://")
             
             val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomain)
-            val response = app.post(helperUrl, data = postData, referer = referer, interceptor = CloudflareKiller())
+            val response = app.post(helperUrl, data = postData, referer = referer)
             val jsonStr = response.text
             val json = org.json.JSONObject(jsonStr)
             
@@ -262,9 +262,31 @@ open class GDMIRROR : ExtractorApi() {
                 }
             } else {
                 Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
+                callback(
+                    newExtractorLink(
+                        "GDMIRROR (Fallback)",
+                        "GDMIRROR (Fallback)",
+                        svidUrl,
+                        referer,
+                        com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = referer
+                    }
+                )
             }
         } catch (e: Exception) {
             Log.e(tag, "Error processing evid/svid: ${e.message}")
+            callback(
+                newExtractorLink(
+                    "GDMIRROR (Fallback)",
+                    "GDMIRROR (Fallback)",
+                    svidUrl,
+                    referer,
+                    com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = referer
+                }
+            )
         }
     }
 }
