@@ -28,6 +28,8 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.nicehttp.NiceResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -285,6 +287,8 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             options
         }
 
+        val linksList = mutableListOf<ExtractorLink>()
+
         filteredOptions.map {
             Triple(
                 it.attr("data-post"),
@@ -322,7 +326,11 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         }
 
                         if (link.isNotBlank() && !link.contains("youtube", ignoreCase = true)) {
-                            routeExtractor(link, referer = mainUrl, subtitleCallback, callback)
+                            routeExtractor(link, referer = mainUrl, subtitleCallback, { extLink ->
+                                synchronized(linksList) {
+                                    linksList.add(extLink)
+                                }
+                            })
                         }
                     }
                 } catch (e: Exception) {
@@ -330,6 +338,30 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
         }
+
+        // Auto-Prioritize high-speed streaming links universally across all extractors
+        val sortedLinks = synchronized(linksList) {
+            linksList.sortedWith(compareByDescending<ExtractorLink> { extLink ->
+                val url = extLink.url.lowercase()
+                val name = extLink.name.lowercase()
+                val source = extLink.source.lowercase()
+                
+                when {
+                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare)
+                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") ||
+                    name.contains("rpm") || name.contains("upn") || source.contains("rpm") || source.contains("upn") -> 3
+                    
+                    // Medium priority (Priority 2): Other direct HLS streams (M3U8)
+                    extLink.type == ExtractorLinkType.M3U8 -> 2
+                    
+                    // Lowest priority (Priority 1): Raw MP4s or other files
+                    else -> 1
+                }
+            }.thenByDescending { it.quality })
+        }
+
+        sortedLinks.forEach { callback(it) }
+
         return true
     }
 

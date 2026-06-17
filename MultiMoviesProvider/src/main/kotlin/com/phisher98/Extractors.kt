@@ -266,12 +266,7 @@ open class GDMIRROR : ExtractorApi() {
                 
                 if (serverItems.isNotEmpty()) {
                     Log.d(tag, "Parsed ${serverItems.size} server items directly from HTML")
-                    // Prioritize upnshr, rpmshre, and strmp2 mirrors (high-speed instant-play servers)
-                    val sortedItems = serverItems.sortedByDescending { item ->
-                        val key = item.attr("data-source-key").lowercase()
-                        if (key == "upnshr" || key == "rpmshre" || key == "strmp2") 2 else 1
-                    }
-                    sortedItems.forEach { item ->
+                    serverItems.forEach { item ->
                         val iframeUrl = item.attr("data-link")
                         val mirrorName = item.attr("data-source-key")
                         if (mirrorName in skipKeys) return@forEach
@@ -537,7 +532,7 @@ open class FileMoon : ExtractorApi() {
                     newExtractorLink(
                         name,
                         name,
-                        m3u8!!,
+                        m3u8,
                         ExtractorLinkType.M3U8
                     ) {
                         this.quality = Qualities.Unknown.value
