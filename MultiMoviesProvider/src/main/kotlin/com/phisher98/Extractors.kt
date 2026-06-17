@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import java.net.URI
 import org.jsoup.Jsoup
 import org.json.JSONObject
@@ -229,7 +230,7 @@ open class GDMIRROR : ExtractorApi() {
             // 1. Try to extract the direct worker streaming link if present (fileurl)
             try {
                 val filesUrl = "$playerBase/file/$fileslug"
-                val filesResponse = app.get(filesUrl, referer = referer)
+                val filesResponse = app.get(filesUrl, referer = referer, interceptor = CloudflareKiller())
                 val filesHtml = filesResponse.text
                 
                 val fileurl = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""").find(filesHtml)
