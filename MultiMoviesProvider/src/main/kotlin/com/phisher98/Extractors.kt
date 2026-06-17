@@ -123,12 +123,10 @@ suspend fun routeExtractor(
             GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
         }
         shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") -> {
-            // Skip StreamHG because it causes >1 minute WebView delay
-            // StreamHG().getUrl(url, referer, subtitleCallback, callback)
+            StreamHG().getUrl(url, referer, subtitleCallback, callback)
         }
         fmRegex.containsMatchIn(cleanUrl) || mName.contains("filemoon") -> {
-            // Skip FileMoon because it requires Captcha and causes >1 minute WebView delay
-            // FileMoon().getUrl(url, referer, subtitleCallback, callback)
+            FileMoon().getUrl(url, referer, subtitleCallback, callback)
         }
         evRegex.containsMatchIn(cleanUrl) || mName.contains("earnvids") || mName.contains("flls") -> {
             EarnVids().getUrl(url, referer, subtitleCallback, callback)
@@ -283,7 +281,7 @@ open class StreamHG : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = app.get(url, referer = referer)
+            val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
             val html = response.text
             val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)""")
             val matches = packerRegex.findAll(html)
@@ -310,8 +308,8 @@ open class StreamHG : ExtractorApi() {
                     newExtractorLink(
                         name,
                         name,
-                        m3u8Link,
-                        INFER_TYPE
+                        m3u8Link!!,
+                        ExtractorLinkType.M3U8
                     ) {
                         this.quality = Qualities.Unknown.value
                         this.referer = url
@@ -340,7 +338,7 @@ open class FileMoon : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = app.get(url, referer = referer)
+            val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
             val html = response.text
             val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)""")
             val matches = packerRegex.findAll(html)
@@ -377,8 +375,8 @@ open class FileMoon : ExtractorApi() {
                     newExtractorLink(
                         name,
                         name,
-                        m3u8,
-                        INFER_TYPE
+                        m3u8!!,
+                        ExtractorLinkType.M3U8
                     ) {
                         this.quality = Qualities.Unknown.value
                         this.referer = url
