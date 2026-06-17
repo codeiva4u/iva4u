@@ -267,7 +267,6 @@ open class GDMIRROR : ExtractorApi() {
                         "GDMIRROR (Fallback)",
                         "GDMIRROR (Fallback)",
                         svidUrl,
-                        referer,
                         com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
                     ) {
                         this.referer = referer
@@ -281,7 +280,6 @@ open class GDMIRROR : ExtractorApi() {
                     "GDMIRROR (Fallback)",
                     "GDMIRROR (Fallback)",
                     svidUrl,
-                    referer,
                     com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
                 ) {
                     this.referer = referer
