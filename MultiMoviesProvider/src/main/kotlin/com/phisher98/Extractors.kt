@@ -129,8 +129,7 @@ suspend fun routeExtractor(
             GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
         }
         technocosmosRegex.containsMatchIn(cleanUrl) || mName.contains("rpmshare") || mName.contains("rpmshre") || mName.contains("upnshare") || mName.contains("upnshr") || mName.contains("strmp2") || mName.contains("streamp2p") -> {
-            // Skip: Uses fMP4-HLS with disguised extensions (.txt/.woff/.woff2)
-            // CloudStream ExoPlayer cannot parse this → ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003)
+            TechnocosmosPlayer().getUrl(url, referer, subtitleCallback, callback)
         }
         shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") || mName.contains("smwh") -> {
             StreamHG().getUrl(url, referer, subtitleCallback, callback)
@@ -270,43 +269,68 @@ open class GDMIRROR : ExtractorApi() {
             }
             
 
-            // 2. Extract mirror links using embedhelper.php
-            val helperUrl = "$playerBase/embedhelper.php"
-            val currentDomain = playerBase.substringAfter("://")
-            
-            // The API expects a JSON array string
-            val currentDomainJson = "[\"$currentDomain\"]"
-            val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomainJson)
-            val response = app.post(helperUrl, data = postData, referer = referer)
-            val jsonStr = response.text
-            val json = org.json.JSONObject(jsonStr)
-            
-            val mresultBase64 = json.optString("mresult")
-            val siteUrls = json.optJSONObject("siteUrls")
-            val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
-            
-            if (mresultBase64.isNotBlank() && siteUrls != null) {
-                val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
-                val mresultObj = org.json.JSONObject(mresultJson)
+            // 1. Fetch svidUrl HTML to parse pre-rendered server list
+            var parsedDirectly = false
+            val skipKeys = setOf("gdtot", "buzzheavier", "gofs", "flps", "flmn")
+            try {
+                val svidResponse = app.get(svidUrl, referer = referer)
+                val svidHtml = svidResponse.text
+                val doc = Jsoup.parse(svidHtml)
+                val serverItems = doc.select("li.server-item[data-link]")
                 
-                // Skip sources that use fMP4-HLS or are download-only (not streamable)
-                val skipKeys = setOf("rpmshre", "upnshr", "strmp2", "gdtot", "buzzheavier", "gofs", "flps", "flmn")
-                
-                mresultObj.keys().forEach { key ->
-                    if (key in skipKeys) return@forEach
-                    val value = mresultObj.getString(key)
-                    val siteUrl = siteUrls.optString(key)
-                    if (siteUrl.isNotBlank()) {
-                        val iframeUrl = siteUrl + value
-                        val mirrorName = siteFriendlyNames?.optString(key) ?: key
-                        Log.d(tag, "Found iframe link: $iframeUrl for $mirrorName")
-                        if (!iframeUrl.contains("iqsmartgames.com") && !iframeUrl.contains("gdmirrorbot")) {
-                            routeExtractor(iframeUrl, referer = helperUrl, subtitleCallback, callback, mirrorName)
+                if (serverItems.isNotEmpty()) {
+                    Log.d(tag, "Parsed ${serverItems.size} server items directly from HTML")
+                    serverItems.forEach { item ->
+                        val iframeUrl = item.attr("data-link")
+                        val mirrorName = item.attr("data-source-key")
+                        if (mirrorName in skipKeys) return@forEach
+                        if (iframeUrl.isNotBlank() && !iframeUrl.contains("iqsmartgames.com") && !iframeUrl.contains("gdmirrorbot")) {
+                            Log.d(tag, "Routing parsed server: $iframeUrl ($mirrorName)")
+                            routeExtractor(iframeUrl, referer = svidResponse.url, subtitleCallback, callback, mirrorName)
                         }
                     }
+                    parsedDirectly = true
                 }
-            } else {
-                Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to parse servers from HTML: ${e.message}")
+            }
+
+            if (!parsedDirectly) {
+                // 2. Extract mirror links using embedhelper.php (fallback)
+                val helperUrl = "$playerBase/embedhelper.php"
+                val currentDomain = playerBase.substringAfter("://")
+                
+                // The API expects a JSON array string
+                val currentDomainJson = "[\"$currentDomain\"]"
+                val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomainJson)
+                val response = app.post(helperUrl, data = postData, referer = referer)
+                val jsonStr = response.text
+                val json = org.json.JSONObject(jsonStr)
+                
+                val mresultBase64 = json.optString("mresult")
+                val siteUrls = json.optJSONObject("siteUrls")
+                val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
+                
+                if (mresultBase64.isNotBlank() && siteUrls != null) {
+                    val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
+                    val mresultObj = org.json.JSONObject(mresultJson)
+                    
+                    mresultObj.keys().forEach { key ->
+                        if (key in skipKeys) return@forEach
+                        val value = mresultObj.getString(key)
+                        val siteUrl = siteUrls.optString(key)
+                        if (siteUrl.isNotBlank()) {
+                            val iframeUrl = siteUrl + value
+                            val mirrorName = siteFriendlyNames?.optString(key) ?: key
+                            Log.d(tag, "Found iframe link: $iframeUrl for $mirrorName")
+                            if (!iframeUrl.contains("iqsmartgames.com") && !iframeUrl.contains("gdmirrorbot")) {
+                                routeExtractor(iframeUrl, referer = helperUrl, subtitleCallback, callback, mirrorName)
+                            }
+                        }
+                    }
+                } else {
+                    Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Error processing evid/svid: ${e.message}")
