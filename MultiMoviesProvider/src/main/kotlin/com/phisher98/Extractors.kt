@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import java.net.URI
 import org.jsoup.Jsoup
 import org.json.JSONObject
@@ -166,7 +167,7 @@ open class GDMIRROR : ExtractorApi() {
     ) {
         val tag = "GDMIRROR"
         try {
-            val response = app.get(url, referer = referer)
+            val response = app.get(url, referer = referer, interceptor = CloudflareKiller())
             val html = response.text
 
             val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
@@ -235,7 +236,7 @@ open class GDMIRROR : ExtractorApi() {
             val currentDomain = playerBase.substringAfter("://")
             
             val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomain)
-            val response = app.post(helperUrl, data = postData, referer = referer)
+            val response = app.post(helperUrl, data = postData, referer = referer, interceptor = CloudflareKiller())
             val jsonStr = response.text
             val json = org.json.JSONObject(jsonStr)
             
