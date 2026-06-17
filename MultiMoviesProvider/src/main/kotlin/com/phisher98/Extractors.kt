@@ -204,7 +204,8 @@ open class GDMIRROR : ExtractorApi() {
             // Try treating the url itself as an evid/svid/embed link if API fails
             val targetUrl = if (response.url.contains("/evid/") || response.url.contains("/svid/") || response.url.contains("/embed/")) response.url else url
             if (targetUrl.contains("/evid/") || targetUrl.contains("/svid/") || targetUrl.contains("/embed/")) {
-                processEvidOrSvid(targetUrl, "GDMIRROR", response.url, subtitleCallback, callback)
+                val originalId = finalId ?: url.substringAfterLast("/")
+                processEvidOrSvid(targetUrl, "GDMIRROR", response.url, originalId, subtitleCallback, callback)
             } else {
                 Log.e(tag, "Could not extract variables or quality links from embed page")
             }
@@ -217,12 +218,13 @@ open class GDMIRROR : ExtractorApi() {
         svidUrl: String,
         qualityText: String,
         referer: String,
+        originalId: String? = null,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "GDMIRROR"
         try {
-            val fileslug = svidUrl.substringAfterLast("/")
+            val fileslug = originalId ?: svidUrl.substringAfterLast("/")
             val playerBase = when {
                 svidUrl.contains("/evid/") -> svidUrl.substringBefore("/evid/")
                 svidUrl.contains("/svid/") -> svidUrl.substringBefore("/svid/")
@@ -236,7 +238,9 @@ open class GDMIRROR : ExtractorApi() {
             val helperUrl = "$playerBase/embedhelper.php"
             val currentDomain = playerBase.substringAfter("://")
             
-            val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomain)
+            // The API expects a JSON array string
+            val currentDomainJson = "[\"$currentDomain\"]"
+            val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomainJson)
             val response = app.post(helperUrl, data = postData, referer = referer)
             val jsonStr = response.text
             val json = org.json.JSONObject(jsonStr)
