@@ -54,7 +54,7 @@ fun decodeRadix(str: String, radix: Int): Int? {
 
 fun unpack(packed: String): String {
     try {
-        val pattern = Regex("""eval\(function\(p,a,c,k,e,d\).+?\}\((['"].*?['"])\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"].*?['"])\.split\(['"]\\|['"]\)""", RegexOption.DOT_MATCHES_ALL)
+        val pattern = Regex("""eval\(function\(p,a,c,k,e,d\).+?\}\((['"].*?['"])\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"].*?['"])\.split\(['"]\\?\|['"]\)""", RegexOption.DOT_MATCHES_ALL)
         val match = pattern.find(packed) ?: return ""
         
         var p = match.groupValues[1]
@@ -287,29 +287,9 @@ open class GDMIRROR : ExtractorApi() {
                 }
             } else {
                 Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
-                callback(
-                    newExtractorLink(
-                        "GDMIRROR (Fallback)",
-                        "GDMIRROR (Fallback)",
-                        svidUrl,
-                        com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
-                    ) {
-                        this.referer = referer
-                    }
-                )
             }
         } catch (e: Exception) {
             Log.e(tag, "Error processing evid/svid: ${e.message}")
-            callback(
-                newExtractorLink(
-                    "GDMIRROR (Fallback)",
-                    "GDMIRROR (Fallback)",
-                    svidUrl,
-                    com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = referer
-                }
-            )
         }
     }
 }
@@ -410,32 +390,50 @@ open class StreamHG : ExtractorApi() {
         try {
             val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
             val html = response.text
-            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\|['"]\)""")
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
             val matches = packerRegex.findAll(html)
             
-            var m3u8Link: String? = null
             matches.forEach { match ->
                 val packed = match.value
                 val unpacked = unpack(packed)
                 if (unpacked.isNotEmpty()) {
-                    val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
-                    val found = m3u8Regex.find(unpacked)?.groupValues?.get(1)
-                    if (found != null) {
-                        m3u8Link = found
+                    val m3u8Regex = Regex("""["']([^"']+\.m3u8[^"']*)["']""")
+                    m3u8Regex.findAll(unpacked).forEach { m3u8Match ->
+                        val matchedPath = m3u8Match.groupValues[1].replace("\\/", "/")
+                        val m3u8Link = if (matchedPath.startsWith("http")) {
+                            matchedPath
+                        } else {
+                            val baseUrl = getBaseUrl(url)
+                            if (matchedPath.startsWith("/")) {
+                                baseUrl + matchedPath
+                            } else {
+                                "$baseUrl/$matchedPath"
+                            }
+                        }
+                        callback(
+                            newExtractorLink(
+                                name,
+                                name,
+                                m3u8Link,
+                                ExtractorLinkType.M3U8
+                            ) {
+                                this.quality = Qualities.Unknown.value
+                                this.referer = url
+                                this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
+                            }
+                        )
                     }
                 }
             }
             
-            if (m3u8Link == null) {
-                val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
-                m3u8Link = m3u8Regex.find(html)?.groupValues?.get(1)
-            }
-            if (m3u8Link != null) {
+            val m3u8Regex = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""")
+            m3u8Regex.findAll(html).forEach { m3u8Match ->
+                val m3u8Link = m3u8Match.groupValues[1].replace("\\/", "/")
                 callback(
                     newExtractorLink(
                         name,
                         name,
-                        m3u8Link!!,
+                        m3u8Link,
                         ExtractorLinkType.M3U8
                     ) {
                         this.quality = Qualities.Unknown.value
@@ -467,7 +465,7 @@ open class FileMoon : ExtractorApi() {
         try {
             val response = app.get(url, headers = VIDEO_HEADERS, referer = referer)
             val html = response.text
-            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\|['"]\)""")
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
             val matches = packerRegex.findAll(html)
             
             var m3u8: String? = null
@@ -535,16 +533,26 @@ open class EarnVids : ExtractorApi() {
             val response = app.get(url, referer = referer)
             val html = response.text
 
-            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\|['"]\)""")
+            val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
             val matches = packerRegex.findAll(html)
             
             matches.forEach { match ->
                 val packed = match.value
                 val unpacked = unpack(packed)
                 if (unpacked.isNotEmpty()) {
-                    val m3u8Regex = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""")
+                    val m3u8Regex = Regex("""["']([^"']+\.m3u8[^"']*)["']""")
                     m3u8Regex.findAll(unpacked).forEach { m3u8Match ->
-                        val m3u8Link = m3u8Match.value.replace("\\/", "/")
+                        val matchedPath = m3u8Match.groupValues[1].replace("\\/", "/")
+                        val m3u8Link = if (matchedPath.startsWith("http")) {
+                            matchedPath
+                        } else {
+                            val baseUrl = getBaseUrl(url)
+                            if (matchedPath.startsWith("/")) {
+                                baseUrl + matchedPath
+                            } else {
+                                "$baseUrl/$matchedPath"
+                            }
+                        }
                         callback(
                             newExtractorLink(
                                 name,
@@ -875,7 +883,7 @@ open class Nhdapi : ExtractorApi() {
 
                 // If no m3u8 found directly, try extracting from packed/obfuscated JS
                 if (!found) {
-                    val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\|['"]\)""")
+                    val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
                     packerRegex.findAll(playerHtml).forEach { pMatch ->
                         val unpacked = unpack(pMatch.value)
                         if (unpacked.isNotEmpty()) {
