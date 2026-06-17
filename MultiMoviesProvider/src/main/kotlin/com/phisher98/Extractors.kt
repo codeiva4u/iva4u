@@ -128,8 +128,9 @@ suspend fun routeExtractor(
         gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
             GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
         }
-        technocosmosRegex.containsMatchIn(cleanUrl) || mName.contains("rpmshare") || mName.contains("rpmshre") || mName.contains("upnshare") || mName.contains("upnshr") -> {
-            TechnocosmosPlayer().getUrl(url, referer, subtitleCallback, callback)
+        technocosmosRegex.containsMatchIn(cleanUrl) || mName.contains("rpmshare") || mName.contains("rpmshre") || mName.contains("upnshare") || mName.contains("upnshr") || mName.contains("strmp2") || mName.contains("streamp2p") -> {
+            // Skip: Uses fMP4-HLS with disguised extensions (.txt/.woff/.woff2)
+            // CloudStream ExoPlayer cannot parse this → ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003)
         }
         shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") || mName.contains("smwh") -> {
             StreamHG().getUrl(url, referer, subtitleCallback, callback)
@@ -268,7 +269,11 @@ open class GDMIRROR : ExtractorApi() {
                 val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
                 val mresultObj = org.json.JSONObject(mresultJson)
                 
+                // Skip sources that use fMP4-HLS or are download-only (not streamable)
+                val skipKeys = setOf("rpmshre", "upnshr", "strmp2", "gdtot", "buzzheavier", "gofs", "flps", "flmn")
+                
                 mresultObj.keys().forEach { key ->
+                    if (key in skipKeys) return@forEach
                     val value = mresultObj.getString(key)
                     val siteUrl = siteUrls.optString(key)
                     if (siteUrl.isNotBlank()) {
