@@ -123,10 +123,12 @@ suspend fun routeExtractor(
             GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
         }
         shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") -> {
-            StreamHG().getUrl(url, referer, subtitleCallback, callback)
+            // Skip StreamHG because it causes >1 minute WebView delay
+            // StreamHG().getUrl(url, referer, subtitleCallback, callback)
         }
         fmRegex.containsMatchIn(cleanUrl) || mName.contains("filemoon") -> {
-            FileMoon().getUrl(url, referer, subtitleCallback, callback)
+            // Skip FileMoon because it requires Captcha and causes >1 minute WebView delay
+            // FileMoon().getUrl(url, referer, subtitleCallback, callback)
         }
         evRegex.containsMatchIn(cleanUrl) || mName.contains("earnvids") || mName.contains("flls") -> {
             EarnVids().getUrl(url, referer, subtitleCallback, callback)
