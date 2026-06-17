@@ -271,7 +271,21 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val req = app.get(data).document
-        req.select("ul#playeroptionsul li").map {
+        val options = req.select("ul#playeroptionsul li")
+        
+        // Prioritize GDMIRROR. If GDMIRROR is present, only load fast, direct players (GDMIRROR, Peachify, Nxsha, screenscape)
+        val hasGdMirror = options.any { it.text().contains("gdmirror", ignoreCase = true) }
+        
+        val filteredOptions = if (hasGdMirror) {
+            options.filter { option ->
+                val text = option.text().lowercase()
+                text.contains("gdmirror") || text.contains("peachify") || text.contains("nxsha") || text.contains("screenscape")
+            }
+        } else {
+            options
+        }
+
+        filteredOptions.map {
             Triple(
                 it.attr("data-post"),
                 it.attr("data-nume"),

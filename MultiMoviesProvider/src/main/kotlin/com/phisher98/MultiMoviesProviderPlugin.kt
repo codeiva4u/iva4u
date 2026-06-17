@@ -14,8 +14,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         // registerExtractorAPI(StreamHG()) // Obfuscated or requires JS challenge
         // registerExtractorAPI(FileMoon()) // Requires CAPTCHA solving
         registerExtractorAPI(EarnVids())
-        registerExtractorAPI(Gofile())
         registerExtractorAPI(Screenscape())
-        registerExtractorAPI(Cineverse())
     }
 }

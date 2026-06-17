@@ -116,13 +116,10 @@ suspend fun routeExtractor(
     val shgRegex = Regex("""multimoviesshg\.com|hanerix\.com|audinifer\.xyz""")
     val fmRegex = Regex("""bysetayico\.com|filemoon""")
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
-    val gfRegex = Regex("""gofile""")
     val screenscapeRegex = Regex("""screenscape\.me""")
-    val cineverseRegex = Regex("""modiplay\.xyz""")
     val technocosmosRegex = Regex("""technocosmos\.surf""")
     val peachifyRegex = Regex("""peachify\.top""")
     val nxshaRegex = Regex("""nxsha\.app""")
-    val nhdapiRegex = Regex("""nhdapi\.com""")
 
     when {
         gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
@@ -141,23 +138,14 @@ suspend fun routeExtractor(
         evRegex.containsMatchIn(cleanUrl) || mName.contains("earnvids") || mName.contains("flls") -> {
             EarnVids().getUrl(url, referer, subtitleCallback, callback)
         }
-        gfRegex.containsMatchIn(cleanUrl) || mName.contains("gofile") -> {
-            Gofile().getUrl(url, referer, subtitleCallback, callback)
-        }
         screenscapeRegex.containsMatchIn(cleanUrl) -> {
             Screenscape().getUrl(url, referer, subtitleCallback, callback)
-        }
-        cineverseRegex.containsMatchIn(cleanUrl) -> {
-            Cineverse().getUrl(url, referer, subtitleCallback, callback)
         }
         peachifyRegex.containsMatchIn(cleanUrl) -> {
             Peachify().getUrl(url, referer, subtitleCallback, callback)
         }
         nxshaRegex.containsMatchIn(cleanUrl) -> {
             Nxsha().getUrl(url, referer, subtitleCallback, callback)
-        }
-        nhdapiRegex.containsMatchIn(cleanUrl) -> {
-            Nhdapi().getUrl(url, referer, subtitleCallback, callback)
         }
         else -> {
             loadExtractor(url, referer, subtitleCallback, callback)
@@ -380,7 +368,9 @@ open class TechnocosmosPlayer : ExtractorApi() {
                 referer = url,
                 headers = mapOf(
                     "x-ts" to timestamp,
-                    "x-signature" to signature
+                    "x-signature" to signature,
+                    "Origin" to "https://plyr.technocosmos.surf",
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
             ).text
             
@@ -618,83 +608,6 @@ open class EarnVids : ExtractorApi() {
     }
 }
 
-open class Gofile : ExtractorApi() {
-    override val name = "Gofile"
-    override val mainUrl: String
-        get() = runBlocking {
-            getLatestUrl("https://gofile.io", "gofile")
-        }
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val latestMainUrl = getLatestUrl(url, "gofile")
-            val latestApiUrl = latestMainUrl.replace("://", "://api.")
-
-            val requestHeaders = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Origin" to latestMainUrl,
-                "Referer" to latestMainUrl,
-            )
-            val id = url.substringAfter("d/").substringBefore("/")
-            val genAccountRes = app.post("$latestApiUrl/accounts", headers = requestHeaders).text
-            val jsonResp = JSONObject(genAccountRes)
-            val token = jsonResp.getJSONObject("data").getString("token")
-            val globalRes = app.get("$latestMainUrl/dist/js/config.js", headers = requestHeaders).text
-            val wt = Regex("""appdata\.wt\s*=\s*["']([^"']+)["']""").find(globalRes)?.groupValues?.get(1) ?: return
-
-            val response = app.get("$latestApiUrl/contents/$id?cache=true&sortField=createTime&sortDirection=1",
-                headers = mapOf(
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Origin" to latestMainUrl,
-                    "Referer" to latestMainUrl,
-                    "Authorization" to "Bearer $token",
-                    "X-Website-Token" to wt
-                )
-            ).text
-
-            val jsonResponse = JSONObject(response)
-            val data = jsonResponse.getJSONObject("data")
-            val children = data.getJSONObject("children")
-            val oId = children.keys().next()
-            val link = children.getJSONObject(oId).getString("link")
-            val fileName = children.getJSONObject(oId).getString("name")
-            val size = children.getJSONObject(oId).getLong("size")
-            val formattedSize = if (size < 1024L * 1024 * 1024) {
-                val sizeInMB = size.toDouble() / (1024 * 1024)
-                "%.2f MB".format(sizeInMB)
-            } else {
-                val sizeInGB = size.toDouble() / (1024 * 1024 * 1024)
-                "%.2f GB".format(sizeInGB)
-            }
-
-            callback.invoke(
-                newExtractorLink(
-                    "Gofile",
-                    "Gofile $fileName[$formattedSize]",
-                    link,
-                ) {
-                    this.quality = getQuality(fileName)
-                    this.headers = mapOf(
-                        "Cookie" to "accountToken=$token"
-                    )
-                }
-            )
-        } catch (e: Exception) {
-            Log.e(name, "Error: ${e.message}")
-        }
-    }
-
-    private fun getQuality(str: String?): Int {
-        return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: Qualities.Unknown.value
-    }
-}
 
 open class Screenscape : ExtractorApi() {
     override val name = "Screenscape"
@@ -734,51 +647,6 @@ open class Screenscape : ExtractorApi() {
     }
 }
 
-open class Cineverse : ExtractorApi() {
-    override val name = "Cineverse"
-    override val mainUrl = "https://modiplay.xyz"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        try {
-            val response = app.get(url, referer = referer)
-            val doc = Jsoup.parse(response.text)
-            
-            // Extract proxy iframe source
-            val iframeSrc = doc.select("iframe").attr("src")
-            if (iframeSrc.isNotBlank()) {
-                // Determine proxy referer base
-                val proxyBase = getBaseUrl(iframeSrc)
-                val proxyResponse = app.get(iframeSrc, referer = url)
-                
-                // Usually proxies to another embed (like rpmshare, etc)
-                // We'll extract and route it
-                val html = proxyResponse.text
-                val m3u8 = Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""").find(html)?.groupValues?.getOrNull(1)
-                
-                if (!m3u8.isNullOrBlank()) {
-                    callback(
-                        newExtractorLink(
-                            name,
-                            name,
-                            m3u8,
-                            INFER_TYPE
-                        ) {
-                            this.referer = proxyBase
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(name, "Error: ${e.message}")
-        }
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // PEACHIFY EXTRACTOR
@@ -873,91 +741,6 @@ open class Peachify : ExtractorApi() {
 // NHDAPI EXTRACTOR
 // ═══════════════════════════════════════════════════════════════════════════════════
 
-open class Nhdapi : ExtractorApi() {
-    override val name = "Nhdapi"
-    override val mainUrl = "https://nhdapi.com"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "Nhdapi"
-        try {
-            // URL format: https://nhdapi.com/embed/movie/tt29540862?autoplay
-            // This page loads an iframe from player.nhdapi.com which has HLS streams
-            val response = app.get(url, referer = referer)
-            val html = response.text
-            val doc = Jsoup.parse(html)
-            
-            // Extract the player iframe src
-            val iframeSrc = doc.select("iframe").firstOrNull()?.attr("src") ?: ""
-            
-            if (iframeSrc.isNotBlank()) {
-                val playerUrl = if (iframeSrc.startsWith("http")) iframeSrc else "https:$iframeSrc"
-                val playerResp = app.get(playerUrl, referer = url)
-                val playerHtml = playerResp.text
-                
-                // Extract m3u8 links from the player page
-                val m3u8Regex = Regex("""(https?://[^\s"'\\]+\.m3u8[^\s"'\\]*)""")
-                val matches = m3u8Regex.findAll(playerHtml)
-                var found = false
-                
-                matches.forEach { match ->
-                    val m3u8Url = match.groupValues[1].replace("\\/", "/")
-                    found = true
-                    callback(
-                        newExtractorLink(
-                            name,
-                            name,
-                            m3u8Url,
-                            ExtractorLinkType.M3U8
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = getBaseUrl(playerUrl)
-                            this.headers = mapOf(
-                                "Referer" to getBaseUrl(playerUrl),
-                                "Origin" to getBaseUrl(playerUrl)
-                            )
-                        }
-                    )
-                }
-
-                // If no m3u8 found directly, try extracting from packed/obfuscated JS
-                if (!found) {
-                    val packerRegex = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\\?\|['"]\)""")
-                    packerRegex.findAll(playerHtml).forEach { pMatch ->
-                        val unpacked = unpack(pMatch.value)
-                        if (unpacked.isNotEmpty()) {
-                            m3u8Regex.findAll(unpacked).forEach { m3u8Match ->
-                                val m3u8Url = m3u8Match.groupValues[1].replace("\\/", "/")
-                                callback(
-                                    newExtractorLink(
-                                        name,
-                                        name,
-                                        m3u8Url,
-                                        ExtractorLinkType.M3U8
-                                    ) {
-                                        this.quality = Qualities.Unknown.value
-                                        this.referer = getBaseUrl(playerUrl)
-                                        this.headers = mapOf(
-                                            "Referer" to getBaseUrl(playerUrl),
-                                            "Origin" to getBaseUrl(playerUrl)
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error: ${e.message}")
-        }
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // NXSHA EXTRACTOR
