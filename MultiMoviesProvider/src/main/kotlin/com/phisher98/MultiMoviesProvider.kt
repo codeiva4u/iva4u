@@ -148,13 +148,13 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
     }
 
-    private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?): NiceResponse {
+    private suspend fun getEmbed(postid: String?, nume: String, referUrl: String?, type: String = "movie"): NiceResponse {
 
         val body = FormBody.Builder()
             .addEncoded("action", "doo_player_ajax")
             .addEncoded("post", postid.toString())
             .addEncoded("nume", nume)
-            .addEncoded("type", "movie")
+            .addEncoded("type", type)
             .build()
 
         return app.post(
