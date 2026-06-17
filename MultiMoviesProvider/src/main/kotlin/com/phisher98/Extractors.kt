@@ -256,7 +256,7 @@ open class GDMIRROR : ExtractorApi() {
 
             // 1. Fetch svidUrl HTML to parse pre-rendered server list
             var parsedDirectly = false
-            val skipKeys = setOf("gdtot", "buzzheavier", "gofs", "flps", "flmn")
+            val skipKeys = setOf("gdtot", "buzzheavier", "gofs", "flmn")
             try {
                 val svidResponse = app.get(svidUrl, referer = referer)
                 val svidHtml = svidResponse.text

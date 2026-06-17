@@ -349,9 +349,9 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val source = extLink.source.lowercase()
                 
                 when {
-                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare, vibuxer, centaurus)
-                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") ||
-                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") -> 3
+                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare, vibuxer, centaurus, filesim)
+                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") || url.contains("filesim") ||
+                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || name.contains("filesim") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") || source.contains("filesim") -> 3
                     
                     // Medium priority (Priority 2): Other direct HLS streams (M3U8)
                     extLink.type == ExtractorLinkType.M3U8 -> 2
