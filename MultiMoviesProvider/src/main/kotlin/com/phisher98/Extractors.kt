@@ -10,7 +10,6 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import java.net.URI
 import org.jsoup.Jsoup
 import org.json.JSONObject
@@ -111,7 +110,6 @@ suspend fun routeExtractor(
 ) {
     val cleanUrl = url.lowercase()
     val mName = mirrorName?.lowercase() ?: ""
-    val gdmRegex = Regex("""streams\.iqsmartgames\.com|pro\.iqsmartgames\.com|ddn\.iqsmartgames\.com|gdmirrorbot""")
     val shgRegex = Regex("""multimoviesshg\.com|hanerix\.com|audinifer\.xyz""")
     val fmRegex = Regex("""bysetayico\.com|filemoon""")
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
@@ -120,9 +118,6 @@ suspend fun routeExtractor(
     val cineverseRegex = Regex("""modiplay\.xyz""")
 
     when {
-        gdmRegex.containsMatchIn(cleanUrl) || mName.contains("gdmirror") -> {
-            GDMIRROR().getUrl(url, referer, subtitleCallback, callback)
-        }
         shgRegex.containsMatchIn(cleanUrl) || mName.contains("streamhg") -> {
             StreamHG().getUrl(url, referer, subtitleCallback, callback)
         }
@@ -151,151 +146,6 @@ suspend fun routeExtractor(
 // ═══════════════════════════════════════════════════════════════════════════════════
 // CUSTOM EXTRACTORS
 // ═══════════════════════════════════════════════════════════════════════════════════
-
-open class GDMIRROR : ExtractorApi() {
-    override val name = "GDMIRROR"
-    override val mainUrl = "https://(?:streams\\.iqsmartgames\\.com|pro\\.iqsmartgames\\.com|ddn\\.iqsmartgames\\.com|gdmirrorbot\\..*)"
-    override val requiresReferer = true
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "GDMIRROR"
-        try {
-            val response = app.get(url, referer = referer)
-            val html = response.text
-
-            val finalId = Regex("""let\s+FinalID\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
-            val idType = Regex("""let\s+idType\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "imdbid"
-            val myKey = Regex("""let\s+myKey\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1)
-            val playerBase = Regex("""let\s+player_base\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "https://pro.iqsmartgames.com"
-            val apiUrlBase = Regex("""let\s+api_url\s*=\s*["']([^"']+)["']""").find(html)?.groupValues?.get(1) ?: "https://streams.iqsmartgames.com"
-
-            if (finalId != null && myKey != null) {
-                val apiUrl = "$apiUrlBase/mymovieapi?$idType=$finalId&key=$myKey"
-                val apiResponse = app.get(apiUrl, referer = url).text
-                
-                try {
-                    val json = org.json.JSONObject(apiResponse)
-                    if (json.getBoolean("success")) {
-                        val dataArray = json.optJSONArray("data")
-                        for (i in 0 until (dataArray?.length() ?: 0)) {
-                            val item = dataArray?.getJSONObject(i)
-                            val filename = item?.optString("filename") ?: ""
-                            val fileslug = item?.optString("fileslug") ?: ""
-                            
-                            if (fileslug.isNotBlank()) {
-                                val evidUrl = "$playerBase/evid/$fileslug"
-                                processEvidOrSvid(evidUrl, filename, response.url, subtitleCallback, callback)
-                            }
-                        }
-                        return
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed to parse API response: ${e.message}")
-                }
-            }
-
-            // Try treating the url itself as an evid/svid/embed link if API fails
-            if (url.contains("/evid/") || url.contains("/svid/") || url.contains("/embed/")) {
-                processEvidOrSvid(url, "GDMIRROR", response.url, subtitleCallback, callback)
-            } else {
-                Log.e(tag, "Could not extract variables or quality links from embed page")
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error in GDMIRROR extractor: ${e.message}")
-        }
-    }
-
-    private suspend fun processEvidOrSvid(
-        svidUrl: String,
-        qualityText: String,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "GDMIRROR"
-        try {
-            val fileslug = svidUrl.substringAfterLast("/")
-            val playerBase = when {
-                svidUrl.contains("/evid/") -> svidUrl.substringBefore("/evid/")
-                svidUrl.contains("/svid/") -> svidUrl.substringBefore("/svid/")
-                svidUrl.contains("/embed/") -> svidUrl.substringBefore("/embed/")
-                else -> svidUrl.substringBeforeLast("/")
-            }
-            
-            // 1. Try to extract the direct worker streaming link if present (fileurl)
-            try {
-                val filesUrl = "$playerBase/file/$fileslug"
-                val filesResponse = app.get(filesUrl, referer = referer, interceptor = CloudflareKiller())
-                val filesHtml = filesResponse.text
-                
-                val fileurl = Regex("""const\s+fileurl\s*=\s*["']([^"']+)["']""").find(filesHtml)
-                    ?.groupValues?.get(1)
-                    ?.replace("\\/", "/")
-                
-                if (!fileurl.isNullOrBlank()) {
-                    val quality = if (qualityText.contains("1080")) Qualities.P1080.value
-                    else if (qualityText.contains("720")) Qualities.P720.value
-                    else if (qualityText.contains("480")) Qualities.P480.value
-                    else Qualities.Unknown.value
-
-                    callback(
-                        newExtractorLink(
-                            "GDMIRROR Direct",
-                            "GDM Direct - $qualityText",
-                            fileurl
-                        ) {
-                            this.quality = quality
-                            this.referer = playerBase
-                            this.headers = VIDEO_HEADERS + mapOf("Referer" to playerBase)
-                        }
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "Failed to get direct fileurl: ${e.message}")
-            }
-
-            // 2. Extract mirror links using embedhelper.php
-            val helperUrl = "$playerBase/embedhelper.php"
-            val currentDomain = playerBase.substringAfter("://")
-            
-            val postData = mapOf("sid" to fileslug, "UserFavSite" to "", "currentDomain" to currentDomain)
-            val response = app.post(helperUrl, data = postData, referer = referer)
-            val jsonStr = response.text
-            val json = org.json.JSONObject(jsonStr)
-            
-            val mresultBase64 = json.optString("mresult")
-            val siteUrls = json.optJSONObject("siteUrls")
-            val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
-            
-            if (mresultBase64.isNotBlank() && siteUrls != null) {
-                val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
-                val mresultObj = org.json.JSONObject(mresultJson)
-                
-                mresultObj.keys().forEach { key ->
-                    val value = mresultObj.getString(key)
-                    val siteUrl = siteUrls.optString(key)
-                    if (siteUrl.isNotBlank()) {
-                        val iframeUrl = siteUrl + value
-                        val mirrorName = siteFriendlyNames?.optString(key) ?: key
-                        Log.d(tag, "Found iframe link: $iframeUrl for $mirrorName")
-                        if (!iframeUrl.contains("iqsmartgames.com") && !iframeUrl.contains("gdmirrorbot")) {
-                            routeExtractor(iframeUrl, referer = helperUrl, subtitleCallback, callback, mirrorName)
-                        }
-                    }
-                }
-            } else {
-                Log.e(tag, "Failed to get mresult or siteUrls from embedhelper for $fileslug")
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error processing evid/svid: ${e.message}")
-        }
-    }
-}
 
 open class StreamHG : ExtractorApi() {
     override val name = "StreamHG"

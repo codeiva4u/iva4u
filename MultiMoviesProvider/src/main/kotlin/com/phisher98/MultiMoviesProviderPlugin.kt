@@ -10,7 +10,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         registerMainAPI(MultiMoviesProvider())
 
         // कस्टम एक्सट्रैक्टर्स रजिस्टर करना
-        registerExtractorAPI(GDMIRROR())
         // registerExtractorAPI(StreamHG()) // Obfuscated or requires JS challenge
         // registerExtractorAPI(FileMoon()) // Requires CAPTCHA solving
         registerExtractorAPI(EarnVids())
