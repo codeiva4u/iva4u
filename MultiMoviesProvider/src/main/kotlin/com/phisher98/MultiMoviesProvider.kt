@@ -349,14 +349,18 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 val source = extLink.source.lowercase()
                 
                 when {
-                    // Highest priority (Priority 3): CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, rpmshare, upnshare, vibuxer, centaurus, filesim, streamhg)
-                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") || url.contains("filesim") || url.contains("multimoviesshg") || url.contains("hanerix") || url.contains("audinifer") ||
-                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || name.contains("filesim") || name.contains("streamhg") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") || source.contains("filesim") || source.contains("streamhg") -> 3
+                    // Priority 4: User requested default fastest servers (StreamHG, EarnVids)
+                    url.contains("multimoviesshg") || url.contains("hanerix") || url.contains("audinifer") || url.contains("smoothpre") || url.contains("minochinos") || url.contains("vidhide") || url.contains("flls") || url.contains("earnvids") ||
+                    name.contains("streamhg") || name.contains("earnvids") || source.contains("streamhg") || source.contains("earnvids") -> 4
+
+                    // Priority 3: Other CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, centaurus, vibuxer, filesim, etc.)
+                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") || url.contains("filesim") ||
+                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || name.contains("filesim") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") || source.contains("filesim") -> 3
                     
-                    // Medium priority (Priority 2): Other direct HLS streams (M3U8)
+                    // Priority 2: Other direct HLS streams (M3U8)
                     extLink.type == ExtractorLinkType.M3U8 -> 2
                     
-                    // Lowest priority (Priority 1): Raw MP4s or other files
+                    // Priority 1: Raw MP4s or other files
                     else -> 1
                 }
             }.thenByDescending { it.quality })

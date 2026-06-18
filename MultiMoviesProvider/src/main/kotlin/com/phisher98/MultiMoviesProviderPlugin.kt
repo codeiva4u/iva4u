@@ -15,5 +15,6 @@ class MultiMoviesProviderPlugin: BasePlugin() {
         // registerExtractorAPI(FileMoon()) // Requires CAPTCHA solving
         registerExtractorAPI(EarnVids())
         registerExtractorAPI(Screenscape())
+        registerExtractorAPI(Vibuxer())
     }
 }
