@@ -287,8 +287,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
             options
         }
 
-        val linksList = mutableListOf<ExtractorLink>()
-
         filteredOptions.map {
             Triple(
                 it.attr("data-post"),
@@ -328,10 +326,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         link = link.replace(Regex("\\s"), "")
 
                         if (link.isNotBlank() && !link.contains("youtube", ignoreCase = true)) {
+                            // ponytail: Yield links instantly instead of blocking to sort them. 
+                            // Waiting for all servers to resolve just to sort them causes 2+ minute delays on timeouts.
                             routeExtractor(link, referer = mainUrl, subtitleCallback, { extLink ->
-                                synchronized(linksList) {
-                                    linksList.add(extLink)
-                                }
+                                callback(extLink)
                             })
                         }
                     }
@@ -340,33 +338,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 }
             }
         }
-
-        // Auto-Prioritize high-speed streaming links universally across all extractors
-        val sortedLinks = synchronized(linksList) {
-            linksList.sortedWith(compareByDescending<ExtractorLink> { extLink ->
-                val url = extLink.url.lowercase()
-                val name = extLink.name.lowercase()
-                val source = extLink.source.lowercase()
-                
-                when {
-                    // Priority 4: User requested default fastest servers (StreamHG, EarnVids)
-                    url.contains("multimoviesshg") || url.contains("hanerix") || url.contains("audinifer") || url.contains("smoothpre") || url.contains("minochinos") || url.contains("vidhide") || url.contains("flls") || url.contains("earnvids") ||
-                    name.contains("streamhg") || name.contains("earnvids") || source.contains("streamhg") || source.contains("earnvids") -> 4
-
-                    // Priority 3: Other CDN-backed high-speed streams (technocosmos, uns.bio, rpmhub, centaurus, vibuxer, filesim, etc.)
-                    url.contains("technocosmos") || url.contains("uns.bio") || url.contains("rpmhub") || url.contains("centaurus") || url.contains("vibuxer") || url.contains("filesim") ||
-                    name.contains("rpm") || name.contains("upn") || name.contains("vibuxer") || name.contains("filesim") || source.contains("rpm") || source.contains("upn") || source.contains("vibuxer") || source.contains("filesim") -> 3
-                    
-                    // Priority 2: Other direct HLS streams (M3U8)
-                    extLink.type == ExtractorLinkType.M3U8 -> 2
-                    
-                    // Priority 1: Raw MP4s or other files
-                    else -> 1
-                }
-            }.thenByDescending { it.quality })
-        }
-
-        sortedLinks.forEach { callback(it) }
 
         return true
     }
