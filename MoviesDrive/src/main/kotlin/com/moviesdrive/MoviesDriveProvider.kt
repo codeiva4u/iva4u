@@ -87,7 +87,7 @@ class MoviesDriveProvider : MainAPI() {
                     
                     val urlString = jsonObject.optString("moviesdrive")
                     if (urlString.isNotBlank()) {
-                        mainUrl = urlString
+                        mainUrl = urlString.substringBefore("?").trimEnd('/')
                         Log.d(TAG, "Fetched mainUrl: $urlString")
                     }
                     

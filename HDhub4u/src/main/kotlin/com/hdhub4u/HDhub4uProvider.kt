@@ -97,7 +97,7 @@ class HDhub4uProvider : MainAPI() {
                     val jsonObject = JSONObject(json)
                     val urlString = jsonObject.optString("hdhub4u")
                     if (urlString.isNotBlank()) {
-                        mainUrl = urlString
+                        mainUrl = urlString.substringBefore("?").trimEnd('/')
                         Log.d(TAG, "Fetched mainUrl: $urlString")
                     }
                 }

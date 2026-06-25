@@ -52,7 +52,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                     val jsonObject = JSONObject(json)
                     val urlString = jsonObject.optString("multimovies")
                     if (urlString.isNotBlank()) {
-                        mainUrl = urlString.trimEnd('/')
+                        mainUrl = urlString.substringBefore("?").trimEnd('/')
                     }
                 }
             } catch (e: Exception) {
