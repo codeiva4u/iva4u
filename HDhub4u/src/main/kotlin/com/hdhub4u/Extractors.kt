@@ -400,10 +400,14 @@ class HubCloud : ExtractorApi() {
                             })
                         }
 
-                        // FSL Server (hub.diskcdn.buzz) - check before generic "FSL"
-                        link.contains("diskcdn.buzz", true) ||
+                        // FSL Server - Cloudflare R2 / diskcdn.buzz / fsl-buckets
+                        // Jul 2026: FSL now uses r2.cloudflarestorage.com and fsl-buckets.work
+                        link.contains("r2.cloudflarestorage.com", true) ||
+                                link.contains("fsl-buckets", true) ||
+                                link.contains("fsl.gigabytes", true) ||
+                                link.contains("diskcdn.buzz", true) ||
                                 (text.contains("FSL", true) && !text.contains("FSLv2", true)) -> {
-                            Log.d(tag, "FSL: $link")
+                            Log.d(tag, "FSL/R2: $link")
                             callback(newExtractorLink(
                                 "$name [FSL]",
                                 "$name [FSL] $finalLabel",
@@ -414,22 +418,50 @@ class HubCloud : ExtractorApi() {
                             })
                         }
 
-                        // 10Gbps Server (pixel.hubcdn.fans/?id=)
+                        // 10Gbps Server (pixel.hubcloud.cx/?id= or pixel.hubcdn.fans/?id=)
+                        // Jul 2026: Domain migrated from pixel.hubcdn to pixel.hubcloud.cx
+                        // Redirect chain: pixel.hubcloud.cx → pixel.rohitkiskk.workers.dev → gamerxyt.com/dl.php?link=URL
                         text.contains("10Gbps", true) ||
+                                text.contains("PixelServer", true) ||
+                                (link.contains("pixel.hubcloud", true) && link.contains("?id=")) ||
                                 (link.contains("pixel.hubcdn", true) && link.contains("?id=")) -> {
                             Log.d(tag, "10Gbps: $link")
                             try {
-                                val dlink = app.get(link, allowRedirects = false).headers["location"] ?: ""
-                                val finalUrl = if (dlink.contains("link=")) dlink.substringAfter("link=") else dlink
-                                callback(newExtractorLink(
-                                    "10Gbps", "10Gbps $finalLabel", finalUrl
-                                ) {
-                                    this.quality = score + 10
-                                    this.headers = VIDEO_HEADERS
-                                })
+                                // Follow redirects to get final download URL
+                                val response = app.get(link, allowRedirects = true)
+                                val finalUrl = response.url
+                                // The final URL should contain ?link= parameter with actual download URL
+                                val downloadUrl = if (finalUrl.contains("link=")) {
+                                    java.net.URLDecoder.decode(finalUrl.substringAfter("link="), "UTF-8")
+                                } else {
+                                    finalUrl
+                                }
+                                if (downloadUrl.isNotBlank() && downloadUrl.startsWith("http")) {
+                                    callback(newExtractorLink(
+                                        "10Gbps", "10Gbps $finalLabel", downloadUrl
+                                    ) {
+                                        this.quality = score + 10
+                                        this.headers = VIDEO_HEADERS
+                                    })
+                                }
                             } catch (e: Exception) {
                                 Log.e(tag, "10Gbps redirect error: ${e.message}")
                             }
+                        }
+
+
+                        // Direct video URLs (googleusercontent, video file extensions)
+                        (link.contains("video-downloads.googleusercontent.com", true) ||
+                                link.endsWith(".mkv", true) || link.endsWith(".mp4", true)) -> {
+                            Log.d(tag, "Direct video: $link")
+                            callback(newExtractorLink(
+                                "$name [Direct]",
+                                "$name [Direct] $finalLabel",
+                                link
+                            ) {
+                                this.quality = score + 25
+                                this.headers = VIDEO_HEADERS
+                            })
                         }
 
                         // PixelDrain (pixeldrain.dev/u/XXX)
@@ -503,7 +535,9 @@ class HUBCDN : ExtractorApi() {
 
         try {
             when {
-                // hubcdn.fans/file/XXX - Instant download (primary flow)
+            // hubcdn.sbs/fans/file/XXX - Instant download (primary flow)
+                // Jul 2026: hubcdn now redirects to inventoryidea.com mediator page
+                // Actual download URL is in Base64-encoded 'r' parameter
                 newUrl.contains("/file/") -> {
                     Log.d(tag, "Instant download: $newUrl")
 
@@ -522,17 +556,40 @@ class HUBCDN : ExtractorApi() {
                         Log.d(tag, "Got URL from redirect param: $downloadUrl")
                     }
 
-                    // Method 2: Find "Download Here" link on the dl page
+                    // Method 2: Jul 2026 - Hubcdn now redirects to inventoryidea.com mediator
+                    // Extract Base64 'r' parameter and decode to get actual download URL
+                    if (downloadUrl.isNullOrBlank() && finalPageUrl.contains("inventoryidea.com")) {
+                        try {
+                            val rParam = Regex("""[?&]r=([A-Za-z0-9+/=]+)""").find(finalPageUrl)
+                                ?.groupValues?.get(1) ?: ""
+                            if (rParam.isNotEmpty()) {
+                                val decoded = String(android.util.Base64.decode(rParam, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                                // decoded URL format: https://hubcdn.sbs/dl/?link=ACTUAL_DIRECT_URL
+                                if (decoded.contains("link=")) {
+                                    downloadUrl = java.net.URLDecoder.decode(
+                                        decoded.substringAfter("link="), "UTF-8"
+                                    )
+                                    Log.d(tag, "Got URL from inventoryidea Base64 r param: $downloadUrl")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(tag, "Failed to decode inventoryidea r param: ${e.message}")
+                        }
+                    }
+
+                    // Method 3: Find "Download Here" or "Get Links" link on the dl page
                     if (downloadUrl.isNullOrBlank()) {
                         val dlLink = doc.selectFirst("a[href]:contains(Download Here)")?.attr("href")
                             ?: doc.selectFirst("a.btn[href^=http]")?.attr("href")
-                        if (!dlLink.isNullOrBlank() && !dlLink.contains("hubcdn.fans")) {
+                            ?: doc.selectFirst("a.get-link[href^=http]")?.attr("href")
+                            ?: doc.selectFirst("#verify_btn")?.attr("href")
+                        if (!dlLink.isNullOrBlank() && !dlLink.contains("hubcdn")) {
                             downloadUrl = dlLink
                             Log.d(tag, "Got URL from Download Here link: $downloadUrl")
                         }
                     }
 
-                    // Method 3: Legacy - try reurl JS variable
+                    // Method 4: Legacy - try reurl JS variable
                     if (downloadUrl.isNullOrBlank()) {
                         val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
                         val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")

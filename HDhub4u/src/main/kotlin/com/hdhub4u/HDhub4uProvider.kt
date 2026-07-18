@@ -63,9 +63,9 @@ class HDhub4uProvider : MainAPI() {
         private val YEAR_REGEX = Regex("""\((\d{4})\)""")
         
         // Download URL Pattern - Valid hosts for HDhub4u
-        // Based on Brave Browser analysis: hubdrive.space, gadgetsweb.xyz, etc.
+        // Based on Real Browser analysis (Jul 2026): hubdrive.tips, gadgetsweb.xyz, hubcloud.cx, hubcdn.sbs
         private val DOWNLOAD_URL_REGEX = Regex(
-            """https?://(?:hubdrive\.(?:space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+)[^"'<\s>]*""",
+            """https?://(?:hubdrive\.(?:tips|space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+)[^"'<\s>]*""",
             RegexOption.IGNORE_CASE
         )
         
@@ -360,9 +360,9 @@ class HDhub4uProvider : MainAPI() {
         // Text extraction concatenates as "EPiSODE 1720p" causing false matches
         // ═══════════════════════════════════════════════════════════════════
         
-        // Method 1: Extract from HTML structure (h4/h3 > strong with EPiSODE pattern)
-        // This is the PRIMARY and most reliable method for HDhub4u
-        document.select("h4 strong, h3 strong, h4 span strong, h3 span strong, h5 strong").forEach { element ->
+        // Jul 2026: Website changed to H3 > SPAN > A structure (no more strong tags in some cases)
+        // We now select h3/h4/h5 headings directly and check their text for episode patterns
+        document.select("h3, h4, h5").forEach { element ->
             val text = element.text().trim()
             val match = EPISODE_NUMBER_REGEX.find(text)
             val epNum = match?.groupValues?.get(1)?.toIntOrNull()
@@ -719,7 +719,7 @@ class HDhub4uProvider : MainAPI() {
                             link.contains("hubdrive", true) ->
                                 Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                            // gadgetsweb mediator and hubcdn instant download
+                            // gadgetsweb mediator and hubcdn instant download (hubcdn.sbs, hubcdn.fans)
                             link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
                                 HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
@@ -727,8 +727,13 @@ class HDhub4uProvider : MainAPI() {
                             link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
                                 com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
 
+                            // Direct video links (FSL buckets, Cloudflare R2, Google user content)
+                            link.contains("fsl-buckets", true) || link.contains("r2.cloudflarestorage", true) ||
+                            link.contains("video-downloads.googleusercontent", true) ->
+                                HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+
                             else -> {
-                                Log.w(TAG, "No specific extractor for: $link, trying default")
+                                Log.d(TAG, "Trying default extractor for: ${link.take(60)}")
                                 com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
                             }
                         }

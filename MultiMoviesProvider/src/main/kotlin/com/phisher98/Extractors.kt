@@ -297,7 +297,7 @@ open class GDMIRROR : ExtractorApi() {
                 val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
                 
                 if (mresultBase64.isNotBlank() && siteUrls != null) {
-                    val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
+                    val mresultJson = String(android.util.Base64.decode(mresultBase64, android.util.Base64.DEFAULT))
                     val mresultObj = org.json.JSONObject(mresultJson)
                     
                     mresultObj.keys().forEach { key ->
