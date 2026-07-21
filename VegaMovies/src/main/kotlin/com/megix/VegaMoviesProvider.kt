@@ -71,26 +71,23 @@ open class VegaMoviesProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.select("img").attr("alt").replace("Download ", "")
-        val href = this.attr("href")
+        val title = this.select("img").attr("alt").ifBlank { this.select(".title, .entry-title").text() }.replace("Download ", "")
+        val hrefElement = if (this.tagName() == "a") this else this.selectFirst("a")
+        val rawHref = hrefElement?.attr("href") ?: return null
+        if (rawHref.isBlank()) return null
+        val href = fixUrl(rawHref)
         var posterUrl = this.select("img").attr("src")
-        if(!posterUrl.contains("https:")) posterUrl =  this.select("img").attr("data-src")
+        if(!posterUrl.contains("https:")) posterUrl = this.select("img").attr("data-src")
 
-        return newMovieSearchResponse(title, URI(href).path, TvType.Movie) {
-            this.posterUrl = posterUrl
+        return newMovieSearchResponse(title, href, TvType.Movie) {
+            this.posterUrl = fixUrlNull(posterUrl)
         }
     }
 
-    override suspend fun search(query: String, page: Int): SearchResponseList? {
-        val json = app.get("$mainUrl/search.php?q=$query&page=$page").text
-        val response = tryParseJson<VegaSearchResponse>(json) ?: return null
-        val results = response.hits.map { hit ->
-            val doc = hit.document
-            newMovieSearchResponse(doc.post_title.replace("Download ", ""), doc.permalink, TvType.Movie) {
-                this.posterUrl = doc.post_thumbnail
-            }
-        }
-        return newSearchResponseList(results)
+    override suspend fun search(query: String): List<SearchResponse> {
+        val cleanQuery = query.trim().replace(" ", "+")
+        val document = app.get("$mainUrl/?s=$cleanQuery").document
+        return document.select("div.movies-grid > a, article.latestPost, article.post-card, div.poster-card").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse? {

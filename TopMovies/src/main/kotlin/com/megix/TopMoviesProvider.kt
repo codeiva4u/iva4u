@@ -43,41 +43,44 @@ class TopmoviesProvider : MainAPI() {
     }
 
     override val mainPage = mainPageOf(
-        "/page/%d/" to "Home",
-        "/movies/south-movies/page/%d/" to "South Movies",
-        "/movies/movies/bollywood/page/%d/" to "Bollywood Movies",
-        "/web-series/tv-shows-by-network/netflix/page/%d/" to "Netflix Web Series",
-        "/web-series/tv-shows-by-network/amazon-prime-video/page/%d/" to "Amazon Prime Web Series",
-        "/web-series/tv-shows-by-network/zee5/page/%d/" to "Zee5 Web Series",
+        "$mainUrl/page/%d/" to "Home",
+        "$mainUrl/movies/south-movies/page/%d/" to "South Movies",
+        "$mainUrl/movies/movies/bollywood/page/%d/" to "Bollywood Movies",
+        "$mainUrl/web-series/tv-shows-by-network/netflix/page/%d/" to "Netflix Web Series",
+        "$mainUrl/web-series/tv-shows-by-network/amazon-prime-video/page/%d/" to "Amazon Prime Web Series",
+        "$mainUrl/web-series/tv-shows-by-network/zee5/page/%d/" to "Zee5 Web Series",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = app.get(request.data.format(page)).document
-        val home = document.select("div.movies-list > div.movie-item").mapNotNull { it.toSearchResult() }
+        val url = fixUrl(request.data.format(page))
+        val document = app.get(url).document
+        val home = document.select("div.movies-list > div.movie-item, article.latestPost").mapNotNull { it.toSearchResult() }
         return newHomePageResponse(request.name, home)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.select("a").attr("title").replace("Download ", "")
-        val href = this.select("a").attr("href")
-        val posterUrl = this.select("img").attr("src")
+        val title = this.select("a").attr("title").ifBlank { this.select("a").text() }.replace("Download ", "")
+        val rawHref = this.select("a").attr("href")
+        if (rawHref.isBlank()) return null
+        val href = fixUrl(rawHref)
+        val posterUrl = fixUrlNull(this.select("img").attr("src").ifBlank { this.select("img").attr("data-src") })
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
         }
     }
 
-    override suspend fun search(query: String, page: Int): SearchResponseList? {
-        val document = app.get("$mainUrl/?s=$query&page=$page").document
-        val results = document.select("div.movies-list > div.movie-item").mapNotNull { it.toSearchResult() }
-        val hasNext = results.isNotEmpty()
-        return newSearchResponseList(results, hasNext)
+    override suspend fun search(query: String): List<SearchResponse> {
+        val cleanQuery = query.trim().replace(" ", "+")
+        val document = app.get("$mainUrl/?s=$cleanQuery").document
+        return document.select("div.movies-list > div.movie-item, article.latestPost, article.post-card").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val document = app.get(url).document
+        val fullUrl = fixUrl(url)
+        val document = app.get(fullUrl).document
         val title = document.selectFirst("title")?.text()?.replace("Download ", "").toString()
         val posterUrl = document.selectFirst("meta[property=og:image]")?.attr("content").toString()
         val description = document.selectFirst("span#summary")?.text().toString()

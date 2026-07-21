@@ -209,39 +209,35 @@ class HDhub4uProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(TAG, "Searching for: $query")
         val results = mutableListOf<SearchResponse>()
-        val cleanQuery = query.replace(" ", "+")
+        val cleanQuery = query.trim().replace(" ", "+")
 
-        // Method 1: Try /search.html?q=query first
         try {
-            val searchUrl = "$mainUrl/search.html?q=$cleanQuery"
+            val searchUrl = "$mainUrl/?s=$cleanQuery"
             Log.d(TAG, "Search URL: $searchUrl")
             val document = app.get(searchUrl, headers = headers).document
 
-            document.select("div.thumb, li.movie-card, li.thumb").forEach { card ->
+            document.select("div.thumb, li.thumb, li.movie-card, article.post-card").forEach { card ->
                 val searchResult = card.toSearchResult()
                 if (searchResult != null && results.none { it.url == searchResult.url }) {
                     results.add(searchResult)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Search.html error: ${e.message}")
+            Log.e(TAG, "Search error: ${e.message}")
         }
 
-        // Method 2: Fallback to /?s=query if search.html returned no results
         if (results.isEmpty()) {
             try {
-                val fallbackUrl = "$mainUrl/?s=$cleanQuery"
-                Log.d(TAG, "Fallback search URL: $fallbackUrl")
-                val document = app.get(fallbackUrl, headers = headers).document
-
-                document.select("div.thumb, li.movie-card, li.thumb").forEach { card ->
+                val searchUrl = "$mainUrl/search.html?q=$cleanQuery"
+                val document = app.get(searchUrl, headers = headers).document
+                document.select("div.thumb, li.thumb, li.movie-card, article.post-card").forEach { card ->
                     val searchResult = card.toSearchResult()
                     if (searchResult != null && results.none { it.url == searchResult.url }) {
                         results.add(searchResult)
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Fallback search (?s=) error: ${e.message}")
+                Log.e(TAG, "Search fallback error: ${e.message}")
             }
         }
 

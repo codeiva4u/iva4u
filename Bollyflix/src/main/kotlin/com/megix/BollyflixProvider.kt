@@ -99,11 +99,10 @@ class BollyflixProvider : MainAPI() {
         }
     }
 
-    override suspend fun search(query: String, page: Int): SearchResponseList? {
-        val document = app.get("$mainUrl/search/$query/page/$page/", interceptor = cfKiller).document
-        val results = document.select("div.post-cards > article").mapNotNull { it.toSearchResult() }
-        val hasNext = if(results.isEmpty()) false else true
-        return newSearchResponseList(results, hasNext)
+    override suspend fun search(query: String): List<SearchResponse> {
+        val cleanQuery = query.trim().replace(" ", "+")
+        val document = app.get("$mainUrl/?s=$cleanQuery", interceptor = cfKiller).document
+        return document.select("div.post-cards > article, article.latestPost").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse? {

@@ -33,7 +33,7 @@ fun getIndexQuality(str: String?): Int {
 
 suspend fun getLatestBaseUrl(baseUrl: String, source: String): String {
     return try {
-        val dynamicUrls = app.get("https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json")
+        val dynamicUrls = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
             .parsedSafe<Map<String, String>>()
         dynamicUrls?.get(source)?.takeIf { it.isNotBlank() } ?: baseUrl
     } catch (e: Exception) {
