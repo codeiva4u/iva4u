@@ -44,7 +44,9 @@ val VIDEO_HEADERS = mapOf(
     "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
     "Accept" to "*/*",
     "Accept-Encoding" to "identity",
-    "Connection" to "keep-alive"
+    "Connection" to "keep-alive",
+    "Range" to "bytes=0-",
+    "Icy-MetaData" to "1"
 )
 
 fun decodeRadix(str: String, radix: Int): Int? {
