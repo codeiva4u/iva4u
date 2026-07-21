@@ -34,8 +34,10 @@ class Movies4uProvider : MainAPI() {
             """(?i)(\bSeason\s*\d*|\bS0?\d+(?:E\d+)?\b(?!\s*K)|\bEpisode|\bEP[-\s]?\d+|\bComplete\b|\bAll\s*Episodes|\bWEB[-\s]?Series)"""
         )
 
+        private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
+
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E|Ep)[-.\s]*(\d{1,3})(?!\d+p)"""
+            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)"""
         )
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
@@ -261,41 +263,34 @@ class Movies4uProvider : MainAPI() {
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
-        document.select("h3, h4, h5").forEach { element ->
-            val text = element.text().trim()
-            val match = EPISODE_NUMBER_REGEX.find(text)
-            val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum < 500) {
-                detectedEpisodes.add(epNum)
-            }
-        }
+        fun parseElementForEpisodes(doc: Document) {
+            doc.select("h3, h4, h5, h6, div, p").forEach { element ->
+                val text = element.text().trim()
+                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
+                    return@forEach
+                }
 
-        document.select("a[href]").forEach { element ->
-            val linkText = element.text().trim()
-            if (linkText.matches(Regex("""(?i)^EP(?:i|I)?SODE\s*\d+$""")) ||
-                linkText.matches(Regex("""(?i)^EP[-.\s]?\d+$"""))) {
-                val match = EPISODE_NUMBER_REGEX.find(linkText)
-                val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) {
-                    detectedEpisodes.add(epNum)
+                val matches = EPISODE_NUMBER_REGEX.findAll(text)
+                for (match in matches) {
+                    val epNum = match.groupValues[1].toIntOrNull()
+                    if (epNum != null && epNum > 0 && epNum <= 200 && !QUALITY_NUMBERS.contains(epNum)) {
+                        detectedEpisodes.add(epNum)
+                    }
                 }
             }
         }
 
-        // If no episodes detected from post HTML directly, inspect m4ulinks aggregator page if present
+        parseElementForEpisodes(document)
+        detectedEpisodes.removeAll(QUALITY_NUMBERS)
+
         if (detectedEpisodes.isEmpty()) {
-            val m4uAggregatorUrl = document.selectFirst("a[href*='m4ulinks']")?.attr("href")
-            if (!m4uAggregatorUrl.isNullOrBlank()) {
+            val aggregatorUrls = document.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
+            for (aggUrl in aggregatorUrls.take(3)) {
                 try {
-                    val m4uDoc = app.get(m4uAggregatorUrl).document
-                    m4uDoc.select("h3, h4, h5").forEach { element ->
-                        val text = element.text().trim()
-                        val match = EPISODE_NUMBER_REGEX.find(text)
-                        val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-                        if (epNum != null && epNum > 0 && epNum < 500) {
-                            detectedEpisodes.add(epNum)
-                        }
-                    }
+                    val aggDoc = app.get(aggUrl).document
+                    parseElementForEpisodes(aggDoc)
+                    detectedEpisodes.removeAll(QUALITY_NUMBERS)
+                    if (detectedEpisodes.isNotEmpty()) break
                 } catch (e: Exception) {
                     Log.e(TAG, "Error fetching m4ulinks aggregator for episode detection: ${e.message}")
                 }
@@ -569,11 +564,11 @@ class Movies4uProvider : MainAPI() {
             .replace(Regex("""\(\d{4}\)"""), "")
             .replace(Regex("""\[.*?]"""), "")
             .replace(Regex("""\|.*$"""), "")
-            .replace(Regex("""(?i)(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip)"""), "")
-            .replace(Regex("""(?i)(4K|UHD|1080p|720p|480p|360p|2160p)"""), "")
-            .replace(Regex("""(?i)(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)"""), "")
-            .replace(Regex("""(?i)(Download|Free|Full|Movie|HD|Watch)"""), "")
-            .replace(Regex("""(?i)(Hindi|English|Dual\s*Audio|ESub|Multi)"""), "")
+            .replace(Regex("""(?i)\b(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip)\b"""), "")
+            .replace(Regex("""(?i)\b(4K|UHD|1080p|720p|480p|360p|2160p)\b"""), "")
+            .replace(Regex("""(?i)\b(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)\b"""), "")
+            .replace(Regex("""(?i)\b(Download|Free|Full|Movie|HD|Watch)\b"""), "")
+            .replace(Regex("""(?i)\b(Hindi|English|Dual\s*Audio|ESubs?|Multi\s*Audio|Multi|Bengali|Punjabi|Tamil|Telugu|Malayalam|Kannada|Marathi|Gujarati|Bhojpuri|Urdu|Pakistani|Bangladeshi|Korean|Chinese|China|WWE|TV\s*Show|Hot|Short\s*Film|Web\s*Series|Series|Serial|Complete|All\s*Episodes)\b"""), "")
             .replace(Regex("""[&+]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()

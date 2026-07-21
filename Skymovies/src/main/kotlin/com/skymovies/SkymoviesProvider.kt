@@ -34,8 +34,10 @@ class SkymoviesProvider : MainAPI() {
             """(?i)(\bSeason\s*\d*|\bS0?\d+(?:E\d+)?\b(?!\s*K)|\bEpisode|\bEP[-\s]?\d+|\bComplete\b|\bAll\s*Episodes|\bWEB[-\s]?Series|\bSerial\b)"""
         )
 
+        private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
+
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E|Ep)[-.\s]*(\d{1,3})(?!\d+p)"""
+            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)"""
         )
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
@@ -87,14 +89,8 @@ class SkymoviesProvider : MainAPI() {
         "" to "Latest",
         "category/Bollywood-Movies.html" to "Bollywood",
         "category/South-Indian-Hindi-Dubbed-Movies.html" to "South Hindi Dubbed",
-        "category/Bengali-Movies.html" to "Bengali",
-        "category/Hollywood-English-Movies.html" to "Hollywood English",
         "category/Hollywood-Hindi-Dubbed-Movies.html" to "Hollywood Hindi Dubbed",
-        "category/Tamil-Movies.html" to "Tamil",
-        "category/Telugu-Movies.html" to "Telugu",
-        "category/Punjabi-Movies.html" to "Punjabi",
-        "category/All-Web-Series.html" to "Web Series",
-        "category/Korean-and-China-Movies.html" to "Korean & Chinese"
+        "category/All-Web-Series.html" to "Web Series"
     )
 
     private val headers = mapOf(
@@ -115,50 +111,65 @@ class SkymoviesProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        val home = document.select("a[href*='movie/'], a[href^='movie/']").mapNotNull {
-            it.toSearchResult()
-        }.distinctBy { it.url }
+        val anchors = document.select("a[href*='movie/'], a[href^='movie/']").toList()
+        val home = anchors.toGroupedSearchResults()
 
-        Log.d(TAG, "Found ${home.size} items")
+        Log.d(TAG, "Found ${home.size} grouped items")
         return newHomePageResponse(request.name, home)
     }
 
-    private fun Element.toSearchResult(): SearchResponse? {
-        val href = attr("href")
-        if (href.isBlank() || href.contains("/category/") || href.contains("index.php")) return null
+    private fun List<Element>.toGroupedSearchResults(): List<SearchResponse> {
+        val groupedMap = mutableMapOf<String, MutableList<Pair<String, String?>>>()
+        val seriesFlags = mutableMapOf<String, Boolean>()
 
-        val fixedUrl = fixUrl(href)
+        forEach { element ->
+            val href = element.attr("href")
+            if (href.isBlank() || href.contains("/category/") || href.contains("index.php")) return@forEach
 
-        val titleText: String = text().ifBlank {
-            selectFirst("img")?.attr("alt") ?: selectFirst("img")?.attr("title") ?: ""
+            val fixedUrl = fixUrl(href)
+            val titleText = element.text().ifBlank {
+                element.selectFirst("img")?.attr("alt") ?: element.selectFirst("img")?.attr("title") ?: ""
+            }.trim()
+
+            if (titleText.isBlank()) return@forEach
+            val title = cleanTitle(titleText)
+            if (title.isBlank()) return@forEach
+
+            val imgElement = element.selectFirst("img")
+            val posterUrl: String? = if (imgElement != null) {
+                val srcAttr = imgElement.attr("src")
+                val dataSrcAttr = imgElement.attr("data-src")
+                val lazyAttr = imgElement.attr("data-lazy-src")
+                val src = when {
+                    srcAttr.isNotBlank() && !srcAttr.contains("/images/arw") && !srcAttr.contains("/images/icon") -> srcAttr
+                    dataSrcAttr.isNotBlank() -> dataSrcAttr
+                    else -> lazyAttr
+                }
+                if (src.isNotBlank() && !src.contains("/images/arw") && !src.contains("/images/icon")) fixUrlNull(src) else null
+            } else null
+
+            val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
+
+            val list = groupedMap.getOrPut(title) { mutableListOf() }
+            list.add(Pair(fixedUrl, posterUrl))
+            if (isSeries) {
+                seriesFlags[title] = true
+            }
         }
 
-        if (titleText.isBlank()) return null
-        val title: String = cleanTitle(titleText)
-        if (title.isBlank()) return null
+        return groupedMap.map { (title, pairs) ->
+            val combinedUrl = pairs.map { it.first }.distinct().joinToString("|||")
+            val posterUrl = pairs.mapNotNull { it.second }.firstOrNull()
+            val isSeries = seriesFlags[title] ?: false
 
-        val imgElement = selectFirst("img")
-        val posterUrl: String? = if (imgElement != null) {
-            val srcAttr = imgElement.attr("src")
-            val dataSrcAttr = imgElement.attr("data-src")
-            val lazyAttr = imgElement.attr("data-lazy-src")
-            val src = when {
-                srcAttr.isNotBlank() && !srcAttr.contains("/images/arw") && !srcAttr.contains("/images/icon") -> srcAttr
-                dataSrcAttr.isNotBlank() -> dataSrcAttr
-                else -> lazyAttr
-            }
-            if (src.isNotBlank() && !src.contains("/images/arw") && !src.contains("/images/icon")) fixUrlNull(src) else null
-        } else null
-
-        val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
-
-        return if (isSeries) {
-            newTvSeriesSearchResponse(title, fixedUrl, TvType.TvSeries) {
-                this.posterUrl = posterUrl
-            }
-        } else {
-            newMovieSearchResponse(title, fixedUrl, TvType.Movie) {
-                this.posterUrl = posterUrl
+            if (isSeries) {
+                newTvSeriesSearchResponse(title, combinedUrl, TvType.TvSeries) {
+                    this.posterUrl = posterUrl
+                }
+            } else {
+                newMovieSearchResponse(title, combinedUrl, TvType.Movie) {
+                    this.posterUrl = posterUrl
+                }
             }
         }
     }
@@ -173,27 +184,22 @@ class SkymoviesProvider : MainAPI() {
 
             val document = app.get(searchUrl, headers = headers).document
 
-            document.select("a[href*='movie/'], a[href^='movie/']").forEach { card ->
-                val searchResult = card.toSearchResult()
-                if (searchResult != null && results.none { it.url == searchResult.url }) {
-                    results.add(searchResult)
-                }
-            }
+            val anchors = document.select("a[href*='movie/'], a[href^='movie/']").toList()
+            results.addAll(anchors.toGroupedSearchResults())
 
             if (results.isEmpty()) {
                 Log.d(TAG, "Search page returned no results, trying fallback search")
                 val searchTerms = query.lowercase().split(" ").filter { it.length > 2 }
 
                 val doc = app.get(mainUrl, headers = headers).document
+                val fallbackAnchors = doc.select("a[href*='movie/'], a[href^='movie/']").toList()
+                val fallbackResults = fallbackAnchors.toGroupedSearchResults()
 
-                doc.select("a[href*='movie/'], a[href^='movie/']").forEach { element ->
-                    val searchResult = element.toSearchResult()
-                    if (searchResult != null) {
-                        val title = searchResult.name.lowercase()
-                        val matches = searchTerms.any { term -> title.contains(term) }
-                        if (matches && results.none { it.url == searchResult.url }) {
-                            results.add(searchResult)
-                        }
+                fallbackResults.forEach { res ->
+                    val title = res.name.lowercase()
+                    val matches = searchTerms.any { term -> title.contains(term) }
+                    if (matches && results.none { it.url == res.url }) {
+                        results.add(res)
                     }
                 }
             }
@@ -207,16 +213,30 @@ class SkymoviesProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d(TAG, "Loading: $url")
-        val document = app.get(url, headers = headers).document
+        val urls = url.split("|||")
+        val firstUrl = urls.first()
+        val document = app.get(firstUrl, headers = headers).document
 
         val rawTitle = document.selectFirst("h1, h2, h3, .post-title")?.text()?.trim()
             ?: document.selectFirst("title")?.text()?.substringBefore(" Full Movie")?.trim()
             ?: return null
         val title = cleanTitle(rawTitle)
 
-        val posterMeta = document.selectFirst("meta[property=og:image]")?.attr("content")
-        val posterImg = document.selectFirst("img[src*='media-amazon'], img[src*='bmscdn'], img[src*='poster']")?.attr("src")
-        val poster: String? = posterMeta ?: posterImg
+        var poster: String? = null
+        for (u in urls) {
+            try {
+                val doc = if (u == firstUrl) document else app.get(u, headers = headers).document
+                val posterMeta = doc.selectFirst("meta[property=og:image]")?.attr("content")
+                val posterImg = doc.selectFirst("img[src*='media-amazon'], img[src*='bmscdn'], img[src*='poster']")?.attr("src")
+                val foundPoster = posterMeta ?: posterImg
+                if (!foundPoster.isNullOrBlank() && foundPoster.startsWith("http")) {
+                    poster = foundPoster
+                    break
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching poster from sub-url: ${e.message}")
+            }
+        }
 
         val descMeta = document.selectFirst("meta[name=description]")?.attr("content")
         val description: String? = descMeta
@@ -259,41 +279,53 @@ class SkymoviesProvider : MainAPI() {
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
-        document.select("h3, h4, h5").forEach { element ->
-            val text = element.text().trim()
-            val match = EPISODE_NUMBER_REGEX.find(text)
-            val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum < 500) {
-                detectedEpisodes.add(epNum)
-            }
-        }
-
-        document.select("a[href]").forEach { element ->
-            val linkText = element.text().trim()
-            if (linkText.matches(Regex("""(?i)^EP(?:i|I)?SODE\s*\d+$""")) ||
-                linkText.matches(Regex("""(?i)^EP[-.\s]?\d+$"""))) {
-                val match = EPISODE_NUMBER_REGEX.find(linkText)
-                val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) {
-                    detectedEpisodes.add(epNum)
+        fun parseElementForEpisodes(doc: Document) {
+            doc.select("h3, h4, h5, h6, div, p").forEach { element ->
+                val text = element.text().trim()
+                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
+                    return@forEach
                 }
-            }
-        }
 
-        val howblogsUrl = document.selectFirst("a[href*='howblogs'], a[href*='linkstaker']")?.attr("href")
-        if (detectedEpisodes.isEmpty() && !howblogsUrl.isNullOrBlank()) {
-            try {
-                val hbDoc = app.get(howblogsUrl).document
-                hbDoc.select("h3, h4, h5").forEach { element ->
-                    val text = element.text().trim()
-                    val match = EPISODE_NUMBER_REGEX.find(text)
-                    val epNum = match?.groupValues?.get(1)?.toIntOrNull()
-                    if (epNum != null && epNum > 0 && epNum < 500) {
+                val matches = EPISODE_NUMBER_REGEX.findAll(text)
+                for (match in matches) {
+                    val epNum = match.groupValues[1].toIntOrNull()
+                    if (epNum != null && epNum > 0 && epNum <= 200 && !QUALITY_NUMBERS.contains(epNum)) {
                         detectedEpisodes.add(epNum)
                     }
                 }
+            }
+        }
+
+        val urls = pageUrl.split("|||")
+        for (u in urls) {
+            try {
+                val doc = if (u == urls.first()) document else app.get(u, headers = headers).document
+                parseElementForEpisodes(doc)
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching howblogs for episode detection: ${e.message}")
+                Log.e(TAG, "Error parsing episodes for sub-url: ${e.message}")
+            }
+        }
+
+        detectedEpisodes.removeAll(QUALITY_NUMBERS)
+
+        if (detectedEpisodes.isEmpty()) {
+            val aggregatorUrls = mutableListOf<String>()
+            for (u in urls) {
+                try {
+                    val doc = if (u == urls.first()) document else app.get(u, headers = headers).document
+                    aggregatorUrls.addAll(doc.select("a[href*='howblogs'], a[href*='linkstaker']").map { it.attr("href") })
+                } catch (_: Exception) {}
+            }
+            val distinctAggregators = aggregatorUrls.distinct()
+            for (aggUrl in distinctAggregators.take(5)) {
+                try {
+                    val aggDoc = app.get(aggUrl).document
+                    parseElementForEpisodes(aggDoc)
+                    detectedEpisodes.removeAll(QUALITY_NUMBERS)
+                    if (detectedEpisodes.isNotEmpty()) break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
+                }
             }
         }
 
@@ -476,11 +508,19 @@ class SkymoviesProvider : MainAPI() {
 
         try {
             val parts = data.split("|||")
-            val pageUrl = parts[0]
-            val episodeNum = if (parts.size > 1) parts[1].toIntOrNull() else null
+            val lastPartIsEpisodeNum = parts.last().toIntOrNull() != null
+            val episodeNum = if (lastPartIsEpisodeNum) parts.last().toIntOrNull() else null
+            val urls = if (lastPartIsEpisodeNum) parts.dropLast(1) else parts
 
-            val document = app.get(pageUrl, headers = headers).document
-            val allLinks = extractDownloadLinks(document)
+            val allLinks = mutableListOf<DownloadLink>()
+            for (u in urls) {
+                try {
+                    val document = app.get(u, headers = headers).document
+                    allLinks.addAll(extractDownloadLinks(document))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error extracting download links from sub-url: ${e.message}")
+                }
+            }
 
             val targetLinks = when {
                 episodeNum == null -> allLinks
@@ -571,11 +611,11 @@ class SkymoviesProvider : MainAPI() {
             .replace(Regex("""\(\d{4}\)"""), "")
             .replace(Regex("""\[.*?]"""), "")
             .replace(Regex("""\|.*$"""), "")
-            .replace(Regex("""(?i)(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip)"""), "")
-            .replace(Regex("""(?i)(4K|UHD|1080p|720p|480p|360p|2160p)"""), "")
-            .replace(Regex("""(?i)(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)"""), "")
-            .replace(Regex("""(?i)(Download|Free|Full|Movie|HD|Watch)"""), "")
-            .replace(Regex("""(?i)(Hindi|English|Dual\s*Audio|ESub|Multi)"""), "")
+            .replace(Regex("""(?i)\b(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip)\b"""), "")
+            .replace(Regex("""(?i)\b(4K|UHD|1080p|720p|480p|360p|2160p)\b"""), "")
+            .replace(Regex("""(?i)\b(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)\b"""), "")
+            .replace(Regex("""(?i)\b(Download|Free|Full|Movie|HD|Watch)\b"""), "")
+            .replace(Regex("""(?i)\b(Hindi|English|Dual\s*Audio|ESubs?|Multi\s*Audio|Multi|Bengali|Punjabi|Tamil|Telugu|Malayalam|Kannada|Marathi|Gujarati|Bhojpuri|Urdu|Pakistani|Bangladeshi|Korean|Chinese|China|WWE|TV\s*Show|Hot|Short\s*Film|Web\s*Series|Series|Serial|Complete|All\s*Episodes)\b"""), "")
             .replace(Regex("""[&+]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
