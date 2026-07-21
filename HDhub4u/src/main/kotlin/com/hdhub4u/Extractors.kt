@@ -116,7 +116,8 @@ fun shouldBlockUrl(url: String): Boolean {
         ".m3u8", "/hls/", "hubstream", "hdstream",
         "hdstream4u", "t.me/", "tinyurl.com",
         "google.com/search", "one.one.one.one",
-        "/tg/go"
+        "/tg/go", "voe.sx", "streamtape", "streamsb", "mixdrop", 
+        "doodstream", "vidhide", "streamhub", "uqload", "dood.", "doodrive"
     )
     return blockList.any { url.contains(it, ignoreCase = true) }
 }

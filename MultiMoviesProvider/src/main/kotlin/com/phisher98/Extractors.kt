@@ -3,6 +3,7 @@ package com.phisher98
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -116,10 +117,16 @@ suspend fun routeExtractor(
     val evRegex = Regex("""smoothpre\.com|minochinos\.com|vidhide|earnvids|flls""")
     val screenscapeRegex = Regex("""screenscape\.me""")
     val technocosmosRegex = Regex("""technocosmos\.surf""")
-    val peachifyRegex = Regex("""peachify\.top""")
+        val peachifyRegex = Regex("""peachify\.top""")
     val nxshaRegex = Regex("""nxsha\.app""")
+    val hubcloudRegex = Regex("""hubcloud|gamerxyt|fsl-buckets|r2\.cloudflarestorage|video-downloads\.googleusercontent""")
+        val gdflixRegex = Regex("""gdflix|gdlink""")
+    val hubcdnRegex = Regex("""hubcdn|gadgetsweb|inventoryidea""")
 
     when {
+        hubcloudRegex.containsMatchIn(cleanUrl) || gdflixRegex.containsMatchIn(cleanUrl) || hubcdnRegex.containsMatchIn(cleanUrl) -> {
+            loadExtractor(url, referer, subtitleCallback, callback)
+        }
         vibuxerRegex.containsMatchIn(cleanUrl) || mName.contains("vibuxer") -> {
             Vibuxer().getUrl(url, referer, subtitleCallback, callback)
         }
@@ -254,13 +261,57 @@ open class GDMIRROR : ExtractorApi() {
             }
             
 
-            // 1. Fetch svidUrl HTML to parse pre-rendered server list
+            // 1. Fetch svidUrl HTML to parse pre-rendered server list and download links
             var parsedDirectly = false
+            var foundDownloads = false
             val skipKeys = setOf("gdtot", "buzzheavier", "gofs", "flmn")
             try {
                 val svidResponse = app.get(svidUrl, referer = referer)
                 val svidHtml = svidResponse.text
                 val doc = Jsoup.parse(svidHtml)
+                
+                // PRIORITY: DOWNLOAD LINKS FIRST
+                val downloadLinkNode = doc.selectFirst("a.dlvideoLinks")
+                val downloadLink = downloadLinkNode?.attr("href")
+                var foundDownloads = false
+
+                if (!downloadLink.isNullOrBlank()) {
+                    Log.d(tag, "Found direct download link button: $downloadLink")
+                    try {
+                        val ddnResponse = app.get(downloadLink, referer = svidResponse.url, allowRedirects = true)
+                        val ddnDoc = ddnResponse.document
+                        
+                        val vpageLinks = ddnDoc.select("a[href*='vpage']").map { it.attr("href") }
+                        if (vpageLinks.isNotEmpty()) {
+                            Log.d(tag, "Found ${vpageLinks.size} vpage download links")
+                            
+                            // Process downloads using amap
+                            vpageLinks.amap { vpage ->
+                                try {
+                                    val finalUrl = app.get(vpage, allowRedirects = false).headers["location"] ?: app.get(vpage).url
+                                    Log.d(tag, "Resolved vpage to: $finalUrl")
+                                    
+                                    if (finalUrl.isNotBlank()) {
+                                        foundDownloads = true
+                                        // Send to globally supported extractors
+                                        com.lagradost.cloudstream3.utils.loadExtractor(finalUrl, ddnResponse.url, subtitleCallback, callback)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(tag, "Error resolving vpage: ${e.message}")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(tag, "Error processing download links: ${e.message}")
+                    }
+                }
+                
+                if (foundDownloads) {
+                    Log.d(tag, "Downloads extracted successfully. Skipping streaming fallback.")
+                    return
+                }
+
+                // Fallback: Streaming servers
                 val serverItems = doc.select("li.server-item[data-link]")
                 
                 if (serverItems.isNotEmpty()) {
@@ -297,7 +348,7 @@ open class GDMIRROR : ExtractorApi() {
                 val siteFriendlyNames = json.optJSONObject("siteFriendlyNames")
                 
                 if (mresultBase64.isNotBlank() && siteUrls != null) {
-                    val mresultJson = String(java.util.Base64.getDecoder().decode(mresultBase64))
+                    val mresultJson = com.lagradost.cloudstream3.base64Decode(mresultBase64)
                     val mresultObj = org.json.JSONObject(mresultJson)
                     
                     mresultObj.keys().forEach { key ->

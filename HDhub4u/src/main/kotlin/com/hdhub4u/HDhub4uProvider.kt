@@ -517,6 +517,15 @@ class HDhub4uProvider : MainAPI() {
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
                 if (shouldBlockUrl(url)) return@forEach
                 
+                // SKIP ZIP LINKS - they are compressed archives, not playable!
+                if (linkText.contains("Zip", ignoreCase = true) || 
+                    linkText.contains(".zip", ignoreCase = true) ||
+                    linkText.contains("Batch", ignoreCase = true) ||
+                    url.endsWith(".zip", ignoreCase = true)) {
+                    Log.d(TAG, "⏭️ Skipping Zip/Batch link: $linkText")
+                    return@forEach
+                }
+                
                 seenUrls.add(url)
                 
                 // Determine episode context from link text or current section
