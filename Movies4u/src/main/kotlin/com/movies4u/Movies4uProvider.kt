@@ -89,10 +89,7 @@ class Movies4uProvider : MainAPI() {
         "category/hollywood-movies/" to "Hollywood",
         "category/hindi-dubbed-movies/" to "Hindi Dubbed",
         "category/south-hindi-movies/" to "South Hindi Dubbed",
-        "category/web-series/" to "Web Series",
-        "category/dual-audio/" to "Dual Audio",
-        "category/18-adult/" to "18+ Adult",
-        "category/anime/" to "Anime"
+        "category/web-series/" to "Web Series"
     )
 
     private val headers = mapOf(
