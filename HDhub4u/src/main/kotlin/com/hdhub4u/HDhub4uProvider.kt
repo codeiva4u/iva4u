@@ -65,13 +65,13 @@ class HDhub4uProvider : MainAPI() {
         // Download URL Pattern - Valid hosts for HDhub4u
         // Based on Real Browser analysis (Jul 2026): hubdrive.tips, gadgetsweb.xyz, hubcloud.cx, hubcdn.sbs
         private val DOWNLOAD_URL_REGEX = Regex(
-            """https?://(?:hubdrive\.(?:tips|space|art)|gadgetsweb\.xyz|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+)[^"'<\s>]*""",
+            """https?://(?:hubdrive\.(?:tips|space|art)|hubcloud\.[a-z]+|hblinks\.[a-z]+|4khdhub\.[a-z]+|hubcdn\.[a-z]+)[^"'<\s>]*""",
             RegexOption.IGNORE_CASE
         )
         
         // Valid download hosts list
         private val VALID_HOSTS = listOf(
-            "hubdrive", "gadgetsweb", "hubcloud", "hubcdn",
+            "hubdrive", "hubcloud", "hubcdn",
             "gamester", "hblinks", "4khdhub"
         )
         
@@ -490,7 +490,7 @@ class HDhub4uProvider : MainAPI() {
         var currentEpisode: Int? = null
         
         // Select all relevant elements: headers (for episode detection) and links
-        val relevantSelector = "h3, h4, h5, a[href*='gadgetsweb'], a[href*='hblinks'], " +
+        val relevantSelector = "h3, h4, h5, a[href*='hblinks'], " +
                                "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn']"
         
         document.select(relevantSelector).forEach { element ->
@@ -728,8 +728,8 @@ class HDhub4uProvider : MainAPI() {
                             link.contains("hubdrive", true) ->
                                 Hubdrive().getUrl(link, mainUrl, subtitleCallback, callback)
 
-                            // gadgetsweb mediator and hubcdn instant download (hubcdn.sbs, hubcdn.fans)
-                            link.contains("gadgetsweb", true) || link.contains("hubcdn", true) ->
+                            // hubcdn instant download (hubcdn.sbs, hubcdn.fans)
+                            link.contains("hubcdn", true) ->
                                 HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
 
                             // Gofile / Pixeldrain

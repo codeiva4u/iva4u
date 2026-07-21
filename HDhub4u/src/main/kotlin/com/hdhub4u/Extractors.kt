@@ -69,29 +69,29 @@ fun parseSizeToMB(sizeStr: String): Double {
 
 // Server speed priority (higher = faster)
 fun getServerPriority(serverName: String): Int = when {
-    serverName.contains("Instant", true) -> 100
-    serverName.contains("Direct", true) -> 90
-    serverName.contains("10Gbps", true) -> 88
-    serverName.contains("FSLv2", true) -> 85
-    serverName.contains("FSL", true) -> 80
-    serverName.contains("Download", true) -> 70
-    serverName.contains("Pixel", true) -> 60
-    else -> 50
+    serverName.contains("Instant", true) -> 800
+    serverName.contains("10Gbps", true) -> 750
+    serverName.contains("FSLv2", true) -> 700
+    serverName.contains("FSL", true) -> 600
+    serverName.contains("Direct", true) -> 500
+    serverName.contains("Pixel", true) -> 400
+    serverName.contains("Download", true) -> 300
+    else -> 100
 }
 
 fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, codec: String = ""): Int {
     var score = when (quality) {
-        1080 -> 1000
-        2160 -> 900
-        720 -> 700
-        480 -> 500
-        else -> 300
+        1080 -> 10000
+        2160 -> 9000
+        720 -> 7000
+        480 -> 5000
+        else -> 3000
     }
 
     if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
-        score += 150
+        score += 1500
     } else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
-        score += 100
+        score += 1000
     }
 
     if (quality == 1080) {

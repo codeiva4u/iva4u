@@ -112,13 +112,14 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", f
 // Server speed priority (higher = faster/preferred)
 fun getServerPriority(serverName: String): Int {
     return when {
-        serverName.contains("Instant", true) -> 100  // Instant DL = fastest
-        serverName.contains("Direct", true) -> 90
-        serverName.contains("FSL", true) -> 80
-        serverName.contains("10Gbps", true) -> 85
-        serverName.contains("Download File", true) -> 70
-        serverName.contains("Pixeldrain", true) -> 60
-        else -> 50
+        serverName.contains("Instant", true) -> 800  // Instant DL = fastest
+        serverName.contains("10Gbps", true) -> 750
+        serverName.contains("FSLv2", true) -> 700
+        serverName.contains("FSL", true) -> 600
+        serverName.contains("Direct", true) -> 500
+        serverName.contains("Pixeldrain", true) -> 400
+        serverName.contains("Download File", true) -> 300
+        else -> 100
     }
 }
 
