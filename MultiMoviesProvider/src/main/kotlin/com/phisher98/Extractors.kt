@@ -44,9 +44,7 @@ val VIDEO_HEADERS = mapOf(
     "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
     "Accept" to "*/*",
     "Accept-Encoding" to "identity",
-    "Connection" to "keep-alive",
-    "Range" to "bytes=0-",
-    "Icy-MetaData" to "1"
+    "Connection" to "keep-alive"
 )
 
 fun decodeRadix(str: String, radix: Int): Int? {
@@ -454,7 +452,7 @@ open class TechnocosmosPlayer : ExtractorApi() {
                                 ) {
                                     this.quality = getStreamingServerPriority(name)
                                     this.referer = mainUrl
-                                    this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                                    this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                 }
                             )
                         }
@@ -521,7 +519,7 @@ open class Vibuxer : ExtractorApi() {
                                 ) {
                                     this.quality = getStreamingServerPriority(name)
                                     this.referer = cleanUrl
-                                    this.headers = VIDEO_HEADERS + mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
+                                    this.headers = mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
                                 }
                             )
                         }
@@ -747,7 +745,7 @@ open class Peachify : ExtractorApi() {
                     ) {
                         this.quality = getStreamingServerPriority(name)
                         this.referer = mainUrl
-                        this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                        this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                     }
                 )
             }
@@ -783,7 +781,7 @@ open class Peachify : ExtractorApi() {
                                         INFER_TYPE
                                     ) {
                                         this.referer = mainUrl
-                                        this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                                        this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                     }
                                 )
                             }
