@@ -217,9 +217,14 @@ class Movies4uProvider : MainAPI() {
             ?: return null
         val title = cleanTitle(rawTitle)
 
-        val posterMeta = document.selectFirst("meta[property=og:image]")?.attr("content")
-        val posterImg = document.selectFirst(".entry-content img[src*='tmdb'], .entry-content img, .post-content img")?.attr("src")
-        val poster: String? = posterMeta ?: posterImg
+        val posterImgElement = document.selectFirst(".entry-content img, .post-content img, .page-body img, img.aligncenter")
+        val ogImageMeta = document.selectFirst("meta[property=og:image]")
+        val poster = sequenceOf(
+            posterImgElement?.attr("src"),
+            ogImageMeta?.attr("content")
+        ).firstOrNull { u ->
+            !u.isNullOrBlank() && u.startsWith("http")
+        }
 
         val descMeta = document.selectFirst("meta[name=description]")?.attr("content")
         val descOg = document.selectFirst("meta[property=og:description]")?.attr("content")
@@ -264,7 +269,11 @@ class Movies4uProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         fun parseElementForEpisodes(doc: Document) {
-            doc.select("h3, h4, h5, h6, div, p").forEach { element ->
+            val body = doc.selectFirst(".entry-content, .post-content, article") ?: doc
+            body.select("h3, h4, h5, h6, div, p").forEach { element ->
+                if (element.parents().any { it.hasClass("related-posts") || it.hasClass("widget") || it.id().contains("comments") }) {
+                    return@forEach
+                }
                 val text = element.text().trim()
                 if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
                     return@forEach
@@ -345,9 +354,13 @@ class Movies4uProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         var currentEpisode: Int? = null
 
+        val body = document.selectFirst(".entry-content, .post-content, article") ?: document
         val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
 
-        document.select(relevantSelector).forEach { element ->
+        body.select(relevantSelector).forEach { element ->
+            if (element.parents().any { it.hasClass("related-posts") || it.hasClass("widget") || it.id().contains("comments") }) {
+                return@forEach
+            }
             val tagName = element.tagName().uppercase()
 
             if (tagName in listOf("H3", "H4", "H5")) {

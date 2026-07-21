@@ -89,8 +89,14 @@ class SkymoviesProvider : MainAPI() {
         "" to "Latest",
         "category/Bollywood-Movies.html" to "Bollywood",
         "category/South-Indian-Hindi-Dubbed-Movies.html" to "South Hindi Dubbed",
+        "category/Bengali-Movies.html" to "Bengali",
+        "category/Hollywood-English-Movies.html" to "Hollywood English",
         "category/Hollywood-Hindi-Dubbed-Movies.html" to "Hollywood Hindi Dubbed",
-        "category/All-Web-Series.html" to "Web Series"
+        "category/Tamil-Movies.html" to "Tamil",
+        "category/Telugu-Movies.html" to "Telugu",
+        "category/Punjabi-Movies.html" to "Punjabi",
+        "category/All-Web-Series.html" to "Web Series",
+        "category/Korean-and-China-Movies.html" to "Korean & Chinese"
     )
 
     private val headers = mapOf(
@@ -118,8 +124,8 @@ class SkymoviesProvider : MainAPI() {
         return newHomePageResponse(request.name, home)
     }
 
-    private fun List<Element>.toGroupedSearchResults(): List<SearchResponse> {
-        val groupedMap = mutableMapOf<String, MutableList<Pair<String, String?>>>()
+    private suspend fun List<Element>.toGroupedSearchResults(): List<SearchResponse> {
+        val groupedMap = mutableMapOf<String, MutableList<String>>()
         val seriesFlags = mutableMapOf<String, Boolean>()
 
         forEach { element ->
@@ -135,32 +141,35 @@ class SkymoviesProvider : MainAPI() {
             val title = cleanTitle(titleText)
             if (title.isBlank()) return@forEach
 
-            val imgElement = element.selectFirst("img")
-            val posterUrl: String? = if (imgElement != null) {
-                val srcAttr = imgElement.attr("src")
-                val dataSrcAttr = imgElement.attr("data-src")
-                val lazyAttr = imgElement.attr("data-lazy-src")
-                val src = when {
-                    srcAttr.isNotBlank() && !srcAttr.contains("/images/arw") && !srcAttr.contains("/images/icon") -> srcAttr
-                    dataSrcAttr.isNotBlank() -> dataSrcAttr
-                    else -> lazyAttr
-                }
-                if (src.isNotBlank() && !src.contains("/images/arw") && !src.contains("/images/icon")) fixUrlNull(src) else null
-            } else null
-
             val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
 
             val list = groupedMap.getOrPut(title) { mutableListOf() }
-            list.add(Pair(fixedUrl, posterUrl))
+            list.add(fixedUrl)
             if (isSeries) {
                 seriesFlags[title] = true
             }
         }
 
-        return groupedMap.map { (title, pairs) ->
-            val combinedUrl = pairs.map { it.first }.distinct().joinToString("|||")
-            val posterUrl = pairs.mapNotNull { it.second }.firstOrNull()
+        return groupedMap.entries.toList().amap { (title, urls) ->
+            val combinedUrl = urls.distinct().joinToString("|||")
             val isSeries = seriesFlags[title] ?: false
+
+            var posterUrl: String? = null
+            try {
+                withTimeoutOrNull(3000L) {
+                    val doc = app.get(urls.first(), headers = headers, timeout = 3000L).document
+                    val posterImgElement = doc.selectFirst("div.movielist img, .post-content img, .page-body img, img.aligncenter")
+                    val ogImageMeta = doc.selectFirst("meta[property=og:image]")
+                    posterUrl = sequenceOf(
+                        posterImgElement?.attr("src"),
+                        ogImageMeta?.attr("content")
+                    ).firstOrNull { url ->
+                        !url.isNullOrBlank() && url.startsWith("http")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching background poster for $title: ${e.message}")
+            }
 
             if (isSeries) {
                 newTvSeriesSearchResponse(title, combinedUrl, TvType.TvSeries) {
@@ -217,7 +226,7 @@ class SkymoviesProvider : MainAPI() {
         val firstUrl = urls.first()
         val document = app.get(firstUrl, headers = headers).document
 
-        val rawTitle = document.selectFirst("h1, h2, h3, .post-title")?.text()?.trim()
+        val rawTitle = document.selectFirst("div.Robiul b, div.Robiul, h1, h2, h3, .post-title")?.text()?.trim()
             ?: document.selectFirst("title")?.text()?.substringBefore(" Full Movie")?.trim()
             ?: return null
         val title = cleanTitle(rawTitle)
@@ -226,10 +235,15 @@ class SkymoviesProvider : MainAPI() {
         for (u in urls) {
             try {
                 val doc = if (u == firstUrl) document else app.get(u, headers = headers).document
-                val posterMeta = doc.selectFirst("meta[property=og:image]")?.attr("content")
-                val posterImg = doc.selectFirst("img[src*='media-amazon'], img[src*='bmscdn'], img[src*='poster']")?.attr("src")
-                val foundPoster = posterMeta ?: posterImg
-                if (!foundPoster.isNullOrBlank() && foundPoster.startsWith("http")) {
+                val posterImgElement = doc.selectFirst("div.movielist img, .post-content img, .page-body img, img.aligncenter")
+                val ogImageMeta = doc.selectFirst("meta[property=og:image]")
+                val foundPoster = sequenceOf(
+                    posterImgElement?.attr("src"),
+                    ogImageMeta?.attr("content")
+                ).firstOrNull { pUrl ->
+                    !pUrl.isNullOrBlank() && pUrl.startsWith("http")
+                }
+                if (!foundPoster.isNullOrBlank()) {
                     poster = foundPoster
                     break
                 }
@@ -238,8 +252,33 @@ class SkymoviesProvider : MainAPI() {
             }
         }
 
+        // Story extraction (Selectors & Regex)
+        var storyline: String? = null
+        for (u in urls) {
+            try {
+                val doc = if (u == firstUrl) document else app.get(u, headers = headers).document
+                val storyElement = doc.selectFirst("div.Let:contains(Story), div.Let:contains(Storyline), div.Let:contains(Plot), div.Let:contains(Description), .Let:contains(Story)")
+                if (storyElement != null) {
+                    val text = storyElement.text()
+                    val cleanedStory = when {
+                        text.contains("Story :", ignoreCase = true) -> text.substringAfter("Story :").trim()
+                        text.contains("Storyline :", ignoreCase = true) -> text.substringAfter("Storyline :").trim()
+                        text.contains("Plot :", ignoreCase = true) -> text.substringAfter("Plot :").trim()
+                        text.contains("Description :", ignoreCase = true) -> text.substringAfter("Description :").trim()
+                        text.contains("Story", ignoreCase = true) -> text.substringAfter("Story").trim()
+                        else -> text.trim()
+                    }
+                    if (cleanedStory.isNotBlank()) {
+                        storyline = cleanedStory
+                        break
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         val descMeta = document.selectFirst("meta[name=description]")?.attr("content")
-        val description: String? = descMeta
+        val ogDescMeta = document.selectFirst("meta[property=og:description]")?.attr("content")
+        val description = storyline ?: descMeta ?: ogDescMeta
 
         val year = YEAR_REGEX.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
         val tags = document.select("a[href*='search.php']").map { it.text() }.filter { it.isNotBlank() }
@@ -280,17 +319,22 @@ class SkymoviesProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         fun parseElementForEpisodes(doc: Document) {
-            doc.select("h3, h4, h5, h6, div, p").forEach { element ->
-                val text = element.text().trim()
-                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
-                    return@forEach
-                }
+            val mainElements = doc.select("div.Bolly, div.Let, div.Robiul")
+            val targetElements = if (mainElements.isNotEmpty()) mainElements else listOf(doc)
 
-                val matches = EPISODE_NUMBER_REGEX.findAll(text)
-                for (match in matches) {
-                    val epNum = match.groupValues[1].toIntOrNull()
-                    if (epNum != null && epNum > 0 && epNum <= 200 && !QUALITY_NUMBERS.contains(epNum)) {
-                        detectedEpisodes.add(epNum)
+            targetElements.forEach { root ->
+                root.select("h3, h4, h5, h6, div, p").forEach { element ->
+                    val text = element.text().trim()
+                    if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
+                        return@forEach
+                    }
+
+                    val matches = EPISODE_NUMBER_REGEX.findAll(text)
+                    for (match in matches) {
+                        val epNum = match.groupValues[1].toIntOrNull()
+                        if (epNum != null && epNum > 0 && epNum <= 200 && !QUALITY_NUMBERS.contains(epNum)) {
+                            detectedEpisodes.add(epNum)
+                        }
                     }
                 }
             }
@@ -377,55 +421,60 @@ class SkymoviesProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         var currentEpisode: Int? = null
 
+        val mainElements = document.select("div.Bolly, div.Let, div.Robiul")
+        val targetElements = if (mainElements.isNotEmpty()) mainElements else listOf(document)
+
         val relevantSelector = "h3, h4, h5, a[href*='howblogs'], a[href*='linkstaker'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
 
-        document.select(relevantSelector).forEach { element ->
-            val tagName = element.tagName().uppercase()
+        targetElements.forEach { root ->
+            root.select(relevantSelector).forEach { element ->
+                val tagName = element.tagName().uppercase()
 
-            if (tagName in listOf("H3", "H4", "H5")) {
-                val headerText = element.text().trim()
-                val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
-                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) {
-                    currentEpisode = epNum
-                }
-                return@forEach
-            }
-
-            if (tagName == "A") {
-                val url = element.attr("href")
-                val linkText = element.text().trim()
-
-                if (url.isBlank() || seenUrls.contains(url)) return@forEach
-                if (shouldBlockUrl(url)) return@forEach
-
-                if (linkText.contains("Zip", ignoreCase = true) ||
-                    linkText.contains(".zip", ignoreCase = true) ||
-                    url.endsWith(".zip", ignoreCase = true)) {
+                if (tagName in listOf("H3", "H4", "H5")) {
+                    val headerText = element.text().trim()
+                    val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
+                    val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                    if (epNum != null && epNum > 0 && epNum < 500) {
+                        currentEpisode = epNum
+                    }
                     return@forEach
                 }
 
-                seenUrls.add(url)
+                if (tagName == "A") {
+                    val url = element.attr("href")
+                    val linkText = element.text().trim()
 
-                val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
-                val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
+                    if (url.isBlank() || seenUrls.contains(url)) return@forEach
+                    if (shouldBlockUrl(url)) return@forEach
 
-                val episodeContext = when {
-                    linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
-                    currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
-                    linkText.isNotBlank() -> linkText
-                    else -> "Download"
-                }
+                    if (linkText.contains("Zip", ignoreCase = true) ||
+                        linkText.contains(".zip", ignoreCase = true) ||
+                        url.endsWith(".zip", ignoreCase = true)) {
+                        return@forEach
+                    }
 
-                downloadLinks.add(
-                    DownloadLink(
-                        url = url,
-                        quality = extractQuality(episodeContext),
-                        sizeMB = parseFileSize(episodeContext),
-                        originalText = episodeContext,
-                        episodeNum = linkEpisode
+                    seenUrls.add(url)
+
+                    val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
+                    val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
+
+                    val episodeContext = when {
+                        linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
+                        currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
+                        linkText.isNotBlank() -> linkText
+                        else -> "Download"
+                    }
+
+                    downloadLinks.add(
+                        DownloadLink(
+                            url = url,
+                            quality = extractQuality(episodeContext),
+                            sizeMB = parseFileSize(episodeContext),
+                            originalText = episodeContext,
+                            episodeNum = linkEpisode
+                        )
                     )
-                )
+                }
             }
         }
 
