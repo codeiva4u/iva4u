@@ -118,8 +118,8 @@ class SkymoviesProvider : MainAPI() {
         return newHomePageResponse(request.name, home)
     }
 
-    private fun List<Element>.toGroupedSearchResults(): List<SearchResponse> {
-        val groupedMap = mutableMapOf<String, MutableList<Pair<String, String?>>>()
+    private suspend fun List<Element>.toGroupedSearchResults(): List<SearchResponse> {
+        val groupedMap = mutableMapOf<String, MutableList<String>>()
         val seriesFlags = mutableMapOf<String, Boolean>()
 
         forEach { element ->
@@ -135,32 +135,32 @@ class SkymoviesProvider : MainAPI() {
             val title = cleanTitle(titleText)
             if (title.isBlank()) return@forEach
 
-            val imgElement = element.selectFirst("img")
-            val posterUrl: String? = if (imgElement != null) {
-                val srcAttr = imgElement.attr("src")
-                val dataSrcAttr = imgElement.attr("data-src")
-                val lazyAttr = imgElement.attr("data-lazy-src")
-                val src = when {
-                    srcAttr.isNotBlank() && !srcAttr.contains("/images/arw") && !srcAttr.contains("/images/icon") -> srcAttr
-                    dataSrcAttr.isNotBlank() -> dataSrcAttr
-                    else -> lazyAttr
-                }
-                if (src.isNotBlank() && !src.contains("/images/arw") && !src.contains("/images/icon")) fixUrlNull(src) else null
-            } else null
-
             val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
 
             val list = groupedMap.getOrPut(title) { mutableListOf() }
-            list.add(Pair(fixedUrl, posterUrl))
+            list.add(fixedUrl)
             if (isSeries) {
                 seriesFlags[title] = true
             }
         }
 
-        return groupedMap.map { (title, pairs) ->
-            val combinedUrl = pairs.map { it.first }.distinct().joinToString("|||")
-            val posterUrl = pairs.mapNotNull { it.second }.firstOrNull()
+        // Fetch poster from detail page for each group (parallel, 3s timeout per request)
+        return groupedMap.entries.toList().amap { (title, urls) ->
+            val combinedUrl = urls.distinct().joinToString("|||")
             val isSeries = seriesFlags[title] ?: false
+
+            var posterUrl: String? = null
+            try {
+                withTimeoutOrNull(4000L) {
+                    val doc = app.get(urls.first(), headers = headers).document
+                    val imgSrc = doc.selectFirst("div.movielist img")?.attr("src") ?: ""
+                    if (imgSrc.startsWith("http") && !imgSrc.contains("/images/")) {
+                        posterUrl = imgSrc
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching poster for $title: ${e.message}")
+            }
 
             if (isSeries) {
                 newTvSeriesSearchResponse(title, combinedUrl, TvType.TvSeries) {
