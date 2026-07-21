@@ -452,7 +452,7 @@ open class TechnocosmosPlayer : ExtractorApi() {
                                 ) {
                                     this.quality = getStreamingServerPriority(name)
                                     this.referer = mainUrl
-                                    this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                                    this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                 }
                             )
                         }
@@ -519,7 +519,7 @@ open class Vibuxer : ExtractorApi() {
                                 ) {
                                     this.quality = getStreamingServerPriority(name)
                                     this.referer = cleanUrl
-                                    this.headers = mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
+                                    this.headers = VIDEO_HEADERS + mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
                                 }
                             )
                         }
@@ -745,7 +745,7 @@ open class Peachify : ExtractorApi() {
                     ) {
                         this.quality = getStreamingServerPriority(name)
                         this.referer = mainUrl
-                        this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                        this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                     }
                 )
             }
@@ -781,7 +781,7 @@ open class Peachify : ExtractorApi() {
                                         INFER_TYPE
                                     ) {
                                         this.referer = mainUrl
-                                        this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                                        this.headers = VIDEO_HEADERS + mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                     }
                                 )
                             }

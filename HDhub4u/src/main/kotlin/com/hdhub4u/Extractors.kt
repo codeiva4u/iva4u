@@ -113,99 +113,13 @@ fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, cod
 
 fun shouldBlockUrl(url: String): Boolean {
     val blockList = listOf(
-        "hubstream.art", "hubstream", "watch", "player", "online",
-        ".m3u8", "/hls/", "hdstream", "hdstream4u", "t.me/", "tinyurl.com",
+        ".m3u8", "/hls/", "hubstream", "hdstream",
+        "hdstream4u", "t.me/", "tinyurl.com",
         "google.com/search", "one.one.one.one",
         "/tg/go", "voe.sx", "streamtape", "streamsb", "mixdrop", 
         "doodstream", "vidhide", "streamhub", "uqload", "dood.", "doodrive"
     )
     return blockList.any { url.contains(it, ignoreCase = true) }
-}
-
-/**
- * Gadgetsweb Extractor - resolves gadgetsweb.xyz/?id= links
- */
-open class Gadgetsweb : ExtractorApi() {
-    override val name = "Gadgetsweb"
-    override val mainUrl = "https://gadgetsweb\\..*"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val tag = "Gadgetsweb"
-        Log.d(tag, "Processing: $url")
-
-        if (shouldBlockUrl(url)) {
-            Log.d(tag, "BLOCKED: $url")
-            return
-        }
-
-        try {
-            val response = app.get(url, allowRedirects = true)
-            val finalUrl = response.url
-            val doc = response.document
-
-            Log.d(tag, "Final URL after redirects: $finalUrl")
-
-            when {
-                finalUrl.contains("hubcloud", true) -> {
-                    HubCloud().getUrl(finalUrl, referer, subtitleCallback, callback)
-                    return
-                }
-                finalUrl.contains("hubdrive", true) -> {
-                    Hubdrive().getUrl(finalUrl, referer, subtitleCallback, callback)
-                    return
-                }
-                finalUrl.contains("hubcdn", true) -> {
-                    HUBCDN().getUrl(finalUrl, referer, subtitleCallback, callback)
-                    return
-                }
-            }
-
-            val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='hubdrive'], a[href*='pixeldrain'], a[href*='gofile.io'], a.btn[href^=http]")
-            Log.d(tag, "Found ${links.size} target links on Gadgetsweb page")
-
-            var processed = false
-            links.amap { element ->
-                val href = element.absUrl("href").ifBlank { element.attr("href") }
-                if (href.isBlank() || href.startsWith("#") || shouldBlockUrl(href)) return@amap
-
-                Log.d(tag, "Processing Gadgetsweb target link: $href")
-                try {
-                    when {
-                        href.contains("hubcloud", true) -> {
-                            HubCloud().getUrl(href, referer, subtitleCallback, callback)
-                            processed = true
-                        }
-                        href.contains("hubdrive", true) -> {
-                            Hubdrive().getUrl(href, referer, subtitleCallback, callback)
-                            processed = true
-                        }
-                        href.contains("hubcdn", true) -> {
-                            HUBCDN().getUrl(href, referer, subtitleCallback, callback)
-                            processed = true
-                        }
-                        href.contains("pixeldrain", true) || href.contains("gofile.io", true) -> {
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                            processed = true
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Error processing $href: ${e.message}")
-                }
-            }
-
-            if (!processed && finalUrl != url && !shouldBlockUrl(finalUrl)) {
-                loadExtractor(finalUrl, referer, subtitleCallback, callback)
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error resolving Gadgetsweb: ${e.message}")
-        }
-    }
 }
 
 open class Hblinks : ExtractorApi() {

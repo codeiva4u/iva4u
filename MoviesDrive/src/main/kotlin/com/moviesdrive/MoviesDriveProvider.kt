@@ -147,7 +147,7 @@ class MoviesDriveProvider : MainAPI() {
 
         // MoviesDrive structure: <a href="..."><div class="poster-card">...</div></a>
         // Optimized selector: directly select <a> tags with .poster-card children
-        val home = document.select("a[href]:has(.poster-card), article.post-card").mapNotNull {
+        val home = document.select("a[href]:has(.poster-card)").mapNotNull {
             it.toSearchResult()
         }
 
@@ -157,15 +157,15 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val hrefElement = if (this.tagName() == "a") this else this.selectFirst("a")
-        val href = hrefElement?.attr("href")
-
+        // Extract href (this element is <a> tag)
+        val href = attr("href")
+        
         // Filter invalid URLs using regex
-        if (href.isNullOrBlank() || 
+        if (href.isBlank() || 
             href.contains("/category/", ignoreCase = true) || 
             href.contains("/page/", ignoreCase = true) ||
             href.contains("/tag/", ignoreCase = true)) return null
-
+        
         val fixedUrl = fixUrl(href)
 
         // Extract title with fallback chain - optimized order
@@ -228,7 +228,7 @@ class MoviesDriveProvider : MainAPI() {
             val document = app.get(searchUrl, headers = headers).document
 
             // Optimized selector
-            document.select("a[href]:has(.poster-card), article.post-card").mapNotNullTo(results) { 
+            document.select("a[href]:has(.poster-card)").mapNotNullTo(results) { 
                 it.toSearchResult()
             }
             
@@ -241,7 +241,7 @@ class MoviesDriveProvider : MainAPI() {
                     val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
                     val doc = app.get(url, headers = headers).document
 
-                    doc.select("a[href]:has(.poster-card), article.post-card").forEach { element ->
+                    doc.select("a[href]:has(.poster-card)").forEach { element ->
                         element.toSearchResult()?.let { searchResult ->
                             val titleLower = searchResult.name.lowercase()
                             if (searchTerms.any { titleLower.contains(it) } && 
@@ -341,7 +341,7 @@ class MoviesDriveProvider : MainAPI() {
         }
         
         // Find "Single Episode" link to detect actual count
-        document.select(".page-body p a, a.mb-button, a.button, a.btn, a[href*='download'], a[href*='drive'], a[href*='mdrive.lol/archive'], a[href*='mdrive.lol']").forEach { element ->
+        document.select("a[href*='mdrive.lol']").forEach { element ->
             val linkText = element.text()
             val href = element.attr("href")
             
@@ -430,7 +430,7 @@ class MoviesDriveProvider : MainAPI() {
         var currentEpisode: Int? = null
         
         // Process all headers and links in order
-        val dynamicSelector = "h5, h4, .page-body p a, a.mb-button, a.button, a.btn, a[href*='download'], a[href*='drive'], a[href*='mdrive.lol/archive'], a[href*='mdrive.lol'], a[href*='$hubcloudHost'], a[href*='$gdflixHost'], a[href*='$gdflix2Host']"
+        val dynamicSelector = "h5, h4, a[href*='mdrive.lol'], a[href*='$hubcloudHost'], a[href*='$gdflixHost'], a[href*='$gdflix2Host']"
         document.select(dynamicSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
             
@@ -447,16 +447,13 @@ class MoviesDriveProvider : MainAPI() {
                 
                 // Skip if blank, duplicate, or not a valid domain
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
-                val isValidDomain = url.contains("mdrive.lol") || url.contains(hubcloudHost) || url.contains(gdflixHost) || url.contains(gdflix2Host) || url.contains("download") || url.contains("drive")
+                val isValidDomain = url.contains("mdrive.lol") || url.contains(hubcloudHost) || url.contains(gdflixHost) || url.contains(gdflix2Host)
                 if (!isValidDomain) return@forEach
                 
-                // ❌ SKIP ZIP & STREAMING LINKS - ONLY extract download links, no streaming!
+                // ❌ SKIP ZIP LINKS - they are compressed archives, not playable!
                 if (linkText.contains("Zip", ignoreCase = true) || 
-                    linkText.contains(".zip", ignoreCase = true) ||
-                    linkText.contains("stream", ignoreCase = true) ||
-                    linkText.contains("watch online", ignoreCase = true) ||
-                    url.contains("stream", ignoreCase = true)) {
-                    Log.d(TAG, "⏭️ Skipping non-download link: $linkText")
+                    linkText.contains(".zip", ignoreCase = true)) {
+                    Log.d(TAG, "⏭️ Skipping Zip link: $linkText")
                     return@forEach
                 }
                 

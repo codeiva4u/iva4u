@@ -11,7 +11,6 @@ class HDhub4uPlugin: BasePlugin() {
         registerMainAPI(HDhub4uProvider())
         
         // Download Extractors (Direct Downloads Only)
-        registerExtractorAPI(Gadgetsweb())    // gadgetsweb.xyz/?id= redirector
         registerExtractorAPI(HubCloud())      // Main: hubcloud.foo CDN links
         registerExtractorAPI(Hubdrive())      // Redirects to HubCloud
         registerExtractorAPI(Hblinks())       // Download aggregator

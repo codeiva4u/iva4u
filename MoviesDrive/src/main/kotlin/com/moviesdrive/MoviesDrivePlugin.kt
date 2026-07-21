@@ -14,6 +14,5 @@ class MoviesDrivePlugin: Plugin() {
         registerExtractorAPI(GDFlix())
         registerExtractorAPI(HubCloud())
         registerExtractorAPI(Gofile())
-        registerExtractorAPI(Mdrive())
     }
 }
