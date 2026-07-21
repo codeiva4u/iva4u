@@ -139,10 +139,17 @@ class Movies4uProvider : MainAPI() {
         if (title.isBlank()) return null
 
         val imgElement = selectFirst("figure img, img")
-        val posterUrl: String? = imgElement?.let { img ->
-            val src = img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } }
+        val posterUrl: String? = if (imgElement != null) {
+            val srcAttr = imgElement.attr("src")
+            val dataSrcAttr = imgElement.attr("data-src")
+            val lazyAttr = imgElement.attr("data-lazy-src")
+            val src = when {
+                srcAttr.isNotBlank() -> srcAttr
+                dataSrcAttr.isNotBlank() -> dataSrcAttr
+                else -> lazyAttr
+            }
             fixUrlNull(src)
-        }
+        } else null
 
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
 
@@ -268,8 +275,8 @@ class Movies4uProvider : MainAPI() {
 
         document.select("a[href]").forEach { element ->
             val linkText = element.text().trim()
-            if (linkText.matches(Regex("(?i)^EP(?:i|I)?SODE\\s*\\d+$")) ||
-                linkText.matches(Regex("(?i)^EP[-.\s]?\d+$"))) {
+            if (linkText.matches(Regex("""(?i)^EP(?:i|I)?SODE\s*\d+$""")) ||
+                linkText.matches(Regex("""(?i)^EP[-.\s]?\d+$"""))) {
                 val match = EPISODE_NUMBER_REGEX.find(linkText)
                 val epNum = match?.groupValues?.get(1)?.toIntOrNull()
                 if (epNum != null && epNum > 0 && epNum < 500) {

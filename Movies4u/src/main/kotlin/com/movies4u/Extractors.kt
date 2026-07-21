@@ -154,7 +154,8 @@ open class M4uLinks : ExtractorApi() {
             Log.d(tag, "Found ${links.size} links on m4ulinks page")
 
             links.amap { element ->
-                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                val abs = element.absUrl("href")
+                val href = if (abs.isNotBlank()) abs else element.attr("href")
                 if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
                 if (shouldBlockUrl(href)) return@amap
 
