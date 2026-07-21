@@ -20,6 +20,18 @@ import java.net.URI
 // UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════════
 
+fun getStreamingServerPriority(serverName: String): Int = when {
+    serverName.contains("Screenscape", true) -> 8000
+    serverName.contains("Nxsha", true) -> 7500
+    serverName.contains("Peachify", true) -> 7000
+    serverName.contains("Technocosmos", true) -> 6500
+    serverName.contains("GDMIRROR", true) -> 6000
+    serverName.contains("StreamHG", true) -> 5000
+    serverName.contains("EarnVids", true) -> 4500
+    serverName.contains("Vibuxer", true) -> 4000
+    else -> 3000
+}
+
 fun getBaseUrl(url: String): String {
     return try {
         URI(url).let { "${it.scheme}://${it.host}" }
@@ -438,7 +450,7 @@ open class TechnocosmosPlayer : ExtractorApi() {
                                     file,
                                     ExtractorLinkType.M3U8
                                 ) {
-                                    this.quality = Qualities.P1080.value
+                                    this.quality = getStreamingServerPriority(name)
                                     this.referer = mainUrl
                                     this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                                 }
@@ -505,7 +517,7 @@ open class Vibuxer : ExtractorApi() {
                                     m3u8Link,
                                     ExtractorLinkType.M3U8
                                 ) {
-                                    this.quality = Qualities.P1080.value
+                                    this.quality = getStreamingServerPriority(name)
                                     this.referer = cleanUrl
                                     this.headers = mapOf("Referer" to cleanUrl, "Origin" to getBaseUrl(cleanUrl))
                                 }
@@ -565,7 +577,7 @@ open class StreamHG : ExtractorApi() {
                                 m3u8Link,
                                 ExtractorLinkType.M3U8
                             ) {
-                                this.quality = Qualities.Unknown.value
+                                this.quality = getStreamingServerPriority(name)
                                 this.referer = url
                                 this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
                             }
@@ -584,7 +596,7 @@ open class StreamHG : ExtractorApi() {
                         m3u8Link,
                         ExtractorLinkType.M3U8
                     ) {
-                        this.quality = Qualities.Unknown.value
+                        this.quality = getStreamingServerPriority(name)
                         this.referer = url
                         this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
                     }
@@ -642,7 +654,7 @@ open class EarnVids : ExtractorApi() {
                                 m3u8Link,
                                 ExtractorLinkType.M3U8
                             ) {
-                                this.quality = Qualities.Unknown.value
+                                this.quality = getStreamingServerPriority(name)
                                 this.referer = url
                                 this.headers = VIDEO_HEADERS + mapOf("Referer" to url)
                             }
@@ -731,7 +743,7 @@ open class Peachify : ExtractorApi() {
                         m3u8Url,
                         ExtractorLinkType.M3U8
                     ) {
-                        this.quality = Qualities.Unknown.value
+                        this.quality = getStreamingServerPriority(name)
                         this.referer = mainUrl
                         this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
                     }
@@ -821,7 +833,7 @@ open class Nxsha : ExtractorApi() {
                         m3u8Url,
                         ExtractorLinkType.M3U8
                     ) {
-                        this.quality = Qualities.Unknown.value
+                        this.quality = getStreamingServerPriority(name)
                         this.referer = mainUrl
                     }
                 )
