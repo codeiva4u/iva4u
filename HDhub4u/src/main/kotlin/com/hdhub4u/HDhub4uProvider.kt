@@ -71,8 +71,9 @@ class HDhub4uProvider : MainAPI() {
         
         // Valid download hosts list
         private val VALID_HOSTS = listOf(
-            "hubdrive", "hubcloud", "hubcdn",
-            "gamester", "hblinks", "4khdhub"
+            "gadgetsweb.xyz", "gadgetsweb",
+            "hubcloud.foo", "hubcloud.cx", "hubcloud",
+            "hblinks", "hubdrive", "4khdhub", "hubcdn"
         )
         
         // Batch Download Pattern - Detects quality batch links
@@ -140,8 +141,8 @@ class HDhub4uProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        // Correct selector: li.thumb contains movie items
-        val home = document.select("li.thumb").mapNotNull {
+        // Correct selector: div.thumb, li.movie-card, li.thumb contains movie items
+        val home = document.select("div.thumb, li.movie-card, li.thumb").mapNotNull {
             it.toSearchResult()
         }
 
@@ -206,80 +207,42 @@ class HDhub4uProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-
         Log.d(TAG, "Searching for: $query")
-
         val results = mutableListOf<SearchResponse>()
+        val cleanQuery = query.replace(" ", "+")
 
+        // Method 1: Try /search.html?q=query first
         try {
-            // Method 1: Use website's search page (search.html?q=query)
-            // Website uses JavaScript-based search with li.movie-card structure
-            val searchUrl = "$mainUrl/search.html?q=${query.replace(" ", "+")}"
+            val searchUrl = "$mainUrl/search.html?q=$cleanQuery"
             Log.d(TAG, "Search URL: $searchUrl")
-            
             val document = app.get(searchUrl, headers = headers).document
 
-            // Search page uses different structure: li.movie-card
-            document.select("li.movie-card").forEach { card ->
-                val link = card.selectFirst("a[href]")
-                val img = card.selectFirst("img")
-                
-                val href = link?.attr("href") ?: return@forEach
-                if (href.isBlank() || href.contains("category")) return@forEach
-                
-                val fixedUrl = fixUrl(href)
-                val titleText = img?.attr("alt") ?: img?.attr("title") ?: ""
-                if (titleText.isBlank()) return@forEach
-                
-                val title = cleanTitle(titleText)
-                if (title.isBlank()) return@forEach
-                
-                val posterUrl = fixUrlNull(img?.attr("src"))
-                
-                // Determine type using Regex pattern for series detection
-                val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
-                
-                val searchResult = if (isSeries) {
-                    newTvSeriesSearchResponse(title, fixedUrl, TvType.TvSeries) {
-                        this.posterUrl = posterUrl
-                    }
-                } else {
-                    newMovieSearchResponse(title, fixedUrl, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    }
-                }
-                
-                if (results.none { it.url == searchResult.url }) {
+            document.select("div.thumb, li.movie-card, li.thumb").forEach { card ->
+                val searchResult = card.toSearchResult()
+                if (searchResult != null && results.none { it.url == searchResult.url }) {
                     results.add(searchResult)
                 }
             }
-            
-            // Method 2: Fallback - search through homepage if no results from search page
-            if (results.isEmpty()) {
-                Log.d(TAG, "Search page returned no results, using fallback method")
-                val searchTerms = query.lowercase().split(" ").filter { it.length > 2 }
-                
-                for (page in 1..3) {
-                    val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-                    val doc = app.get(url, headers = headers).document
-
-                    doc.select("li.thumb").forEach { element ->
-                        val searchResult = element.toSearchResult()
-                        if (searchResult != null) {
-                            val title = searchResult.name.lowercase()
-                            val matches = searchTerms.any { term -> title.contains(term) }
-
-                            if (matches && results.none { it.url == searchResult.url }) {
-                                results.add(searchResult)
-                            }
-                        }
-                    }
-
-                    if (results.size >= 20) break
-                }
-            }
         } catch (e: Exception) {
-            Log.e(TAG, "Search error: ${e.message}")
+            Log.e(TAG, "Search.html error: ${e.message}")
+        }
+
+        // Method 2: Fallback to /?s=query if search.html returned no results
+        if (results.isEmpty()) {
+            try {
+                val fallbackUrl = "$mainUrl/?s=$cleanQuery"
+                Log.d(TAG, "Fallback search URL: $fallbackUrl")
+                val document = app.get(fallbackUrl, headers = headers).document
+
+                document.select("div.thumb, li.movie-card, li.thumb").forEach { card ->
+                    val searchResult = card.toSearchResult()
+                    if (searchResult != null && results.none { it.url == searchResult.url }) {
+                        results.add(searchResult)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Fallback search (?s=) error: ${e.message}")
+            }
         }
 
         Log.d(TAG, "Found ${results.size} search results")
@@ -476,63 +439,46 @@ class HDhub4uProvider : MainAPI() {
     }
 
     // Helper function to extract download links from document
-    // FIXED: Track episode context by parsing elements in document order
+    // Extracts only valid download links from h3 > a, h4 > a, h5 > a
     private fun extractDownloadLinks(document: org.jsoup.nodes.Document): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
         
         Log.d(TAG, "=== extractDownloadLinks START ===")
         
-        // ═══════════════════════════════════════════════════════════════════
-        // FIXED: Parse all elements in document order to track episode context
-        // This ensures links are correctly associated with their episode section
-        // ═══════════════════════════════════════════════════════════════════
         var currentEpisode: Int? = null
         
-        // Select all relevant elements: headers (for episode detection) and links
-        val relevantSelector = "h3, h4, h5, a[href*='hblinks'], " +
-                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn']"
-        
-        document.select(relevantSelector).forEach { element ->
-            val tagName = element.tagName().uppercase()
-            
-            // Check if this is an episode header
-            if (tagName in listOf("H3", "H4", "H5")) {
-                val headerText = element.text().trim()
-                val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
-                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) {
-                    currentEpisode = epNum
-                    Log.d(TAG, "Episode section detected: $currentEpisode (from: $headerText)")
-                }
-                return@forEach
+        // Extract links from h3 > a, h4 > a, h5 > a
+        document.select("h3, h4, h5").forEach { heading ->
+            val headerText = heading.text().trim()
+            val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
+            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum < 500) {
+                currentEpisode = epNum
+                Log.d(TAG, "Episode section detected: $currentEpisode (from: $headerText)")
             }
             
-            // This is a link element
-            if (tagName == "A") {
-                val url = element.attr("href")
-                val linkText = element.text().trim()
+            heading.select("a[href]").forEach { aElement ->
+                val url = aElement.attr("href").trim()
+                val linkText = aElement.text().trim()
                 
-                // Skip if blank, already seen, or blocked
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
-                if (shouldBlockUrl(url)) return@forEach
+                if (!isValidDownloadLink(url) || shouldBlockUrl(url)) return@forEach
                 
                 // SKIP ZIP LINKS - they are compressed archives, not playable!
                 if (linkText.contains("Zip", ignoreCase = true) || 
                     linkText.contains(".zip", ignoreCase = true) ||
                     linkText.contains("Batch", ignoreCase = true) ||
                     url.endsWith(".zip", ignoreCase = true)) {
-                    Log.d(TAG, "⏭️ Skipping Zip/Batch link: $linkText")
+                    Log.d(TAG, "Skipping Zip/Batch link: $linkText")
                     return@forEach
                 }
                 
                 seenUrls.add(url)
                 
-                // Determine episode context from link text or current section
                 val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
                 val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
                 
-                // Build context text for quality detection
                 val episodeContext = when {
                     linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
                     currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
@@ -555,11 +501,10 @@ class HDhub4uProvider : MainAPI() {
         
         Log.d(TAG, "Total download links: ${downloadLinks.size}")
         
-        // Log episode distribution for debugging
         val episodeDistribution = downloadLinks.groupBy { it.episodeNum }.mapValues { it.value.size }
         Log.d(TAG, "Episode distribution: $episodeDistribution")
 
-        // Smart sort: 1080p priority → HEVC/X265 → X264 → Smallest Size → Fastest Server
+        // Smart sort: 1080p priority -> HEVC/X265 -> X264 -> Smallest Size -> Fastest Server
         return downloadLinks.sortedWith(
             compareByDescending<DownloadLink> {
                 when (it.quality) {
@@ -570,7 +515,6 @@ class HDhub4uProvider : MainAPI() {
                     else -> 30
                 }
             }.thenByDescending {
-                // PRIORITY: HEVC/X265 > X264 (HEVC = smaller files, better compression)
                 val text = it.originalText.lowercase() + it.url.lowercase()
                 when {
                     text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265") -> 150
@@ -716,6 +660,10 @@ class HDhub4uProvider : MainAPI() {
                         Log.d(TAG, "Extracting: $link")
                         
                         when {
+                            // Gadgetsweb links
+                            link.contains("gadgetsweb", true) ->
+                                Gadgetsweb().getUrl(link, mainUrl, subtitleCallback, callback)
+
                             // HubCloud direct links
                             link.contains("hubcloud", true) ->
                                 HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)

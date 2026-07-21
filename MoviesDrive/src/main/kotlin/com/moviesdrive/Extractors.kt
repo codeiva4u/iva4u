@@ -642,3 +642,27 @@ class Gofile : ExtractorApi() {
     }
 }
 
+open class Mdrive : ExtractorApi() {
+    override val name = "Mdrive"
+    override val mainUrl = "https://mdrive.lol"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val document = app.get(url).document
+        val links = document.select("a.mb-button, a.button, a.btn, a[href*='download'], a[href*='drive'], a[href*='mdrive.lol/archive'], .page-body p a, a[href]")
+        links.amap { a ->
+            val href = a.attr("href")
+            when {
+                href.contains("hubcloud") -> HubCloud().getUrl(href, referer, subtitleCallback, callback)
+                href.contains("gdflix") -> GDFlix().getUrl(href, referer, subtitleCallback, callback)
+                href.contains("gofile") -> Gofile().getUrl(href, referer, subtitleCallback, callback)
+            }
+        }
+    }
+}
+
