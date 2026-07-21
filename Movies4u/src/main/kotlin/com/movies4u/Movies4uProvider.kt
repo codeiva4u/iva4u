@@ -37,7 +37,7 @@ class Movies4uProvider : MainAPI() {
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
 
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:EPiSODE|EPISODE|Episode|EP|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)"""
+            """(?i)(?:Episodes?|EPiSODES?|EP)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
         )
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
@@ -217,14 +217,9 @@ class Movies4uProvider : MainAPI() {
             ?: return null
         val title = cleanTitle(rawTitle)
 
-        val posterImgElement = document.selectFirst(".entry-content img, .post-content img, .page-body img, img.aligncenter")
-        val ogImageMeta = document.selectFirst("meta[property=og:image]")
-        val poster = sequenceOf(
-            posterImgElement?.attr("src"),
-            ogImageMeta?.attr("content")
-        ).firstOrNull { u ->
-            !u.isNullOrBlank() && u.startsWith("http")
-        }
+        val posterMeta = document.selectFirst("meta[property=og:image]")?.attr("content")
+        val posterImg = document.selectFirst(".entry-content img[src*='tmdb'], .entry-content img, .post-content img")?.attr("src")
+        val poster: String? = posterMeta ?: posterImg
 
         val descMeta = document.selectFirst("meta[name=description]")?.attr("content")
         val descOg = document.selectFirst("meta[property=og:description]")?.attr("content")
@@ -269,20 +264,24 @@ class Movies4uProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         fun parseElementForEpisodes(doc: Document) {
-            val body = doc.selectFirst(".entry-content, .post-content, article") ?: doc
-            body.select("h3, h4, h5, h6, div, p").forEach { element ->
-                if (element.parents().any { it.hasClass("related-posts") || it.hasClass("widget") || it.id().contains("comments") }) {
+            // Only parse from main content area to avoid sidebar contamination
+            val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article, .download-links-div")
+                ?: doc
+            contentRoot.select("h3, h4, h5, h6").forEach { element ->
+                val text = element.text().trim()
+                // Skip elements that are purely quality/size info without episode marker
+                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
                     return@forEach
                 }
-                val text = element.text().trim()
-                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
+                // Skip size-only patterns like "180MB", "550MB" etc.
+                if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
                     return@forEach
                 }
 
                 val matches = EPISODE_NUMBER_REGEX.findAll(text)
                 for (match in matches) {
                     val epNum = match.groupValues[1].toIntOrNull()
-                    if (epNum != null && epNum > 0 && epNum <= 200 && !QUALITY_NUMBERS.contains(epNum)) {
+                    if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
                         detectedEpisodes.add(epNum)
                     }
                 }
@@ -297,7 +296,17 @@ class Movies4uProvider : MainAPI() {
             for (aggUrl in aggregatorUrls.take(3)) {
                 try {
                     val aggDoc = app.get(aggUrl).document
-                    parseElementForEpisodes(aggDoc)
+                    // For m4ulinks pages, scan all h3/h4/h5 (no sidebar issues there)
+                    aggDoc.select("h3, h4, h5").forEach { element ->
+                        val text = element.text().trim()
+                        val matches = EPISODE_NUMBER_REGEX.findAll(text)
+                        for (match in matches) {
+                            val epNum = match.groupValues[1].toIntOrNull()
+                            if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
+                                detectedEpisodes.add(epNum)
+                            }
+                        }
+                    }
                     detectedEpisodes.removeAll(QUALITY_NUMBERS)
                     if (detectedEpisodes.isNotEmpty()) break
                 } catch (e: Exception) {
@@ -354,13 +363,9 @@ class Movies4uProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         var currentEpisode: Int? = null
 
-        val body = document.selectFirst(".entry-content, .post-content, article") ?: document
         val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
 
-        body.select(relevantSelector).forEach { element ->
-            if (element.parents().any { it.hasClass("related-posts") || it.hasClass("widget") || it.id().contains("comments") }) {
-                return@forEach
-            }
+        document.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
 
             if (tagName in listOf("H3", "H4", "H5")) {
