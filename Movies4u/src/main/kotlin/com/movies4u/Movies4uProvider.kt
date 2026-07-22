@@ -327,46 +327,45 @@ class Movies4uProvider : MainAPI() {
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
-        fun parseElementForEpisodes(doc: Document) {
-            val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article, .download-links-div")
-                ?: doc
-            
-            // Check page title and headers first
-            val mainTitle = doc.selectFirst("h1.single-title, .entry-title, h1.post-title, h1, title")?.text() ?: ""
-            detectedEpisodes.addAll(extractEpisodesFromText(mainTitle))
-
-            contentRoot.select("h3, h4, h5, h6, p, a, div").forEach { element ->
-                val text = element.text().trim()
-                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true) && !text.contains("S0", true) && !text.contains("E0", true)) {
-                    return@forEach
-                }
-                if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
-                    return@forEach
-                }
-
-                detectedEpisodes.addAll(extractEpisodesFromText(text))
-            }
-        }
-
-        parseElementForEpisodes(document)
-        detectedEpisodes.removeAll(QUALITY_NUMBERS)
-
-        if (detectedEpisodes.isEmpty()) {
-            val aggregatorUrls = document.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
-            for (aggUrl in aggregatorUrls.take(3)) {
-                try {
-                    val aggDoc = app.get(aggUrl).document
-                    aggDoc.select("h3, h4, h5, p, a").forEach { element ->
+        fun parseDocForEpisodes(doc: Document) {
+            val downloadDivs = doc.select(".download-links-div, div[class*='download']")
+            if (downloadDivs.isNotEmpty()) {
+                downloadDivs.forEach { div ->
+                    div.select(".downloads-btns-div, div, p, h3, h4, h5, a").forEach { element ->
                         val text = element.text().trim()
                         detectedEpisodes.addAll(extractEpisodesFromText(text))
                     }
-                    detectedEpisodes.removeAll(QUALITY_NUMBERS)
-                    if (detectedEpisodes.isNotEmpty()) break
+                }
+            } else {
+                val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article") ?: doc
+                contentRoot.select("h3, h4, h5, h6, p, a, div").forEach { element ->
+                    val text = element.text().trim()
+                    if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true) && !text.contains("S0", true) && !text.contains("E0", true)) {
+                        return@forEach
+                    }
+                    if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
+                        return@forEach
+                    }
+                    detectedEpisodes.addAll(extractEpisodesFromText(text))
+                }
+            }
+        }
+
+        val aggregatorUrls = document.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
+        if (aggregatorUrls.isNotEmpty()) {
+            for (aggUrl in aggregatorUrls) {
+                try {
+                    val aggDoc = app.get(aggUrl, headers = headers).document
+                    parseDocForEpisodes(aggDoc)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error fetching m4ulinks aggregator for episode detection: ${e.message}")
                 }
             }
+        } else {
+            parseDocForEpisodes(document)
         }
+
+        detectedEpisodes.removeAll(QUALITY_NUMBERS)
 
         if (detectedEpisodes.isNotEmpty()) {
             detectedEpisodes.sorted().forEach { episodeNum ->
@@ -593,8 +592,8 @@ class Movies4uProvider : MainAPI() {
                     }
                 )
 
-            val linksToProcess = if (episodeNum != null) 1 else 3
-            withTimeoutOrNull(10_000L) {
+            val linksToProcess = if (episodeNum != null) 3 else 5
+            withTimeoutOrNull(25_000L) {
                 sortedLinks.take(linksToProcess).amap { downloadLink ->
                     try {
                         val link = downloadLink.url
@@ -624,7 +623,7 @@ class Movies4uProvider : MainAPI() {
                         Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
                 }
-            } ?: Log.w(TAG, "Timeout reached (10s)")
+            } ?: Log.w(TAG, "Timeout reached (25s)")
         } catch (e: Exception) {
             Log.e(TAG, "Error in loadLinks: ${e.message}")
         }
