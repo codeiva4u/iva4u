@@ -88,29 +88,29 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val document = if (page == 1) {
-            app.get("$mainUrl/${request.data}").document
+        val url = if (page == 1) {
+            "$mainUrl/${request.data}"
         } else {
-            app.get("$mainUrl/${request.data}" + "page/$page/").document
+            "$mainUrl/${request.data}page/$page/"
         }
-        val home = if (request.data.contains("/movies")) {
-            document.select("#archive-content > article").mapNotNull {
-                it.toSearchResult()
-            }
-        } else {
-            document.select("div.items > article").mapNotNull {
-                it.toSearchResult()
-            }
-        }
+        val document = app.get(url).document
+        val home = document.select("div.items > article, #archive-content > article, article.item").mapNotNull {
+            it.toSearchResult()
+        }.distinctBy { it.url }
+        
         return newHomePageResponse(HomePageList(request.name, home))
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.selectFirst("div.data > h3 > a")?.text()?.trim() ?: return null
-        val href = fixUrl(this.selectFirst("div.data > h3 > a")?.attr("href").toString())
-        val posterUrl = fixUrlNull(this.selectFirst("div.poster > img")?.getImageAttr())
-        val quality = getQualityFromString(this.select("div.poster > div.mepo > span").text())
-        return if (href.contains("Movie")) {
+        val linkElem = this.selectFirst("div.data > h3 > a, div.details > div.title > a, h3 > a, a[href*='/movies/'], a[href*='/tvshows/']") ?: return null
+        val title = linkElem.text().trim()
+        if (title.isBlank()) return null
+        val href = fixUrl(linkElem.attr("href"))
+        val posterUrl = fixUrlNull(this.selectFirst("div.poster img, div.thumbnail img, img")?.getImageAttr())
+        val quality = getQualityFromString(this.select("div.poster > div.mepo > span, span.quality").text())
+        val isSeries = href.contains("/tvshows/", ignoreCase = true) || href.contains("Season", ignoreCase = true)
+        
+        return if (!isSeries) {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = posterUrl
                 this.quality = quality
@@ -274,27 +274,15 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     ): Boolean {
         val req = app.get(data).document
         val options = req.select("ul#playeroptionsul li")
-        
-        // Prioritize GDMIRROR. If GDMIRROR is present, only load fast, direct players (GDMIRROR, Peachify, Nxsha, screenscape)
-        val hasGdMirror = options.any { it.text().contains("gdmirror", ignoreCase = true) }
-        
-        val filteredOptions = if (hasGdMirror) {
-            options.filter { option ->
-                val text = option.text().lowercase()
-                text.contains("gdmirror") || text.contains("peachify") || text.contains("nxsha") || text.contains("screenscape")
-            }
-        } else {
-            options
-        }
 
-        filteredOptions.map {
+        options.map {
             Triple(
                 it.attr("data-post"),
                 it.attr("data-nume"),
                 it.attr("data-type")
             )
         }.amap { (id, nume, type) ->
-            if (!nume.contains("trailer")) {
+            if (!nume.contains("trailer", ignoreCase = true)) {
                 try {
                     val responseText = app.post(
                         url = "$mainUrl/wp-admin/admin-ajax.php",
@@ -326,8 +314,6 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                         link = link.replace(Regex("\\s"), "")
 
                         if (link.isNotBlank() && !link.contains("youtube", ignoreCase = true)) {
-                            // ponytail: Yield links instantly instead of blocking to sort them. 
-                            // Waiting for all servers to resolve just to sort them causes 2+ minute delays on timeouts.
                             routeExtractor(link, referer = mainUrl, subtitleCallback, { extLink ->
                                 callback(extLink)
                             })

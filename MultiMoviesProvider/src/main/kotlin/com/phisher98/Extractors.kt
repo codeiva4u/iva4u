@@ -21,15 +21,16 @@ import java.net.URI
 // ═══════════════════════════════════════════════════════════════════════════════════
 
 fun getStreamingServerPriority(serverName: String): Int = when {
-    serverName.contains("Screenscape", true) -> 8000
+    serverName.contains("StreamHG", true) -> 9500
+    serverName.contains("RPMSHARE", true) -> 9000
+    serverName.contains("Screenscape", true) -> 8500
+    serverName.contains("Peachify", true) -> 8000
     serverName.contains("Nxsha", true) -> 7500
-    serverName.contains("Peachify", true) -> 7000
-    serverName.contains("Technocosmos", true) -> 6500
-    serverName.contains("GDMIRROR", true) -> 6000
-    serverName.contains("StreamHG", true) -> 5000
-    serverName.contains("EarnVids", true) -> 4500
-    serverName.contains("Vibuxer", true) -> 4000
-    else -> 3000
+    serverName.contains("Technocosmos", true) -> 7000
+    serverName.contains("EarnVids", true) -> 6500
+    serverName.contains("Vibuxer", true) -> 6000
+    serverName.contains("GDMIRROR", true) -> 5500
+    else -> 4000
 }
 
 fun getBaseUrl(url: String): String {
