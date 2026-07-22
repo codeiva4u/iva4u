@@ -148,15 +148,16 @@ class Movies4uProvider : MainAPI() {
         val title: String = cleanTitle(titleText)
         if (title.isBlank()) return null
 
-        val imgElement = selectFirst("figure img, img")
+        val imgElement = selectFirst("figure img, img[src*='wp-content/uploads'], img[data-src], img[data-lazy-src], img")
         val posterUrl: String? = if (imgElement != null) {
             val srcAttr = imgElement.attr("src")
             val dataSrcAttr = imgElement.attr("data-src")
             val lazyAttr = imgElement.attr("data-lazy-src")
             val src = when {
-                srcAttr.isNotBlank() -> srcAttr
-                dataSrcAttr.isNotBlank() -> dataSrcAttr
-                else -> lazyAttr
+                dataSrcAttr.isNotBlank() && !dataSrcAttr.startsWith("data:") -> dataSrcAttr
+                lazyAttr.isNotBlank() && !lazyAttr.startsWith("data:") -> lazyAttr
+                srcAttr.isNotBlank() && !srcAttr.startsWith("data:") -> srcAttr
+                else -> ""
             }
             fixUrlNull(src)
         } else null
