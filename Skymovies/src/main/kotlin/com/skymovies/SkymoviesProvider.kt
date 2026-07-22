@@ -167,18 +167,16 @@ class SkymoviesProvider : MainAPI() {
                     val doc = app.get(urls.first(), headers = headers, timeout = 4000L).document
                     val posterMeta = doc.selectFirst("meta[property=og:image]")?.attr("content")
                     val posterImgElement = doc.selectFirst(
-                        "div.movielist img, img[src*='media-amazon'], img[src*='bmscdn'], img[src*='tmdb'], img[src*='poster']"
+                        "div.movielist img, img[src*='media-amazon'], img[src*='bmscdn'], img[src*='tmdb'], img[src*='poster'], img[src*='blogger'], img[src*='googleusercontent'], div.L img"
                     )
                     val posterImgSrc = posterImgElement?.attr("src") ?: ""
-                    val posterImg: String? = if (
-                        posterImgSrc.startsWith("http") &&
-                        !posterImgSrc.contains("/images/icon") &&
-                        !posterImgSrc.contains("/images/arw") &&
-                        !posterImgSrc.contains("logo")
-                    ) posterImgSrc else null
-
-                    val foundPoster = posterMeta ?: posterImg
-                    if (!foundPoster.isNullOrBlank() && foundPoster.startsWith("http")) {
+                    val posterImg: String? = fixUrlNull(posterImgSrc)
+                    val foundPoster = fixUrlNull(posterMeta) ?: posterImg
+                    if (!foundPoster.isNullOrBlank() &&
+                        !foundPoster.contains("/images/icon") &&
+                        !foundPoster.contains("/images/arw") &&
+                        !foundPoster.contains("logo")
+                    ) {
                         posterUrl = foundPoster
                     }
                 }
@@ -251,18 +249,17 @@ class SkymoviesProvider : MainAPI() {
             try {
                 val doc = if (u == firstUrl) document else app.get(u, headers = headers).document
                 val posterMeta = doc.selectFirst("meta[property=og:image]")?.attr("content")
-                // Target the dedicated movie poster div specifically
                 val posterImgElement = doc.selectFirst(
-                    "div.movielist img, img[src*='media-amazon'], img[src*='bmscdn'], img[src*='tmdb'], img[src*='poster']"
+                    "div.movielist img, img[src*='media-amazon'], img[src*='bmscdn'], img[src*='tmdb'], img[src*='poster'], img[src*='blogger'], img[src*='googleusercontent'], div.L img"
                 )
                 val posterImgSrc = posterImgElement?.attr("src") ?: ""
-                val posterImg: String? = if (posterImgSrc.startsWith("http") &&
-                    !posterImgSrc.contains("/images/icon") &&
-                    !posterImgSrc.contains("/images/arw") &&
-                    !posterImgSrc.contains("logo")
-                ) posterImgSrc else null
-                val foundPoster = posterMeta ?: posterImg
-                if (!foundPoster.isNullOrBlank() && foundPoster.startsWith("http")) {
+                val posterImg: String? = fixUrlNull(posterImgSrc)
+                val foundPoster = fixUrlNull(posterMeta) ?: posterImg
+                if (!foundPoster.isNullOrBlank() &&
+                    !foundPoster.contains("/images/icon") &&
+                    !foundPoster.contains("/images/arw") &&
+                    !foundPoster.contains("logo")
+                ) {
                     poster = foundPoster
                     break
                 }
