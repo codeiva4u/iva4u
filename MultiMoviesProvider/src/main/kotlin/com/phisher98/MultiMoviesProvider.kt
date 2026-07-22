@@ -218,19 +218,59 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         }
 
         val episodes = ArrayList<Episode>()
-        doc.select("#seasons ul.episodios").mapIndexed { seasonNum, me ->
-            me.select("li").mapIndexed { epNum, it ->
-                episodes.add(
-                    newEpisode(it.select("div.episodiotitle > a").attr("href"))
-                    {
-                        this.name = it.select("div.episodiotitle > a").text()
-                        this.season = seasonNum + 1
-                        this.episode = epNum + 1
-                        this.posterUrl = it.selectFirst("div.imagen > img")?.getImageAttr()
-                    }
-                )
+        val seasonElements = doc.select("#seasons > div.seaso, #seasons > div.seasons-div, #seasons > div.seasons")
+        if (seasonElements.isNotEmpty()) {
+            seasonElements.forEachIndexed { sIdx, sElem ->
+                val sTitleText = sElem.selectFirst("span.title, div.title, .seaso-title")?.text() ?: ""
+                val sNumParsed = Regex("""(?i)Season\s*(\d+)""").find(sTitleText)?.groupValues?.get(1)?.toIntOrNull()
+                val fallbackSeason = sNumParsed ?: (sIdx + 1)
+
+                sElem.select("ul.episodios > li, li").forEachIndexed { epIdx, li ->
+                    val href = fixUrlNull(li.selectFirst("div.episodiotitle > a, a")?.attr("href")) ?: return@forEachIndexed
+                    val name = li.selectFirst("div.episodiotitle > a, a")?.text()?.trim() ?: "Episode ${epIdx + 1}"
+                    val numerando = li.selectFirst("div.numerando")?.text()?.trim() ?: ""
+
+                    val numMatch = Regex("""(\d+)\s*-\s*(\d+)""").find(numerando)
+                    val parsedSeason = numMatch?.groupValues?.get(1)?.toIntOrNull() ?: fallbackSeason
+                    val parsedEpisode = numMatch?.groupValues?.get(2)?.toIntOrNull() ?: (epIdx + 1)
+                    val posterUrl = fixUrlNull(li.selectFirst("div.imagen > img, img")?.getImageAttr())
+
+                    episodes.add(
+                        newEpisode(href) {
+                            this.name = name
+                            this.season = parsedSeason
+                            this.episode = parsedEpisode
+                            this.posterUrl = posterUrl
+                        }
+                    )
+                }
+            }
+        } else {
+            doc.select("#seasons ul.episodios").forEachIndexed { seasonIdx, ul ->
+                ul.select("li").forEachIndexed { epIdx, li ->
+                    val href = fixUrlNull(li.selectFirst("div.episodiotitle > a, a")?.attr("href")) ?: return@forEachIndexed
+                    val name = li.selectFirst("div.episodiotitle > a, a")?.text()?.trim() ?: "Episode ${epIdx + 1}"
+                    val numerando = li.selectFirst("div.numerando")?.text()?.trim() ?: ""
+
+                    val numMatch = Regex("""(\d+)\s*-\s*(\d+)""").find(numerando)
+                    val parsedSeason = numMatch?.groupValues?.get(1)?.toIntOrNull() ?: (seasonIdx + 1)
+                    val parsedEpisode = numMatch?.groupValues?.get(2)?.toIntOrNull() ?: (epIdx + 1)
+                    val posterUrl = fixUrlNull(li.selectFirst("div.imagen > img, img")?.getImageAttr())
+
+                    episodes.add(
+                        newEpisode(href) {
+                            this.name = name
+                            this.season = parsedSeason
+                            this.episode = parsedEpisode
+                            this.posterUrl = posterUrl
+                        }
+                    )
+                }
             }
         }
+
+        val sortedEpisodes = episodes.distinctBy { Pair(it.season, it.episode) }
+            .sortedWith(compareBy({ it.season }, { it.episode }))
 
         return if (type == TvType.Movie) {
             newMovieLoadResponse(
@@ -251,7 +291,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 addTrailer(trailer)
             }
         } else {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, sortedEpisodes) {
                 this.posterUrl = poster?.trim()
                 this.backgroundPosterUrl = bgposter ?:poster
                 this.year = year
