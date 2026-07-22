@@ -322,6 +322,7 @@ class Movies4uProvider : MainAPI() {
                     newEpisode(data) {
                         this.name = "Episode $episodeNum"
                         this.episode = episodeNum
+                        this.season = 1
                     }
                 )
             }
@@ -331,6 +332,7 @@ class Movies4uProvider : MainAPI() {
                 newEpisode(data) {
                     this.name = "Full Season"
                     this.episode = 1
+                    this.season = 1
                 }
             )
         }
