@@ -40,6 +40,10 @@ class SkymoviesProvider : MainAPI() {
             """(?i)(?:Episodes?|EPiSODES?|EP)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
         )
 
+        private val SEASON_EPISODE_REGEX = Regex(
+            """(?i)(?:S\d+\s*)?E(?:PISODE|P|pisode)?\s*[-.:#]*\s*(\d{1,3})(?:\s*[-~T]\s*E?(\d{1,3}))?(?!\s*p|\d+p)"""
+        )
+
         private val QUALITY_REGEX = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
 
         private val FILE_SIZE_REGEX = Regex(
@@ -294,35 +298,52 @@ class SkymoviesProvider : MainAPI() {
         val episodeNum: Int? = null
     )
 
+    private fun extractEpisodesFromText(text: String): Set<Int> {
+        val result = mutableSetOf<Int>()
+        if (text.isBlank()) return result
+
+        SEASON_EPISODE_REGEX.findAll(text).forEach { match ->
+            val startEp = match.groupValues[1].toIntOrNull()
+            val endEp = match.groupValues[2].toIntOrNull()
+            if (startEp != null && startEp > 0 && startEp <= 500 && !QUALITY_NUMBERS.contains(startEp)) {
+                result.add(startEp)
+                if (endEp != null && endEp > startEp && endEp <= 500 && (endEp - startEp) <= 30) {
+                    for (ep in (startEp + 1)..endEp) {
+                        if (!QUALITY_NUMBERS.contains(ep)) {
+                            result.add(ep)
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     private suspend fun detectEpisodesFromHtml(document: Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
         val detectedEpisodes = mutableSetOf<Int>()
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
-        fun parseElementForEpisodes(doc: Document) {
-            // Use h-tags only to avoid sidebar contamination
-            doc.select("h3, h4, h5, h6").forEach { element ->
-                val text = element.text().trim()
-                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
-                    return@forEach
-                }
-
-                val matches = EPISODE_NUMBER_REGEX.findAll(text)
-                for (match in matches) {
-                    val epNum = match.groupValues[1].toIntOrNull()
-                    if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
-                        detectedEpisodes.add(epNum)
-                    }
-                }
-            }
-        }
-
         val urls = pageUrl.split("|||")
         for (u in urls) {
             try {
+                // 1. Extract from URL itself
+                detectedEpisodes.addAll(extractEpisodesFromText(u))
+
                 val doc = if (u == urls.first()) document else app.get(u, headers = headers).document
-                parseElementForEpisodes(doc)
+
+                // 2. Extract from page title & heading tags
+                val pageHeading = doc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
+                detectedEpisodes.addAll(extractEpisodesFromText(pageHeading))
+
+                // 3. Extract from h-tags
+                doc.select("h3, h4, h5, h6").forEach { element ->
+                    val text = element.text().trim()
+                    if (!QUALITY_REGEX.containsMatchIn(text) || text.contains("Episode", true) || text.contains("Ep", true) || text.contains("S0", true) || text.contains("S1", true)) {
+                        detectedEpisodes.addAll(extractEpisodesFromText(text))
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing episodes for sub-url: ${e.message}")
             }
@@ -330,6 +351,7 @@ class SkymoviesProvider : MainAPI() {
 
         detectedEpisodes.removeAll(QUALITY_NUMBERS)
 
+        // 4. Scan aggregator pages if no episodes detected
         if (detectedEpisodes.isEmpty()) {
             val aggregatorUrls = mutableListOf<String>()
             for (u in urls) {
@@ -342,12 +364,22 @@ class SkymoviesProvider : MainAPI() {
             for (aggUrl in distinctAggregators.take(5)) {
                 try {
                     val aggDoc = app.get(aggUrl).document
-                    parseElementForEpisodes(aggDoc)
+                    aggDoc.select("h2, h3, h4, h5, a, p").forEach { elem ->
+                        val text = elem.text().trim()
+                        detectedEpisodes.addAll(extractEpisodesFromText(text))
+                    }
                     detectedEpisodes.removeAll(QUALITY_NUMBERS)
                     if (detectedEpisodes.isNotEmpty()) break
                 } catch (e: Exception) {
                     Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                 }
+            }
+        }
+
+        // 5. Fallback for grouped episode sub-URLs (e.g., 4 episode pages grouped under one series title)
+        if (detectedEpisodes.isEmpty() && urls.size > 1) {
+            for (i in urls.indices) {
+                detectedEpisodes.add(i + 1)
             }
         }
 
@@ -394,10 +426,11 @@ class SkymoviesProvider : MainAPI() {
         return if (unit == "GB") value * 1024 else value
     }
 
-    private suspend fun extractDownloadLinks(document: Document): List<DownloadLink> {
+    private suspend fun extractDownloadLinks(document: Document, pageUrl: String = ""): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
-        var currentEpisode: Int? = null
+        var currentEpisode: Int? = extractEpisodesFromText(pageUrl).firstOrNull()
+            ?: extractEpisodesFromText(document.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "").firstOrNull()
 
         val relevantSelector = "h3, h4, h5, a[href*='howblogs'], a[href*='linkstaker'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
 
@@ -406,8 +439,7 @@ class SkymoviesProvider : MainAPI() {
 
             if (tagName in listOf("H3", "H4", "H5")) {
                 val headerText = element.text().trim()
-                val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
-                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                val epNum = extractEpisodesFromText(headerText).firstOrNull()
                 if (epNum != null && epNum > 0 && epNum < 500) {
                     currentEpisode = epNum
                 }
@@ -429,11 +461,10 @@ class SkymoviesProvider : MainAPI() {
 
                 seenUrls.add(url)
 
-                val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
-                val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
+                val linkEpisode = extractEpisodesFromText(linkText).firstOrNull() ?: currentEpisode
 
                 val episodeContext = when {
-                    linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
+                    linkEpisode != null -> "EPiSODE $linkEpisode | $linkText"
                     currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
                     linkText.isNotBlank() -> linkText
                     else -> "Download"
@@ -538,7 +569,7 @@ class SkymoviesProvider : MainAPI() {
             for (u in urls) {
                 try {
                     val document = app.get(u, headers = headers).document
-                    allLinks.addAll(extractDownloadLinks(document))
+                    allLinks.addAll(extractDownloadLinks(document, u))
                 } catch (e: Exception) {
                     Log.e(TAG, "Error extracting download links from sub-url: ${e.message}")
                 }
@@ -552,8 +583,8 @@ class SkymoviesProvider : MainAPI() {
                     if (byField.isNotEmpty()) byField
                     else {
                         allLinks.filter { link ->
-                            val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
-                            epNum == episodeNum
+                            val eps = extractEpisodesFromText(link.originalText)
+                            eps.contains(episodeNum)
                         }.ifEmpty { allLinks }
                     }
                 }
