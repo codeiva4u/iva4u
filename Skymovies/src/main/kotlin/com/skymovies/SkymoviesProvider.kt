@@ -37,11 +37,15 @@ class SkymoviesProvider : MainAPI() {
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
 
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:Episodes?|EPiSODES?|EP)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
+            """(?i)(?:Episodes?|EPiSODES?|EP|Episode)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
         )
 
         private val SEASON_EPISODE_REGEX = Regex(
             """(?i)(?:S\d+\s*)?E(?:PISODE|P|pisode)?\s*[-.:#]*\s*(\d{1,3})(?:\s*[-~T]\s*E?(\d{1,3}))?(?!\s*p|\d+p)"""
+        )
+
+        private val MULTI_EP_T_REGEX = Regex(
+            """(?i)E(\d{1,3})T(\d{1,3})"""
         )
 
         private val TOTAL_EPISODES_REGEX = Regex(
@@ -306,6 +310,18 @@ class SkymoviesProvider : MainAPI() {
         val result = mutableSetOf<Int>()
         if (text.isBlank()) return result
 
+        MULTI_EP_T_REGEX.findAll(text).forEach { match ->
+            val startEp = match.groupValues[1].toIntOrNull()
+            val endEp = match.groupValues[2].toIntOrNull()
+            if (startEp != null && endEp != null && startEp > 0 && endEp >= startEp && (endEp - startEp) <= 30) {
+                for (ep in startEp..endEp) {
+                    if (!QUALITY_NUMBERS.contains(ep)) {
+                        result.add(ep)
+                    }
+                }
+            }
+        }
+
         TOTAL_EPISODES_REGEX.findAll(text).forEach { match ->
             val count1 = match.groupValues[1].toIntOrNull()
             val count2 = match.groupValues[2].toIntOrNull()
@@ -351,11 +367,9 @@ class SkymoviesProvider : MainAPI() {
                 val pageHeading = doc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
                 epsInUrl.addAll(extractEpisodesFromText(pageHeading))
 
-                doc.select("h3, h4, h5, h6").forEach { element ->
+                doc.select("h3, h4, h5, h6, .Bolly, div.L, div.Let").forEach { element ->
                     val text = element.text().trim()
-                    if (!QUALITY_REGEX.containsMatchIn(text) || text.contains("Episode", true) || text.contains("Ep", true) || text.contains("S0", true) || text.contains("S1", true)) {
-                        epsInUrl.addAll(extractEpisodesFromText(text))
-                    }
+                    epsInUrl.addAll(extractEpisodesFromText(text))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing episodes for sub-url: ${e.message}")
