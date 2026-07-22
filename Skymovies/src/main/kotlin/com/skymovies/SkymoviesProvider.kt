@@ -144,7 +144,7 @@ class SkymoviesProvider : MainAPI() {
             }
         }
 
-        // Fetch poster from detail page for each group (parallel, 3s timeout per request)
+        // Fetch poster from detail page for each group (parallel, 4s timeout per request)
         return groupedMap.entries.toList().amap { (title, urls) ->
             val combinedUrl = urls.distinct().joinToString("|||")
             val isSeries = seriesFlags[title] ?: false
@@ -152,10 +152,22 @@ class SkymoviesProvider : MainAPI() {
             var posterUrl: String? = null
             try {
                 withTimeoutOrNull(4000L) {
-                    val doc = app.get(urls.first(), headers = headers).document
-                    val imgSrc = doc.selectFirst("div.movielist img")?.attr("src") ?: ""
-                    if (imgSrc.startsWith("http") && !imgSrc.contains("/images/")) {
-                        posterUrl = imgSrc
+                    val doc = app.get(urls.first(), headers = headers, timeout = 4000L).document
+                    val posterMeta = doc.selectFirst("meta[property=og:image]")?.attr("content")
+                    val posterImgElement = doc.selectFirst(
+                        "div.movielist img, img[src*='media-amazon'], img[src*='bmscdn'], img[src*='tmdb'], img[src*='poster']"
+                    )
+                    val posterImgSrc = posterImgElement?.attr("src") ?: ""
+                    val posterImg: String? = if (
+                        posterImgSrc.startsWith("http") &&
+                        !posterImgSrc.contains("/images/icon") &&
+                        !posterImgSrc.contains("/images/arw") &&
+                        !posterImgSrc.contains("logo")
+                    ) posterImgSrc else null
+
+                    val foundPoster = posterMeta ?: posterImg
+                    if (!foundPoster.isNullOrBlank() && foundPoster.startsWith("http")) {
+                        posterUrl = foundPoster
                     }
                 }
             } catch (e: Exception) {
