@@ -37,7 +37,19 @@ class Movies4uProvider : MainAPI() {
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
 
         private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:Episodes?|EPiSODES?|EP)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
+            """(?i)(?:Episodes?|EPiSODES?|EP|Episode)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
+        )
+
+        private val SEASON_EPISODE_REGEX = Regex(
+            """(?i)(?:S\d+\s*)?E(?:PISODE|P|pisode)?\s*[-.:#]*\s*(\d{1,3})(?:\s*[-~T]\s*E?(\d{1,3}))?(?!\s*p|\d+p)"""
+        )
+
+        private val MULTI_EP_T_REGEX = Regex(
+            """(?i)E(\d{1,3})T(\d{1,3})"""
+        )
+
+        private val TOTAL_EPISODES_REGEX = Regex(
+            """(?i)(?:(\d{1,2})\s*Episodes?|Episodes?\s*1\s*(?:to|-)\s*(\d{1,2}))"""
         )
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
@@ -89,7 +101,6 @@ class Movies4uProvider : MainAPI() {
         "" to "Latest",
         "category/bollywood-movies/" to "Bollywood",
         "category/hollywood-movies/" to "Hollywood",
-        "category/hindi-dubbed-movies/" to "Hindi Dubbed",
         "category/south-hindi-movies/" to "South Hindi Dubbed",
         "category/web-series/" to "Web Series"
     )
@@ -257,6 +268,58 @@ class Movies4uProvider : MainAPI() {
         val episodeNum: Int? = null
     )
 
+    private fun extractEpisodesFromText(text: String): Set<Int> {
+        val result = mutableSetOf<Int>()
+        if (text.isBlank()) return result
+
+        MULTI_EP_T_REGEX.findAll(text).forEach { match ->
+            val startEp = match.groupValues[1].toIntOrNull()
+            val endEp = match.groupValues[2].toIntOrNull()
+            if (startEp != null && endEp != null && startEp > 0 && endEp >= startEp && (endEp - startEp) <= 30) {
+                for (ep in startEp..endEp) {
+                    if (!QUALITY_NUMBERS.contains(ep)) {
+                        result.add(ep)
+                    }
+                }
+            }
+        }
+
+        TOTAL_EPISODES_REGEX.findAll(text).forEach { match ->
+            val count1 = match.groupValues[1].toIntOrNull()
+            val count2 = match.groupValues[2].toIntOrNull()
+            val total = count1 ?: count2
+            if (total != null && total in 1..60) {
+                for (ep in 1..total) {
+                    result.add(ep)
+                }
+            }
+        }
+
+        SEASON_EPISODE_REGEX.findAll(text).forEach { match ->
+            val startEp = match.groupValues[1].toIntOrNull()
+            val endEp = match.groupValues[2].toIntOrNull()
+            if (startEp != null && startEp > 0 && startEp <= 500 && !QUALITY_NUMBERS.contains(startEp)) {
+                result.add(startEp)
+                if (endEp != null && endEp > startEp && endEp <= 500 && (endEp - startEp) <= 30) {
+                    for (ep in (startEp + 1)..endEp) {
+                        if (!QUALITY_NUMBERS.contains(ep)) {
+                            result.add(ep)
+                        }
+                    }
+                }
+            }
+        }
+
+        EPISODE_NUMBER_REGEX.findAll(text).forEach { match ->
+            val epNum = match.groupValues[1].toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
+                result.add(epNum)
+            }
+        }
+
+        return result
+    }
+
     private suspend fun detectEpisodesFromHtml(document: Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
         val detectedEpisodes = mutableSetOf<Int>()
@@ -264,27 +327,23 @@ class Movies4uProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         fun parseElementForEpisodes(doc: Document) {
-            // Only parse from main content area to avoid sidebar contamination
             val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article, .download-links-div")
                 ?: doc
-            contentRoot.select("h3, h4, h5, h6").forEach { element ->
+            
+            // Check page title and headers first
+            val mainTitle = doc.selectFirst("h1.single-title, .entry-title, h1.post-title, h1, title")?.text() ?: ""
+            detectedEpisodes.addAll(extractEpisodesFromText(mainTitle))
+
+            contentRoot.select("h3, h4, h5, h6, p, a, div").forEach { element ->
                 val text = element.text().trim()
-                // Skip elements that are purely quality/size info without episode marker
-                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true)) {
+                if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true) && !text.contains("S0", true) && !text.contains("E0", true)) {
                     return@forEach
                 }
-                // Skip size-only patterns like "180MB", "550MB" etc.
                 if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
                     return@forEach
                 }
 
-                val matches = EPISODE_NUMBER_REGEX.findAll(text)
-                for (match in matches) {
-                    val epNum = match.groupValues[1].toIntOrNull()
-                    if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
-                        detectedEpisodes.add(epNum)
-                    }
-                }
+                detectedEpisodes.addAll(extractEpisodesFromText(text))
             }
         }
 
@@ -296,16 +355,9 @@ class Movies4uProvider : MainAPI() {
             for (aggUrl in aggregatorUrls.take(3)) {
                 try {
                     val aggDoc = app.get(aggUrl).document
-                    // For m4ulinks pages, scan all h3/h4/h5 (no sidebar issues there)
-                    aggDoc.select("h3, h4, h5").forEach { element ->
+                    aggDoc.select("h3, h4, h5, p, a").forEach { element ->
                         val text = element.text().trim()
-                        val matches = EPISODE_NUMBER_REGEX.findAll(text)
-                        for (match in matches) {
-                            val epNum = match.groupValues[1].toIntOrNull()
-                            if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
-                                detectedEpisodes.add(epNum)
-                            }
-                        }
+                        detectedEpisodes.addAll(extractEpisodesFromText(text))
                     }
                     detectedEpisodes.removeAll(QUALITY_NUMBERS)
                     if (detectedEpisodes.isNotEmpty()) break
