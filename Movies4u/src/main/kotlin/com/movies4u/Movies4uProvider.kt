@@ -347,14 +347,8 @@ class Movies4uProvider : MainAPI() {
         detectedEpisodes.removeAll(QUALITY_NUMBERS)
 
         if (detectedEpisodes.isNotEmpty()) {
-            val sortedEps = detectedEpisodes.sorted()
-            val epList = if (sortedEps.size == 1 && sortedEps.first() > 1) {
-                (1..sortedEps.first()).toList()
-            } else {
-                sortedEps
-            }
-
-            epList.forEach { episodeNum ->
+            val maxEpisode = detectedEpisodes.maxOrNull() ?: 1
+            for (episodeNum in 1..maxEpisode) {
                 val data = "$pageUrl|||$episodeNum"
                 episodes.add(
                     newEpisode(data) {
