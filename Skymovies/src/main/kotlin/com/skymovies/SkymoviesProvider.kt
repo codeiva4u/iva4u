@@ -301,8 +301,8 @@ class SkymoviesProvider : MainAPI() {
         val result = mutableSetOf<Int>()
         if (text.isBlank()) return result
 
-        val RANGE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
-        val SINGLE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val RANGE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val SINGLE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP|Episodes?|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
 
         RANGE_REGEX.findAll(text).forEach { match ->
             val startEp = match.groupValues[1].toIntOrNull()
@@ -312,15 +312,6 @@ class SkymoviesProvider : MainAPI() {
                     if (!QUALITY_NUMBERS.contains(ep)) {
                         result.add(ep)
                     }
-                }
-            }
-        }
-
-        TOTAL_EPISODES_REGEX.findAll(text).forEach { match ->
-            val count2 = match.groupValues[2].toIntOrNull() // Matches "Episodes 1 to 10"
-            if (count2 != null && count2 in 1..100) {
-                for (ep in 1..count2) {
-                    result.add(ep)
                 }
             }
         }
@@ -349,7 +340,7 @@ class SkymoviesProvider : MainAPI() {
 
                 val doc = if (u == urlList.first()) document else app.get(u, headers = headers).document
                 val cleanDoc = doc.clone()
-                cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+                cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
                 val pageHeading = cleanDoc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
                 epsInUrl.addAll(extractEpisodesFromText(pageHeading))
@@ -459,7 +450,7 @@ class SkymoviesProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         
         val cleanDoc = document.clone()
-        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
         var currentEpisodes = extractEpisodesFromText(pageUrl).ifEmpty {
             extractEpisodesFromText(cleanDoc.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "")

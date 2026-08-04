@@ -269,8 +269,8 @@ class Movies4uProvider : MainAPI() {
         val result = mutableSetOf<Int>()
         if (text.isBlank()) return result
 
-        val RANGE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
-        val SINGLE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val RANGE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val SINGLE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP|Episodes?|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
 
         RANGE_REGEX.findAll(text).forEach { match ->
             val startEp = match.groupValues[1].toIntOrNull()
@@ -280,15 +280,6 @@ class Movies4uProvider : MainAPI() {
                     if (!QUALITY_NUMBERS.contains(ep)) {
                         result.add(ep)
                     }
-                }
-            }
-        }
-
-        TOTAL_EPISODES_REGEX.findAll(text).forEach { match ->
-            val count2 = match.groupValues[2].toIntOrNull() // Matches "Episodes 1 to 10"
-            if (count2 != null && count2 in 1..100) {
-                for (ep in 1..count2) {
-                    result.add(ep)
                 }
             }
         }
@@ -310,7 +301,7 @@ class Movies4uProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         val cleanDoc = document.clone()
-        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
         val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         detectedEpisodes.addAll(extractEpisodesFromText(pageTitle))
@@ -408,7 +399,7 @@ class Movies4uProvider : MainAPI() {
         var currentEpisodes = emptySet<Int>()
 
         val cleanDoc = document.clone()
-        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
         val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
