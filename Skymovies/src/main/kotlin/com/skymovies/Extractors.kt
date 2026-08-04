@@ -9,7 +9,6 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import okhttp3.FormBody
 import org.json.JSONObject
@@ -25,6 +24,155 @@ val VIDEO_HEADERS = mapOf(
     "Range" to "bytes=0-",
     "Icy-MetaData" to "1"
 )
+
+open class FastDLExtractor : ExtractorApi() {
+    override val name = "FastDL"
+    override val mainUrl = "https://fastdl\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, allowRedirects = false)
+            val loc = response.headers["location"].orEmpty()
+            val targetUrl = if (loc.isNotBlank()) loc else url
+            val videoUrl = if (targetUrl.contains("link=")) {
+                java.net.URLDecoder.decode(targetUrl.substringAfter("link="), "UTF-8")
+            } else {
+                val doc = app.get(url).document
+                val linkAttr = doc.selectFirst("a[href*='link=']")?.attr("href") ?: ""
+                if (linkAttr.contains("link=")) {
+                    java.net.URLDecoder.decode(linkAttr.substringAfter("link="), "UTF-8")
+                } else ""
+            }
+            if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, videoUrl
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class VCloudExtractor : ExtractorApi() {
+    override val name = "VCloud"
+    override val mainUrl = "https://vcloud\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val innerLink = doc.selectFirst("a[href*='hubcloud'], a[href*='fastdl'], a[href*='filebee'], a[href*='gdflix'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")?.attr("href") ?: ""
+            if (innerLink.isNotBlank() && innerLink.startsWith("http")) {
+                processPluginExtractor(innerLink, referer, subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class FilebeeExtractor : ExtractorApi() {
+    override val name = "Filebee"
+    override val mainUrl = "https://filebee\\.xyz"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val directLink = doc.selectFirst("a[href*='googleusercontent.com'], a[href*='r2.cloudflarestorage.com'], a[href*='pixeldrain.dev'], a[href*='gofile.io']")?.attr("href") ?: ""
+            if (directLink.isNotBlank() && directLink.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, directLink
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+suspend fun processPluginExtractor(
+    link: String,
+    referer: String?,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+) {
+    if (shouldBlockUrl(link)) return
+
+    try {
+        when {
+            link.contains("fastdl", true) ->
+                FastDLExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("vcloud", true) ->
+                VCloudExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("filebee", true) || link.contains("filepress", true) ->
+                FilebeeExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("howblogs", true) || link.contains("linkstaker", true) ->
+                Howblogs().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                HubCloud().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("gdflix", true) || link.contains("gdlink", true) ->
+                GDFlix().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcdn", true) ->
+                HUBCDN().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("pixeldrain", true) -> {
+                val finalURL = if (link.contains("/u/")) {
+                    "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
+                } else link
+                callback(newExtractorLink(
+                    "Pixeldrain", "Pixeldrain", finalURL
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+
+            link.contains("video-downloads.googleusercontent.com", true) ||
+            link.contains("r2.cloudflarestorage.com", true) ||
+            link.endsWith(".mkv", true) ||
+            link.endsWith(".mp4", true) -> {
+                callback(newExtractorLink(
+                    "Direct", "Direct Stream", link
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("PluginExtractor", "Error: ${e.message}")
+    }
+}
 
 fun getIndexQuality(str: String?): Int {
     return Regex("""(\d{3,4})[pP]""").find(str ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -189,20 +337,154 @@ open class Howblogs : ExtractorApi() {
                 if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
                 if (shouldBlockUrl(href)) return@amap
 
-                try {
-                    when {
-                        href.contains("hubcloud", true) ->
-                            HubCloud().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("gdflix", true) ->
-                            GDFlix().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcdn", true) ->
-                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed inner link: ${e.message}")
-                }
+open class FastDLExtractor : ExtractorApi() {
+    override val name = "FastDL"
+    override val mainUrl = "https://fastdl\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, allowRedirects = false)
+            val loc = response.headers["location"].orEmpty()
+            val targetUrl = if (loc.isNotBlank()) loc else url
+            val videoUrl = if (targetUrl.contains("link=")) {
+                java.net.URLDecoder.decode(targetUrl.substringAfter("link="), "UTF-8")
+            } else {
+                val doc = app.get(url).document
+                val linkAttr = doc.selectFirst("a[href*='link=']")?.attr("href") ?: ""
+                if (linkAttr.contains("link=")) {
+                    java.net.URLDecoder.decode(linkAttr.substringAfter("link="), "UTF-8")
+                } else ""
+            }
+            if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, videoUrl
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class VCloudExtractor : ExtractorApi() {
+    override val name = "VCloud"
+    override val mainUrl = "https://vcloud\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val innerLink = doc.selectFirst("a[href*='hubcloud'], a[href*='fastdl'], a[href*='filebee'], a[href*='gdflix'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")?.attr("href") ?: ""
+            if (innerLink.isNotBlank() && innerLink.startsWith("http")) {
+                processPluginExtractor(innerLink, referer, subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class FilebeeExtractor : ExtractorApi() {
+    override val name = "Filebee"
+    override val mainUrl = "https://filebee\\.xyz"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val directLink = doc.selectFirst("a[href*='googleusercontent.com'], a[href*='r2.cloudflarestorage.com'], a[href*='pixeldrain.dev'], a[href*='gofile.io']")?.attr("href") ?: ""
+            if (directLink.isNotBlank() && directLink.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, directLink
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+suspend fun processPluginExtractor(
+    link: String,
+    referer: String?,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+) {
+    if (shouldBlockUrl(link)) return
+
+    try {
+        when {
+            link.contains("fastdl", true) ->
+                FastDLExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("vcloud", true) ->
+                VCloudExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("filebee", true) || link.contains("filepress", true) ->
+                FilebeeExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("m4ulinks", true) || link.contains("mdrive", true) || link.contains("howblogs", true) || link.contains("linkstaker", true) ->
+                Howblogs().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                HubCloud().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("gdflix", true) || link.contains("gdlink", true) ->
+                GDFlix().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcdn", true) ->
+                HUBCDN().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("pixeldrain", true) -> {
+                val finalURL = if (link.contains("/u/")) {
+                    "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
+                } else link
+                callback(newExtractorLink(
+                    "Pixeldrain", "Pixeldrain", finalURL
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+
+            link.contains("video-downloads.googleusercontent.com", true) ||
+            link.contains("r2.cloudflarestorage.com", true) ||
+            link.endsWith(".mkv", true) ||
+            link.endsWith(".mp4", true) -> {
+                callback(newExtractorLink(
+                    "Direct", "Direct Stream", link
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("PluginExtractor", "Error: ${e.message}")
+    }
+}
             }
         } catch (e: Exception) {
             Log.e(tag, "Error processing howblogs: ${e.message}")
@@ -311,7 +593,7 @@ open class HubCloud : ExtractorApi() {
             }
 
             // Jul 2026: Download buttons are now OUTSIDE div.card-body (inside <h2>), so scan the whole document
-            val downloadButtons = document.select("div.card-body a, a.btn, a.btn-lg, a[href*='gpdl.'], a[href*='pixeldra']")
+            val downloadButtons = document.select("a[href*='cloudflarestorage.com'], a[href*='fsl-buckets'], a[href*='pixel.hubcloud'], a[href*='pixeldrain'], a[href*='gpdl'], div.card-body a, a.btn, a.btn-lg, a[href*='http']")
             downloadButtons.amap { element ->
                 val link = element.attr("href")
                 val text = element.text()

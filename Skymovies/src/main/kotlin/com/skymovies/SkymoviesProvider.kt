@@ -690,26 +690,7 @@ class SkymoviesProvider : MainAPI() {
                         val link = downloadLink.url
                         Log.d(TAG, "Extracting: $link")
 
-                        when {
-                            link.contains("howblogs", true) || link.contains("linkstaker", true) ->
-                                Howblogs().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                            link.contains("hubcloud", true) ->
-                                HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                            link.contains("gdflix", true) || link.contains("gdlink", true) ->
-                                GDFlix().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                            link.contains("hubcdn", true) ->
-                                HUBCDN().getUrl(link, mainUrl, subtitleCallback, callback)
-
-                            link.contains("gofile.io", true) || link.contains("pixeldrain", true) ->
-                                com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
-
-                            else -> {
-                                com.lagradost.cloudstream3.utils.loadExtractor(link, mainUrl, subtitleCallback, callback)
-                            }
-                        }
+                        processPluginExtractor(link, mainUrl, subtitleCallback, callback)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
