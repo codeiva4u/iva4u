@@ -172,14 +172,40 @@ class MoviesDriveProvider : MainAPI() {
         val results = mutableListOf<SearchResponse>()
 
         try {
-            val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
-            val document = app.get(searchUrl, headers = headers).document
+            // MoviesDrive uses a JS-rendered search page: ?s= redirects to search.html?q= (SPA)
+            // The real search API is /search.php?q=query returns JSON
+            val searchApiUrl = "$mainUrl/search.php?q=${query.replace(" ", "+")}&page=1"
+            val json = app.get(searchApiUrl, headers = headers).text
 
-            val items = document.select("div.movies-grid a[href], article, .post, .type-post, h2.entry-title a, h3.entry-title a").mapNotNull {
-                it.toSearchResult()
-            }.distinctBy { it.url }
+            val jsonObj = org.json.JSONObject(json)
+            val hits = jsonObj.optJSONArray("hits") ?: return results
 
-            results.addAll(items)
+            for (i in 0 until hits.length()) {
+                val doc = hits.getJSONObject(i).optJSONObject("document") ?: continue
+                val title = doc.optString("post_title").trim()
+                val permalink = doc.optString("permalink").trim()
+                val thumb = doc.optString("post_thumbnail").trim()
+
+                if (title.isBlank() || permalink.isBlank()) continue
+
+                val fixedUrl = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
+                val cleanedTitle = cleanTitle(title)
+                if (cleanedTitle.isBlank() || cleanedTitle.length < 2) continue
+
+                val posterUrl = fixUrlNull(thumb)
+                val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(title)
+
+                val result = if (isSeries) {
+                    newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
+                        this.posterUrl = posterUrl
+                    }
+                } else {
+                    newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
+                        this.posterUrl = posterUrl
+                    }
+                }
+                results.add(result)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Search error: ${e.message}")
         }

@@ -500,7 +500,7 @@ open class GDFlix : ExtractorApi() {
 
         try {
             val response = app.get(newUrl).document
-            response.select("a[href*='drive.google.com'], a[href*='workers.dev'], a[href*='gofile.io'], a[href*='pixeldrain.dev'], a[href*='r2.cloudflarestorage.com']").forEach { elem ->
+            response.select("a[href*='drive.google.com'], a[href*='workers.dev'], a[href*='gofile.io'], a[href*='pixeldrain.dev'], a[href*='r2.cloudflarestorage.com'], a[href*='r2.dev'], a[href*='busycdn'], a[href*='indexserver']").forEach { elem ->
                 val link = elem.attr("href")
                 if (link.isNotBlank() && !shouldBlockUrl(link)) {
                     callback(newExtractorLink(

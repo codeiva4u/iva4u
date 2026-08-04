@@ -172,14 +172,44 @@ class HDhub4uProvider : MainAPI() {
         val results = mutableListOf<SearchResponse>()
 
         try {
-            val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
-            val document = app.get(searchUrl, headers = headers).document
+            // HDHub4u uses an external Typesense API for search
+            val searchApiUrl = "https://search.pingora.fyi/collections/post/documents/search?q=${query.replace(" ", "+")}&query_by=post_title,category,stars,director,imdb_id&sort_by=sort_by_date:desc&limit=20&page=1"
+            val apiHeaders = mapOf(
+                "Origin" to mainUrl,
+                "Referer" to "$mainUrl/",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            )
+            
+            val json = app.get(searchApiUrl, headers = apiHeaders).text
+            val jsonObj = org.json.JSONObject(json)
+            val hits = jsonObj.optJSONArray("hits") ?: return results
 
-            val items = document.select("article, .post, .type-post, li.thumb, li.movie-card").mapNotNull {
-                it.toSearchResult()
-            }.distinctBy { it.url }
+            for (i in 0 until hits.length()) {
+                val doc = hits.getJSONObject(i).optJSONObject("document") ?: continue
+                val title = doc.optString("post_title").trim()
+                val permalink = doc.optString("permalink").trim()
+                val thumb = doc.optString("post_thumbnail").trim()
 
-            results.addAll(items)
+                if (title.isBlank() || permalink.isBlank()) continue
+
+                val fixedUrl = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
+                val cleanedTitle = cleanTitle(title)
+                if (cleanedTitle.isBlank() || cleanedTitle.length < 2) continue
+
+                val posterUrl = fixUrlNull(thumb)
+                val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(title)
+
+                val result = if (isSeries) {
+                    newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
+                        this.posterUrl = posterUrl
+                    }
+                } else {
+                    newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
+                        this.posterUrl = posterUrl
+                    }
+                }
+                results.add(result)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Search error: ${e.message}")
         }
