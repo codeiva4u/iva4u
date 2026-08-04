@@ -36,18 +36,6 @@ class Movies4uProvider : MainAPI() {
 
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
 
-        private val EPISODE_NUMBER_REGEX = Regex(
-            """(?i)(?:Episodes?|EPiSODES?|EP|Episode)\s*[-.:#]*\s*(\d{1,4})(?!\s*p|\d+p)"""
-        )
-
-        private val SEASON_EPISODE_REGEX = Regex(
-            """(?i)(?:S\d+\s*)?E(?:PISODE|P|pisode)?\s*[-.:#]*\s*(\d{1,3})(?:\s*[-~T]\s*E?(\d{1,3}))?(?!\s*p|\d+p)"""
-        )
-
-        private val MULTI_EP_T_REGEX = Regex(
-            """(?i)E(\d{1,3})T(\d{1,3})"""
-        )
-
         private val TOTAL_EPISODES_REGEX = Regex(
             """(?i)(?:(\d{1,2})\s*Episodes?|Episodes?\s*1\s*(?:to|-)\s*(\d{1,2}))"""
         )
@@ -99,9 +87,10 @@ class Movies4uProvider : MainAPI() {
 
     override val mainPage = mainPageOf(
         "" to "Latest",
-        "category/bollywood-movies/" to "Bollywood",
-        "category/hollywood-movies/" to "Hollywood",
-        "category/south-hindi-movies/" to "South Hindi Dubbed",
+        "category/bollywood/" to "Bollywood",
+        "category/hollywood/" to "Hollywood",
+        "category/south-indian/" to "South Hindi Dubbed",
+        "category/dual-audio/" to "Dual Audio",
         "category/web-series/" to "Web Series"
     )
 
@@ -266,17 +255,20 @@ class Movies4uProvider : MainAPI() {
         val quality: Int,
         val sizeMB: Double,
         val originalText: String,
-        val episodeNum: Int? = null
+        val episodes: Set<Int> = emptySet()
     )
 
     private fun extractEpisodesFromText(text: String): Set<Int> {
         val result = mutableSetOf<Int>()
         if (text.isBlank()) return result
 
-        MULTI_EP_T_REGEX.findAll(text).forEach { match ->
+        val RANGE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val SINGLE_REGEX = Regex("""(?i)(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+
+        RANGE_REGEX.findAll(text).forEach { match ->
             val startEp = match.groupValues[1].toIntOrNull()
             val endEp = match.groupValues[2].toIntOrNull()
-            if (startEp != null && endEp != null && startEp > 0 && endEp >= startEp && (endEp - startEp) <= 30) {
+            if (startEp != null && endEp != null && startEp > 0 && endEp >= startEp && (endEp - startEp) <= 100) {
                 for (ep in startEp..endEp) {
                     if (!QUALITY_NUMBERS.contains(ep)) {
                         result.add(ep)
@@ -286,34 +278,17 @@ class Movies4uProvider : MainAPI() {
         }
 
         TOTAL_EPISODES_REGEX.findAll(text).forEach { match ->
-            val count1 = match.groupValues[1].toIntOrNull()
-            val count2 = match.groupValues[2].toIntOrNull()
-            val total = count1 ?: count2
-            if (total != null && total in 1..60) {
-                for (ep in 1..total) {
+            val count2 = match.groupValues[2].toIntOrNull() // Matches "Episodes 1 to 10"
+            if (count2 != null && count2 in 1..100) {
+                for (ep in 1..count2) {
                     result.add(ep)
                 }
             }
         }
 
-        SEASON_EPISODE_REGEX.findAll(text).forEach { match ->
-            val startEp = match.groupValues[1].toIntOrNull()
-            val endEp = match.groupValues[2].toIntOrNull()
-            if (startEp != null && startEp > 0 && startEp <= 500 && !QUALITY_NUMBERS.contains(startEp)) {
-                result.add(startEp)
-                if (endEp != null && endEp > startEp && endEp <= 500 && (endEp - startEp) <= 30) {
-                    for (ep in (startEp + 1)..endEp) {
-                        if (!QUALITY_NUMBERS.contains(ep)) {
-                            result.add(ep)
-                        }
-                    }
-                }
-            }
-        }
-
-        EPISODE_NUMBER_REGEX.findAll(text).forEach { match ->
+        SINGLE_REGEX.findAll(text).forEach { match ->
             val epNum = match.groupValues[1].toIntOrNull()
-            if (epNum != null && epNum > 0 && epNum <= 500 && !QUALITY_NUMBERS.contains(epNum)) {
+            if (epNum != null && epNum > 0 && epNum <= 1000 && !QUALITY_NUMBERS.contains(epNum)) {
                 result.add(epNum)
             }
         }
@@ -340,7 +315,7 @@ class Movies4uProvider : MainAPI() {
                 val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article") ?: doc
                 contentRoot.select("h3, h4, h5, h6, p, a, div").forEach { element ->
                     val text = element.text().trim()
-                    if (QUALITY_REGEX.containsMatchIn(text) && !text.contains("Episode", true) && !text.contains("Ep", true) && !text.contains("S0", true) && !text.contains("E0", true)) {
+                    if (QUALITY_REGEX.containsMatchIn(text) && !text.contains(Regex("""(?i)Ep|Episode|S\d|E\d"""))) {
                         return@forEach
                     }
                     if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
@@ -415,7 +390,7 @@ class Movies4uProvider : MainAPI() {
     private suspend fun extractDownloadLinks(document: Document): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
-        var currentEpisode: Int? = null
+        var currentEpisodes = emptySet<Int>()
 
         val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
@@ -424,9 +399,9 @@ class Movies4uProvider : MainAPI() {
 
             if (tagName in listOf("H3", "H4", "H5")) {
                 val headerText = element.text().trim()
-                val epNum = extractEpisodesFromText(headerText).firstOrNull()
-                if (epNum != null && epNum > 0 && epNum < 500) {
-                    currentEpisode = epNum
+                val eps = extractEpisodesFromText(headerText)
+                if (eps.isNotEmpty()) {
+                    currentEpisodes = eps
                 }
                 return@forEach
             }
@@ -446,11 +421,12 @@ class Movies4uProvider : MainAPI() {
 
                 seenUrls.add(url)
 
-                val linkEpisode = extractEpisodesFromText(linkText).firstOrNull() ?: currentEpisode
+                val linkEpisodes = extractEpisodesFromText(linkText).ifEmpty { currentEpisodes }
+                
+                val epStr = if (linkEpisodes.isNotEmpty()) linkEpisodes.joinToString("-") else ""
 
                 val episodeContext = when {
-                    extractEpisodesFromText(linkText).isNotEmpty() -> "EPiSODE $linkEpisode | $linkText"
-                    currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
+                    linkEpisodes.isNotEmpty() && linkText.isNotBlank() -> "EPiSODE $epStr | $linkText"
                     linkText.isNotBlank() -> linkText
                     else -> "Download"
                 }
@@ -461,7 +437,7 @@ class Movies4uProvider : MainAPI() {
                         quality = extractQuality(episodeContext),
                         sizeMB = parseFileSize(episodeContext),
                         originalText = episodeContext,
-                        episodeNum = linkEpisode
+                        episodes = linkEpisodes
                     )
                 )
             }
@@ -473,15 +449,14 @@ class Movies4uProvider : MainAPI() {
             if (link.url.contains("m4ulinks", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
-                    var m4uEpisode: Int? = link.episodeNum
+                    var m4uEpisodes = link.episodes
 
                     m4uDoc.select("h3, h4, h5, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
                         if (tag in listOf("H3", "H4", "H5")) {
-                            val epMatch = EPISODE_NUMBER_REGEX.find(elem.text())
-                            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
-                            if (epNum != null && epNum > 0 && epNum < 500) {
-                                m4uEpisode = epNum
+                            val eps = extractEpisodesFromText(elem.text())
+                            if (eps.isNotEmpty()) {
+                                m4uEpisodes = eps
                             }
                         } else if (tag == "A") {
                             val innerUrl = elem.attr("href")
@@ -493,7 +468,7 @@ class Movies4uProvider : MainAPI() {
                                         quality = extractQuality(innerText),
                                         sizeMB = parseFileSize(innerText),
                                         originalText = innerText,
-                                        episodeNum = m4uEpisode
+                                        episodes = m4uEpisodes
                                     )
                                 )
                             }
@@ -547,9 +522,9 @@ class Movies4uProvider : MainAPI() {
 
             val targetLinks = when {
                 episodeNum == null -> allLinks
-                episodeNum == 0 -> allLinks.filter { it.episodeNum == null }.ifEmpty { allLinks }
+                episodeNum == 0 -> allLinks.filter { it.episodes.isEmpty() }.ifEmpty { allLinks }
                 else -> {
-                    val byField = allLinks.filter { it.episodeNum == episodeNum }
+                    val byField = allLinks.filter { it.episodes.contains(episodeNum) }
                     if (byField.isNotEmpty()) byField
                     else {
                         allLinks.filter { link ->
