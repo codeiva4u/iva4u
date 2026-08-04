@@ -369,33 +369,36 @@ class SkymoviesProvider : MainAPI() {
         }
 
         if (episodesBySeason.isEmpty()) {
-            val aggregatorUrls = mutableListOf<String>()
-            for (u in urlList) {
-                try {
-                    val doc = if (u == urlList.first()) document else app.get(u, headers = headers).document
-                    aggregatorUrls.addAll(doc.select("a[href*='howblogs'], a[href*='linkstaker'], a[href*='mdrive'], a[href*='m4ulinks']").map { it.attr("href") })
-                } catch (_: Exception) {}
-            }
-            val distinctAggregators = aggregatorUrls.distinct()
-            for (aggUrl in distinctAggregators.take(10)) {
-                try {
-                    val aggDoc = app.get(aggUrl).document
-                    aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+            val mainCleanDoc = document.clone()
+            mainCleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-                    var aggSeason = extractSeasonFromText(aggDoc.selectFirst("title, h1, h2, h3")?.text() ?: "") ?: mainSeason
+            val aggregatorUrls = mainCleanDoc.select("a[href*='howblogs'], a[href*='linkstaker'], a[href*='mdrive'], a[href*='m4ulinks']")
+                .map { it.attr("href") }
+                .distinct()
 
-                    aggDoc.select("h2, h3, h4, h5, h6, a, p").forEach { elem ->
-                        val text = elem.text().trim()
-                        val s = extractSeasonFromText(text)
-                        if (s != null) aggSeason = s
+            if (aggregatorUrls.isNotEmpty()) {
+                withTimeoutOrNull(4000L) {
+                    aggregatorUrls.take(4).amap { aggUrl ->
+                        try {
+                            val aggDoc = app.get(aggUrl).document
+                            aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-                        val eps = extractEpisodesFromText(text)
-                        if (eps.isNotEmpty()) {
-                            episodesBySeason.getOrPut(aggSeason) { mutableSetOf() }.addAll(eps)
+                            var aggSeason = extractSeasonFromText(aggDoc.selectFirst("title, h1, h2, h3")?.text() ?: "") ?: mainSeason
+
+                            aggDoc.select("h2, h3, h4, h5, h6, a, p").forEach { elem ->
+                                val text = elem.text().trim()
+                                val s = extractSeasonFromText(text)
+                                if (s != null) aggSeason = s
+
+                                val eps = extractEpisodesFromText(text)
+                                if (eps.isNotEmpty()) {
+                                    episodesBySeason.getOrPut(aggSeason) { mutableSetOf() }.addAll(eps)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                 }
             }
         }

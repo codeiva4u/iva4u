@@ -353,29 +353,27 @@ class Movies4uProvider : MainAPI() {
             }
         }
 
-        val relevantAnchors = cleanDoc.select("h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")
-        var contextSeason = mainSeason
+        // First parse main page content
+        parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
-        relevantAnchors.forEach { element ->
-            val text = element.text().trim()
-            val s = extractSeasonFromText(text)
-            if (s != null) contextSeason = s
+        // Fetch aggregators IN PARALLEL with 4s timeout for instant loading
+        val aggregatorLinks = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")
+            .map { Pair(it.attr("href"), extractSeasonFromText(it.text()) ?: mainSeason) }
+            .distinctBy { it.first }
 
-            if (element.tagName().uppercase() == "A") {
-                val href = element.attr("href")
-                if (href.contains("m4ulinks", true) || href.contains("mdrive", true) || href.contains("howblogs", true) || href.contains("linkstaker", true)) {
+        if (aggregatorLinks.isNotEmpty()) {
+            withTimeoutOrNull(4000L) {
+                aggregatorLinks.take(4).amap { (href, seasonContext) ->
                     try {
                         val aggDoc = app.get(href, headers = headers).document
                         aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
-                        parseDocForEpisodes(aggDoc, defaultSeason = contextSeason)
+                        parseDocForEpisodes(aggDoc, defaultSeason = seasonContext)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                     }
                 }
             }
         }
-
-        parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
         if (episodesBySeason.isNotEmpty()) {
             episodesBySeason.keys.sorted().forEach { sNum ->
