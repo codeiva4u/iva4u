@@ -124,16 +124,22 @@ class SkymoviesProvider : MainAPI() {
 
         forEach { element ->
             val href = element.attr("href")
-            if (href.isBlank() || href.contains("/category/") || href.contains("index.php")) return@forEach
+            if (href.isBlank() || 
+                href == "/" || 
+                href == mainUrl || 
+                href == "$mainUrl/" || 
+                href.contains("/category/") || 
+                href.contains("index.php") ||
+                href.contains("#")) return@forEach
 
             val fixedUrl = fixUrl(href)
             val titleText = element.text().ifBlank {
                 element.selectFirst("img")?.attr("alt") ?: element.selectFirst("img")?.attr("title") ?: ""
             }.trim()
 
-            if (titleText.isBlank()) return@forEach
+            if (titleText.isBlank() || titleText.equals("logo", ignoreCase = true)) return@forEach
             val title = cleanTitle(titleText)
-            if (title.isBlank()) return@forEach
+            if (title.isBlank() || title.equals("logo", ignoreCase = true) || title.equals("home", ignoreCase = true) || title.length < 2) return@forEach
 
             val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
 
@@ -342,11 +348,13 @@ class SkymoviesProvider : MainAPI() {
                 epsInUrl.addAll(extractEpisodesFromText(u))
 
                 val doc = if (u == urlList.first()) document else app.get(u, headers = headers).document
+                val cleanDoc = doc.clone()
+                cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
 
-                val pageHeading = doc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
+                val pageHeading = cleanDoc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
                 epsInUrl.addAll(extractEpisodesFromText(pageHeading))
 
-                doc.select("h3, h4, h5, h6, .Bolly, div.L, div.Let").forEach { element ->
+                cleanDoc.select("h3, h4, h5, h6, .Bolly, div.L, div.Let").forEach { element ->
                     val text = element.text().trim()
                     epsInUrl.addAll(extractEpisodesFromText(text))
                 }
@@ -449,13 +457,17 @@ class SkymoviesProvider : MainAPI() {
     private suspend fun extractDownloadLinks(document: Document, pageUrl: String = ""): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
+        
+        val cleanDoc = document.clone()
+        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+
         var currentEpisodes = extractEpisodesFromText(pageUrl).ifEmpty {
-            extractEpisodesFromText(document.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "")
+            extractEpisodesFromText(cleanDoc.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "")
         }
 
         val relevantSelector = "h3, h4, h5, a[href*='howblogs'], a[href*='linkstaker'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
 
-        document.select(relevantSelector).forEach { element ->
+        cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
 
             if (tagName in listOf("H3", "H4", "H5")) {

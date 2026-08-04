@@ -124,7 +124,14 @@ class Movies4uProvider : MainAPI() {
         else selectFirst("figure a[href], .entry-title a[href], h2 a[href], h3 a[href], a[href]")
 
         val href = linkElement?.attr("href") ?: return null
-        if (href.isBlank() || href.contains("/category/") || href.contains("/page/") || href.contains("/tag/")) return null
+        if (href.isBlank() || 
+            href == "/" || 
+            href == mainUrl || 
+            href == "$mainUrl/" || 
+            href.contains("/category/") || 
+            href.contains("/page/") || 
+            href.contains("/tag/") ||
+            href.contains("#")) return null
 
         val fixedUrl = fixUrl(href)
 
@@ -133,9 +140,9 @@ class Movies4uProvider : MainAPI() {
             ?: selectFirst("img")?.attr("title")
             ?: linkElement.attr("title")
 
-        if (titleText.isBlank()) return null
+        if (titleText.isBlank() || titleText.equals("logo", ignoreCase = true)) return null
         val title: String = cleanTitle(titleText)
-        if (title.isBlank()) return null
+        if (title.isBlank() || title.equals("logo", ignoreCase = true) || title.equals("home", ignoreCase = true) || title.length < 2) return null
 
         val imgElement = selectFirst("figure img, img[src*='wp-content/uploads'], img[data-src], img[data-lazy-src], img")
         val posterUrl: String? = if (imgElement != null) {
@@ -302,7 +309,10 @@ class Movies4uProvider : MainAPI() {
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
-        val pageTitle = document.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
+        val cleanDoc = document.clone()
+        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+
+        val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         detectedEpisodes.addAll(extractEpisodesFromText(pageTitle))
 
         fun parseDocForEpisodes(doc: Document) {
@@ -315,7 +325,7 @@ class Movies4uProvider : MainAPI() {
                     }
                 }
             } else {
-                val contentRoot = doc.selectFirst(".entry-content, .post-content, #primary, article") ?: doc
+                val contentRoot = doc.selectFirst(".entry-content, .post-content") ?: doc
                 contentRoot.select("h3, h4, h5, h6, p, a, div").forEach { element ->
                     val text = element.text().trim()
                     if (QUALITY_REGEX.containsMatchIn(text) && !text.contains(Regex("""(?i)Ep|Episode|S\d|E\d"""))) {
@@ -329,18 +339,19 @@ class Movies4uProvider : MainAPI() {
             }
         }
 
-        val aggregatorUrls = document.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
+        val aggregatorUrls = cleanDoc.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
         if (aggregatorUrls.isNotEmpty()) {
             for (aggUrl in aggregatorUrls) {
                 try {
                     val aggDoc = app.get(aggUrl, headers = headers).document
+                    aggDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
                     parseDocForEpisodes(aggDoc)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error fetching m4ulinks aggregator for episode detection: ${e.message}")
                 }
             }
         } else {
-            parseDocForEpisodes(document)
+            parseDocForEpisodes(cleanDoc)
         }
 
         detectedEpisodes.removeAll(QUALITY_NUMBERS)
@@ -396,9 +407,12 @@ class Movies4uProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         var currentEpisodes = emptySet<Int>()
 
+        val cleanDoc = document.clone()
+        cleanDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+
         val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
-        document.select(relevantSelector).forEach { element ->
+        cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
 
             if (tagName in listOf("H3", "H4", "H5")) {
