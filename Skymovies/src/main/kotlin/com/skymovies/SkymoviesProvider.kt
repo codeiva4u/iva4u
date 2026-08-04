@@ -400,7 +400,8 @@ class SkymoviesProvider : MainAPI() {
         }
 
         if (epToUrlMap.isNotEmpty()) {
-            epToUrlMap.keys.sorted().forEach { episodeNum ->
+            val maxEpisode = epToUrlMap.keys.maxOrNull() ?: 1
+            for (episodeNum in 1..maxEpisode) {
                 val targetUrls = epToUrlMap[episodeNum]?.distinct()?.joinToString("|||") ?: pageUrl
                 val data = "$targetUrls|||$episodeNum"
                 episodes.add(

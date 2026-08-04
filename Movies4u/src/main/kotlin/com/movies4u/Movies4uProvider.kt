@@ -302,6 +302,9 @@ class Movies4uProvider : MainAPI() {
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
+        val pageTitle = document.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
+        detectedEpisodes.addAll(extractEpisodesFromText(pageTitle))
+
         fun parseDocForEpisodes(doc: Document) {
             val downloadDivs = doc.select(".download-links-div, div[class*='download']")
             if (downloadDivs.isNotEmpty()) {
@@ -343,7 +346,8 @@ class Movies4uProvider : MainAPI() {
         detectedEpisodes.removeAll(QUALITY_NUMBERS)
 
         if (detectedEpisodes.isNotEmpty()) {
-            detectedEpisodes.sorted().forEach { episodeNum ->
+            val maxEpisode = detectedEpisodes.maxOrNull() ?: 1
+            for (episodeNum in 1..maxEpisode) {
                 val data = "$pageUrl|||$episodeNum"
                 episodes.add(
                     newEpisode(data) {
