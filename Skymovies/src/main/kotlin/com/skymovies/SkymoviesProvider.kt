@@ -375,14 +375,15 @@ class SkymoviesProvider : MainAPI() {
             for (u in urlList) {
                 try {
                     val doc = if (u == urlList.first()) document else app.get(u, headers = headers).document
-                    aggregatorUrls.addAll(doc.select("a[href*='howblogs'], a[href*='linkstaker']").map { it.attr("href") })
+                    aggregatorUrls.addAll(doc.select("a[href*='howblogs'], a[href*='linkstaker'], a[href*='mdrive'], a[href*='m4ulinks']").map { it.attr("href") })
                 } catch (_: Exception) {}
             }
             val distinctAggregators = aggregatorUrls.distinct()
             for (aggUrl in distinctAggregators.take(5)) {
                 try {
                     val aggDoc = app.get(aggUrl).document
-                    aggDoc.select("h2, h3, h4, h5, a, p").forEach { elem ->
+                    aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+                    aggDoc.select("h2, h3, h4, h5, h6, a, p").forEach { elem ->
                         val text = elem.text().trim()
                         val eps = extractEpisodesFromText(text)
                         for (ep in eps) {
