@@ -18,5 +18,8 @@ class Movies4uPlugin: BasePlugin() {
         registerExtractorAPI(HUBCDN())
         registerExtractorAPI(Gofile())
         registerExtractorAPI(PixelDrainDev())
+        registerExtractorAPI(FastDLExtractor())
+        registerExtractorAPI(VCloudExtractor())
+        registerExtractorAPI(FilebeeExtractor())
     }
 }
