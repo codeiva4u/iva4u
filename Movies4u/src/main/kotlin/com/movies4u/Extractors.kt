@@ -37,6 +37,36 @@ fun getBaseUrl(url: String): String {
     } catch (_: Exception) { "" }
 }
 
+// Follow multi-hop redirect chains (gpdl.hubcloud.cx -> workers.dev -> gamerxyt.com/dl.php?link=FINAL)
+// and extract the final real download URL, decoding the link= parameter.
+suspend fun resolveHubCloudDirect(startUrl: String): String {
+    var current = startUrl
+    try {
+        repeat(6) {
+            val response = app.get(current, allowRedirects = false)
+            val location = response.headers["location"].orEmpty()
+            if (location.isBlank()) {
+                current = if (current.contains("link=")) {
+                    URLDecoder.decode(current.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                } else {
+                    current
+                }
+                return@repeat
+            }
+            current = if (location.startsWith("http")) location else getBaseUrl(current) + location
+            if (current.contains("link=")) {
+                val decoded = URLDecoder.decode(current.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                if (decoded.isNotEmpty() && decoded.startsWith("http")) {
+                    current = decoded
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("HubCloud", "Redirect resolve failed: ${e.message}")
+    }
+    return current.ifEmpty { startUrl }
+}
+
 private var cachedUrlsJson: JSONObject? = null
 
 suspend fun getLatestUrl(url: String, source: String): String {
@@ -135,7 +165,7 @@ fun shouldBlockUrl(url: String): Boolean {
 
 open class M4uLinks : ExtractorApi() {
     override val name = "M4uLinks"
-    override val mainUrl = "https://m4ulinks\\..*"
+    override val mainUrl = "https://(?:m4ulinks|mdrive)\\..*"
     override val requiresReferer = false
 
     override suspend fun getUrl(
@@ -248,6 +278,23 @@ open class HubCloud : ExtractorApi() {
                 }
             }
 
+            // Jul 2026: New structure - drive page has a "Generate Direct Download Link" button
+            // pointing to gamerxyt.com/hubcloud.php?host=hubcloud&id=...&token=...
+            if (tokenUrl.isBlank()) {
+                val generateHref = driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
+                    ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
+                    ?: driveDoc.selectFirst("a.btn[href*='?token=']")?.attr("href")
+                    ?: driveDoc.selectFirst("a.btn[href*=hubcloud.php]")?.attr("href")
+                    ?: driveDoc.select("a.btn").firstOrNull {
+                        it.attr("href").contains("gamerxyt", true) || it.attr("href").contains("hubcloud.php", true)
+                    }?.attr("href")
+                    ?: ""
+                if (generateHref.isNotBlank() && generateHref.startsWith("http")) {
+                    tokenUrl = generateHref
+                    Log.d(tag, "Found Generate Direct Download Link: $generateHref")
+                }
+            }
+
             if (tokenUrl.isBlank()) {
                 Log.w(tag, "No token URL found for: $newUrl")
                 return
@@ -263,7 +310,9 @@ open class HubCloud : ExtractorApi() {
                 }
             }
 
-            document.select("div.card-body a, a.btn").amap { element ->
+            // Jul 2026: Download buttons are now OUTSIDE div.card-body (inside <h2>), so scan the whole document
+            val downloadButtons = document.select("div.card-body a, a.btn, a.btn-lg, a[href*='gpdl.'], a[href*='pixeldra']")
+            downloadButtons.amap { element ->
                 val link = element.attr("href")
                 val text = element.text()
 
@@ -298,14 +347,14 @@ open class HubCloud : ExtractorApi() {
                                 this.headers = VIDEO_HEADERS
                             })
                         }
-                        text.contains("10Gbps", true) || text.contains("PixelServer", true) || (link.contains("pixel.hubcloud", true) && link.contains("?id=")) -> {
+                        text.contains("10Gbps", true) || (link.contains("pixel.hubcloud", true) && link.contains("?id=")) -> {
                             try {
-                                val response = app.get(link, allowRedirects = true)
-                                val finalUrl = response.url
-                                val downloadUrl = if (finalUrl.contains("link=")) {
-                                    URLDecoder.decode(finalUrl.substringAfter("link="), "UTF-8")
-                                } else finalUrl
-                                if (downloadUrl.isNotBlank() && downloadUrl.startsWith("http")) {
+                                // Jul 2026: 10Gbps is gpdl.hubcloud.cx with multi-hop redirect chain
+                                val downloadUrl = resolveHubCloudDirect(link)
+                                if (downloadUrl.isNotBlank() && downloadUrl.startsWith("http") &&
+                                    !downloadUrl.contains("hubcloud.cx", true) &&
+                                    !downloadUrl.contains("gamerxyt.com", true) &&
+                                    !downloadUrl.contains("/bgmi/", true)) {
                                     callback(newExtractorLink(
                                         "10Gbps", "10Gbps $finalLabel", downloadUrl
                                     ) {
@@ -414,8 +463,20 @@ open class GDFlix : ExtractorApi() {
             try {
                 when {
                     text.contains("Instant DL") -> {
-                        val instantDownloadLink = app.get(link, allowRedirects = false).headers["location"]?.substringAfter("url=").orEmpty()
-                        if (instantDownloadLink.isNotEmpty()) {
+                        // Jul 2026: Instant DL href is already the direct busycdn.xyz file URL (no redirect)
+                        val instantDownloadLink = try {
+                            val location = app.get(link, allowRedirects = false).headers["location"].orEmpty()
+                            if (location.isNotEmpty()) {
+                                location.substringAfter("url=").ifEmpty { location }
+                            } else {
+                                link
+                            }
+                        } catch (e: Exception) {
+                            link
+                        }
+                        if (instantDownloadLink.isNotEmpty() &&
+                            !instantDownloadLink.contains("gamerxyt.com", true) &&
+                            !instantDownloadLink.contains("/bgmi/", true)) {
                             callback.invoke(
                                 newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", instantDownloadLink) {
                                     this.quality = serverQuality
@@ -433,13 +494,20 @@ open class GDFlix : ExtractorApi() {
                         )
                     }
                     text.contains("CLOUD DOWNLOAD [R2]") -> {
-                        val cloudLink = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", cloudLink) {
-                                this.quality = serverQuality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
+                        // Jul 2026: R2 link is a direct pub-*.r2.dev URL (no url= wrapping)
+                        val cloudLink = if (link.contains("url=")) {
+                            URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
+                        } else {
+                            link
+                        }
+                        if (cloudLink.isNotEmpty() && cloudLink.contains("r2.dev", true)) {
+                            callback.invoke(
+                                newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", cloudLink) {
+                                    this.quality = serverQuality
+                                    this.headers = VIDEO_HEADERS
+                                }
+                            )
+                        }
                     }
                     link.contains("pixeldra") -> {
                         val baseUrlLink = getBaseUrl(link)

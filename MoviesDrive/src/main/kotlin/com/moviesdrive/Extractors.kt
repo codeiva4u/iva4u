@@ -34,6 +34,37 @@ fun getBaseUrl(url: String): String {
     }
 }
 
+// Follow multi-hop redirect chains (gpdl.hubcloud.cx -> workers.dev -> gamerxyt.com/dl.php?link=FINAL)
+// and extract the final real download URL, decoding the link= parameter.
+suspend fun resolveHubCloudDirect(startUrl: String): String {
+    var current = startUrl
+    try {
+        repeat(6) {
+            val response = app.get(current, allowRedirects = false)
+            val location = response.headers["location"].orEmpty()
+            if (location.isBlank()) {
+                // No more redirects: if the current URL already carries link=, decode it
+                current = if (current.contains("link=")) {
+                    URLDecoder.decode(current.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                } else {
+                    current
+                }
+                return@repeat
+            }
+            current = if (location.startsWith("http")) location else getBaseUrl(current) + location
+            if (current.contains("link=")) {
+                val decoded = URLDecoder.decode(current.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                if (decoded.isNotEmpty() && decoded.startsWith("http")) {
+                    current = decoded
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("HubCloud", "Redirect resolve failed: ${e.message}")
+    }
+    return current.ifEmpty { startUrl }
+}
+
 // Parse file size string to MB (e.g., "1.5GB" -> 1536, "700MB" -> 700)
 fun parseSizeToMB(sizeStr: String): Double {
     val cleanSize = sizeStr.replace("[", "").replace("]", "").trim()
@@ -239,7 +270,10 @@ open class HubCloud : ExtractorApi() {
         val size = document.select("i#size").text()
         val baseQuality = getIndexQuality(header)
 
-        div?.select("h2 a.btn, a.btn")?.amap {
+        // Jul 2026: Download buttons are now OUTSIDE div.card-body (inside <h2>), so scan the whole document
+        val downloadButtons = (div?.select("h2 a.btn, a.btn").orEmpty()
+            .ifEmpty { document.select("h2 a.btn, a.btn, a.btn-lg, a[href*='gpdl.'], a[href*='pixeldra']") })
+        downloadButtons.amap {
             val btnLink = it.attr("href")
             val text = it.text()
             val serverQuality = getAdjustedQuality(baseQuality, size, text, header)
@@ -329,18 +363,22 @@ open class HubCloud : ExtractorApi() {
                 )
             }
             else if (text.contains("Download [Server : 10Gbps]")) {
-                val dlink = app.get(btnLink, allowRedirects = false).headers["location"] ?: ""
-                val finalUrl = if (dlink.contains("link=")) dlink.substringAfter("link=") else dlink
-                callback.invoke(
-                    newExtractorLink(
-                        "$name[Download]",
-                        "$name[Download] $header[$size]",
-                        finalUrl,
-                    ) {
-                        this.quality = serverQuality
-                        this.headers = VIDEO_HEADERS
-                    }
-                )
+                // Jul 2026: 10Gbps link is gpdl.hubcloud.cx which does a multi-hop redirect
+                // (gpdl -> gpdl.rohitkiskk.workers.dev -> gamerxyt.com/dl.php?link=FINAL_URL)
+                // Follow the redirect chain manually to reach the real download URL.
+                val finalUrl = resolveHubCloudDirect(btnLink)
+                if (finalUrl.isNotEmpty()) {
+                    callback.invoke(
+                        newExtractorLink(
+                            "$name[Download]",
+                            "$name[Download] $header[$size]",
+                            finalUrl,
+                        ) {
+                            this.quality = serverQuality
+                            this.headers = VIDEO_HEADERS
+                        }
+                    )
+                }
             }
             else
             {
@@ -435,9 +473,21 @@ open class GDFlix : ExtractorApi() {
             try {
                 when {
                     text.contains("Instant DL") -> {
-                        val instantDownloadLink = app.get(link, allowRedirects = false)
-                            .headers["location"]?.substringAfter("url=").orEmpty()
-                        if (instantDownloadLink.isNotEmpty()) {
+                        // Jul 2026: Instant DL href is already the direct busycdn.xyz file URL (no redirect)
+                        // Fallback to old redirect-based extraction only if link looks like a shortener
+                        val instantDownloadLink = try {
+                            val location = app.get(link, allowRedirects = false).headers["location"].orEmpty()
+                            if (location.isNotEmpty()) {
+                                location.substringAfter("url=").ifEmpty { location }
+                            } else {
+                                link // direct file URL already
+                            }
+                        } catch (e: Exception) {
+                            link
+                        }
+                        if (instantDownloadLink.isNotEmpty() &&
+                            !instantDownloadLink.contains("gamerxyt.com", true) &&
+                            !instantDownloadLink.contains("/bgmi/", true)) {
                             callback.invoke(
                                 newExtractorLink("GDFlix[Instant Download]", "GDFlix[Instant Download] $fileName[$fileSize]", instantDownloadLink) {
                                     this.quality = serverQuality
@@ -455,13 +505,20 @@ open class GDFlix : ExtractorApi() {
                         )
                     }
                     text.contains("CLOUD DOWNLOAD [R2]") -> {
-                        val cloudLink = URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
-                        callback.invoke(
-                            newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", cloudLink) {
-                                this.quality = serverQuality
-                                this.headers = VIDEO_HEADERS
-                            }
-                        )
+                        // Jul 2026: R2 link is a direct pub-*.r2.dev URL (no url= wrapping)
+                        val cloudLink = if (link.contains("url=")) {
+                            URLDecoder.decode(link.substringAfter("url="), StandardCharsets.UTF_8.toString())
+                        } else {
+                            link
+                        }
+                        if (cloudLink.isNotEmpty() && cloudLink.contains("r2.dev", true)) {
+                            callback.invoke(
+                                newExtractorLink("GDFlix[Cloud]", "GDFlix[Cloud] $fileName[$fileSize]", cloudLink) {
+                                    this.quality = serverQuality
+                                    this.headers = VIDEO_HEADERS
+                                }
+                            )
+                        }
                     }
                     link.contains("pixeldra") -> {
                         val baseUrlLink = getBaseUrl(link)

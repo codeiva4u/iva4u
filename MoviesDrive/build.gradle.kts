@@ -1,6 +1,6 @@
 // MoviesDrive CloudStream Plugin
 
-version = 16
+version = 17
 
 cloudstream {
     language = "hi"

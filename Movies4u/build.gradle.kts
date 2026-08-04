@@ -1,6 +1,6 @@
 // Movies4u CloudStream Plugin
 
-version = 1
+version = 2
 
 cloudstream {
     language = "hi"

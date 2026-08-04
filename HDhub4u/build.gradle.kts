@@ -1,6 +1,6 @@
 // HDhub4u CloudStream Plugin
 
-version = 7
+version = 8
 cloudstream {
     language = "hi"
     description = "HDhub4u - Download HD Movies & Web Series"

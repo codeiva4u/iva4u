@@ -417,15 +417,14 @@ class Movies4uProvider : MainAPI() {
         val seenUrls = mutableSetOf<String>()
         var currentEpisode: Int? = null
 
-        val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
+        val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
         document.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
 
             if (tagName in listOf("H3", "H4", "H5")) {
                 val headerText = element.text().trim()
-                val epMatch = EPISODE_NUMBER_REGEX.find(headerText)
-                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                val epNum = extractEpisodesFromText(headerText).firstOrNull()
                 if (epNum != null && epNum > 0 && epNum < 500) {
                     currentEpisode = epNum
                 }
@@ -447,11 +446,10 @@ class Movies4uProvider : MainAPI() {
 
                 seenUrls.add(url)
 
-                val linkEpMatch = EPISODE_NUMBER_REGEX.find(linkText)
-                val linkEpisode = linkEpMatch?.groupValues?.get(1)?.toIntOrNull() ?: currentEpisode
+                val linkEpisode = extractEpisodesFromText(linkText).firstOrNull() ?: currentEpisode
 
                 val episodeContext = when {
-                    linkEpMatch != null -> "EPiSODE ${linkEpMatch.groupValues[1]} | $linkText"
+                    extractEpisodesFromText(linkText).isNotEmpty() -> "EPiSODE $linkEpisode | $linkText"
                     currentEpisode != null && linkText.isNotBlank() -> "EPiSODE $currentEpisode | $linkText"
                     linkText.isNotBlank() -> linkText
                     else -> "Download"
@@ -555,8 +553,8 @@ class Movies4uProvider : MainAPI() {
                     if (byField.isNotEmpty()) byField
                     else {
                         allLinks.filter { link ->
-                            val epNum = EPISODE_NUMBER_REGEX.find(link.originalText)?.groupValues?.get(1)?.toIntOrNull()
-                            epNum == episodeNum
+                            val eps = extractEpisodesFromText(link.originalText)
+                            eps.contains(episodeNum)
                         }.ifEmpty { allLinks }
                     }
                 }
@@ -600,7 +598,7 @@ class Movies4uProvider : MainAPI() {
                         Log.d(TAG, "Extracting: $link")
 
                         when {
-                            link.contains("m4ulinks", true) ->
+                            link.contains("m4ulinks", true) || link.contains("mdrive", true) ->
                                 M4uLinks().getUrl(link, mainUrl, subtitleCallback, callback)
 
                             link.contains("hubcloud", true) ->

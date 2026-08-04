@@ -491,7 +491,8 @@ class HDhub4uProvider : MainAPI() {
         
         // Select all relevant elements: headers (for episode detection) and links
         val relevantSelector = "h3, h4, h5, a[href*='hblinks'], " +
-                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn']"
+                               "a[href*='4khdhub'], a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn'], " +
+                               "a[href*='gadgetsweb'], a[href*='greenmountmotors']"
         
         document.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -718,6 +719,10 @@ class HDhub4uProvider : MainAPI() {
                         when {
                             // HubCloud direct links
                             link.contains("hubcloud", true) ->
+                                HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
+
+                            // gadgetsweb.xyz / greenmountmotors.com - new HubCloud php gateway
+                            link.contains("gadgetsweb", true) || link.contains("greenmountmotors", true) ->
                                 HubCloud().getUrl(link, mainUrl, subtitleCallback, callback)
 
                             // Hblinks download pages (archives)
