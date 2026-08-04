@@ -132,7 +132,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
                 it.selectFirst("article > div.details > div.title > a")?.attr("href").toString()
             )
             val posterUrl = fixUrlNull(
-                it.selectFirst("article > div.image > div.thumbnail > a > img")?.attr("src")
+                it.selectFirst("article > div.image > div.thumbnail > a > img, img")?.getImageAttr()
             )
             val quality = getQualityFromString(it.select("div.poster > div.mepo > span").text())
             val type = it.select("article > div.image > div.thumbnail > a > span").text()
@@ -177,7 +177,7 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
         val titleRegex = Regex("(^.*\\)\\d*)")
         val titleClean = titleRegex.find(titleL)?.groups?.get(1)?.value.toString()
         val title = if (titleClean == "null") titleL else titleClean
-        val poster = fixUrlNull(doc.select("div.poster img").attr("src"))
+        val poster = fixUrlNull(doc.selectFirst("div.poster img")?.getImageAttr())
         val bgposter = fixUrlNull(doc.select("div.g-item a").attr("href"))
         val tags = doc.select("div.sgeneros > a").map { it.text() }
         val year = doc.selectFirst("span.date")?.text()?.substringAfter(",")?.trim()?.toInt()
@@ -369,8 +369,10 @@ class MultiMoviesProvider : MainAPI() { // all providers must be an instance of 
     }
 
     private fun Element.getImageAttr(): String? {
-        return this.attr("data-src")
-            .takeIf { it.isNotBlank() && it.startsWith("http") }
-            ?: this.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
+        val dataLazySrc = this.attr("data-lazy-src")
+        val dataSrc = this.attr("data-src")
+        val src = this.attr("src")
+        
+        return listOf(dataLazySrc, dataSrc, src).firstOrNull { it.isNotBlank() }
     }
 }
