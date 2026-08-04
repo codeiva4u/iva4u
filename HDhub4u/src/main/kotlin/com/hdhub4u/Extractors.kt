@@ -547,6 +547,20 @@ class HUBCDN : ExtractorApi() {
                 downloadUrl = URLDecoder.decode(finalPageUrl.substringAfter("link="), "UTF-8")
             }
 
+            if (downloadUrl.isNullOrBlank() && finalPageUrl.contains("inventoryidea.com")) {
+                try {
+                    val rParam = Regex("""[?&]r=([A-Za-z0-9+/=]+)""").find(finalPageUrl)?.groupValues?.get(1) ?: ""
+                    if (rParam.isNotEmpty()) {
+                        val decoded = String(android.util.Base64.decode(rParam, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                        if (decoded.contains("link=")) {
+                            downloadUrl = URLDecoder.decode(decoded.substringAfter("link="), "UTF-8")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to decode inventoryidea r param: ${e.message}")
+                }
+            }
+
             if (downloadUrl.isNullOrBlank()) {
                 val dlLink = doc.selectFirst("a[href]:contains(Download Here)")?.attr("href")
                     ?: doc.selectFirst("a.btn[href^=http]")?.attr("href")

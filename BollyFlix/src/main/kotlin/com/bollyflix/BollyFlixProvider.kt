@@ -66,6 +66,7 @@ class BollyFlixProvider : MainAPI() {
         "" to "Latest",
         "movies/bollywood/" to "Bollywood",
         "movies/hollywood/" to "Hollywood",
+        "movies/hindi-dubbed-movies-480p-720p/" to "Hindi Dubbed",
         "movies/south-hindi-dubbed/" to "South Hindi Dubbed",
         "movies/dual-audio-movies/" to "Dual Audio",
         "web-series/" to "Web Series"

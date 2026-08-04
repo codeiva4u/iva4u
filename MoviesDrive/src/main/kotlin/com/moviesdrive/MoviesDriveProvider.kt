@@ -68,11 +68,11 @@ class MoviesDriveProvider : MainAPI() {
 
     override val mainPage = mainPageOf(
         "" to "Latest",
-        "category/bollywood-movies/" to "Bollywood",
-        "category/hollywood-movies/" to "Hollywood",
+        "category/bollywood/" to "Bollywood",
+        "category/hollywood/" to "Hollywood",
         "category/hindi-dubbed/" to "Hindi Dubbed",
-        "category/south-hindi-movies/" to "South Hindi Dubbed",
-        "category/web-series/" to "Web Series"
+        "category/south/" to "South Hindi Dubbed",
+        "category/web/" to "Web Series"
     )
 
     private val headers = mapOf(
@@ -103,7 +103,7 @@ class MoviesDriveProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        val anchors = document.select("article a, .post-title a, div.post-thumbnail a, h2 a, h3 a").toList().ifEmpty {
+        val anchors = document.select("div.movies-grid a[href], article a, .post-title a, div.post-thumbnail a, h2 a, h3 a").toList().ifEmpty {
             document.select("a[href*='moviesdrive']").toList()
         }
 
@@ -131,7 +131,7 @@ class MoviesDriveProvider : MainAPI() {
 
         val fixedUrl = fixUrl(href)
 
-        val titleText: String = selectFirst(".entry-title, h2, h3, figcaption p, figcaption a")?.text()
+        val titleText: String = selectFirst(".entry-title, .poster-title, h2, h3, figcaption p, figcaption a")?.text()
             ?: selectFirst("img")?.attr("alt")
             ?: selectFirst("img")?.attr("title")
             ?: linkElement.attr("title")
@@ -140,7 +140,7 @@ class MoviesDriveProvider : MainAPI() {
         val title: String = cleanTitle(titleText)
         if (title.isBlank() || title.equals("logo", ignoreCase = true) || title.equals("home", ignoreCase = true) || title.length < 2) return null
 
-        val imgElement = selectFirst("figure img, img[src*='wp-content/uploads'], img[data-src], img[data-lazy-src], img")
+        val imgElement = selectFirst("figure img, .poster-image img, .poster-card img, img[src*='wp-content/uploads'], img[data-src], img[data-lazy-src], img")
         val posterUrl: String? = if (imgElement != null) {
             val srcAttr = imgElement.attr("src")
             val dataSrcAttr = imgElement.attr("data-src")
@@ -175,7 +175,7 @@ class MoviesDriveProvider : MainAPI() {
             val searchUrl = "$mainUrl/?s=${query.replace(" ", "+")}"
             val document = app.get(searchUrl, headers = headers).document
 
-            val items = document.select("article, .post, .type-post, h2.entry-title a, h3.entry-title a").mapNotNull {
+            val items = document.select("div.movies-grid a[href], article, .post, .type-post, h2.entry-title a, h3.entry-title a").mapNotNull {
                 it.toSearchResult()
             }.distinctBy { it.url }
 

@@ -53,7 +53,7 @@ class Movies4uProvider : MainAPI() {
         )
     }
 
-    override var mainUrl: String = "https://new1.movies4u.clinic"
+    override var mainUrl: String = "https://movies4u.mq"
 
     init {
         runBlocking {
