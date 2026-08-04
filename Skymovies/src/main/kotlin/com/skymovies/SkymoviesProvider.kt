@@ -399,8 +399,14 @@ class SkymoviesProvider : MainAPI() {
         }
 
         if (epToUrlMap.isNotEmpty()) {
-            val maxEpisode = epToUrlMap.keys.maxOrNull() ?: 1
-            for (episodeNum in 1..maxEpisode) {
+            val sortedEps = epToUrlMap.keys.sorted()
+            val epList = if (sortedEps.size == 1 && sortedEps.first() > 1) {
+                (1..sortedEps.first()).toList()
+            } else {
+                sortedEps
+            }
+
+            epList.forEach { episodeNum ->
                 val targetUrls = epToUrlMap[episodeNum]?.distinct()?.joinToString("|||") ?: pageUrl
                 val data = "$targetUrls|||$episodeNum"
                 episodes.add(
@@ -508,14 +514,17 @@ class SkymoviesProvider : MainAPI() {
 
         val expandedLinks = mutableListOf<DownloadLink>()
         for (link in downloadLinks) {
-            if (link.url.contains("howblogs", ignoreCase = true) || link.url.contains("linkstaker", ignoreCase = true)) {
+            if (link.url.contains("howblogs", ignoreCase = true) ||
+                link.url.contains("linkstaker", ignoreCase = true) ||
+                link.url.contains("mdrive", ignoreCase = true) ||
+                link.url.contains("m4ulinks", ignoreCase = true)) {
                 try {
                     val hbDoc = app.get(link.url).document
                     var hbEpisodes = link.episodes
 
-                    hbDoc.select("h3, h4, h5, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='gofile.io']").forEach { elem ->
+                    hbDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
-                        if (tag in listOf("H3", "H4", "H5")) {
+                        if (tag in listOf("H3", "H4", "H5", "H6")) {
                             val eps = extractEpisodesFromText(elem.text())
                             if (eps.isNotEmpty()) {
                                 hbEpisodes = eps
@@ -528,7 +537,7 @@ class SkymoviesProvider : MainAPI() {
                                 expandedLinks.add(
                                     DownloadLink(
                                         url = innerUrl,
-                                        quality = extractQuality(innerText),
+                                        quality = extractQuality(innerText).let { if (it == 0) link.quality else it },
                                         sizeMB = parseFileSize(innerText),
                                         originalText = innerText,
                                         episodes = hbEpisodes
@@ -538,7 +547,7 @@ class SkymoviesProvider : MainAPI() {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error expanding howblogs: ${e.message}")
+                    Log.e(TAG, "Error expanding aggregator links: ${e.message}")
                 }
             } else {
                 expandedLinks.add(link)

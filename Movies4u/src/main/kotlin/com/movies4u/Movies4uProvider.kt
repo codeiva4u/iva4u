@@ -330,26 +330,31 @@ class Movies4uProvider : MainAPI() {
             }
         }
 
-        val aggregatorUrls = cleanDoc.select("a[href*='m4ulinks']").map { it.attr("href") }.distinct()
+        val aggregatorUrls = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']").map { it.attr("href") }.distinct()
         if (aggregatorUrls.isNotEmpty()) {
-            for (aggUrl in aggregatorUrls) {
+            for (aggUrl in aggregatorUrls.take(10)) {
                 try {
                     val aggDoc = app.get(aggUrl, headers = headers).document
-                    aggDoc.select("aside, footer, header, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget").remove()
+                    aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
                     parseDocForEpisodes(aggDoc)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error fetching m4ulinks aggregator for episode detection: ${e.message}")
+                    Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                 }
             }
-        } else {
-            parseDocForEpisodes(cleanDoc)
         }
+        parseDocForEpisodes(cleanDoc)
 
         detectedEpisodes.removeAll(QUALITY_NUMBERS)
 
         if (detectedEpisodes.isNotEmpty()) {
-            val maxEpisode = detectedEpisodes.maxOrNull() ?: 1
-            for (episodeNum in 1..maxEpisode) {
+            val sortedEps = detectedEpisodes.sorted()
+            val epList = if (sortedEps.size == 1 && sortedEps.first() > 1) {
+                (1..sortedEps.first()).toList()
+            } else {
+                sortedEps
+            }
+
+            epList.forEach { episodeNum ->
                 val data = "$pageUrl|||$episodeNum"
                 episodes.add(
                     newEpisode(data) {
@@ -452,29 +457,33 @@ class Movies4uProvider : MainAPI() {
             }
         }
 
-        // If links contain m4ulinks aggregator pages, fetch m4ulinks page directly to expand inner download links
+        // If links contain aggregator pages (m4ulinks, mdrive, howblogs, linkstaker), fetch page directly to expand inner download links
         val expandedLinks = mutableListOf<DownloadLink>()
         for (link in downloadLinks) {
-            if (link.url.contains("m4ulinks", ignoreCase = true)) {
+            if (link.url.contains("m4ulinks", ignoreCase = true) ||
+                link.url.contains("mdrive", ignoreCase = true) ||
+                link.url.contains("howblogs", ignoreCase = true) ||
+                link.url.contains("linkstaker", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
 
-                    m4uDoc.select("h3, h4, h5, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain']").forEach { elem ->
+                    m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
-                        if (tag in listOf("H3", "H4", "H5")) {
+                        if (tag in listOf("H3", "H4", "H5", "H6")) {
                             val eps = extractEpisodesFromText(elem.text())
                             if (eps.isNotEmpty()) {
                                 m4uEpisodes = eps
                             }
                         } else if (tag == "A") {
-                            val innerUrl = elem.attr("href")
+                            val abs = elem.absUrl("href")
+                            val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
                             val innerText = elem.text().trim()
                             if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
                                 expandedLinks.add(
                                     DownloadLink(
                                         url = innerUrl,
-                                        quality = extractQuality(innerText),
+                                        quality = extractQuality(innerText).let { if (it == 0) link.quality else it },
                                         sizeMB = parseFileSize(innerText),
                                         originalText = innerText,
                                         episodes = m4uEpisodes
@@ -484,7 +493,7 @@ class Movies4uProvider : MainAPI() {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error expanding m4ulinks: ${e.message}")
+                    Log.e(TAG, "Error expanding aggregator links: ${e.message}")
                 }
             } else {
                 expandedLinks.add(link)
