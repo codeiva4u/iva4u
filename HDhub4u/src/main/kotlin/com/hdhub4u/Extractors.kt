@@ -10,7 +10,6 @@ import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URI
 import java.net.URLDecoder
@@ -25,18 +24,12 @@ val VIDEO_HEADERS = mapOf(
     "Icy-MetaData" to "1"
 )
 
-// ═══════════════════════════════════════════════════════════════════════════════════
-// UTILITY FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════════════
-
 fun getBaseUrl(url: String): String {
     return try {
         URI(url).let { "${it.scheme}://${it.host}" }
     } catch (_: Exception) { "" }
 }
 
-// Follow multi-hop redirect chains (gpdl.hubcloud.cx -> workers.dev -> gamerxyt.com/dl.php?link=FINAL)
-// and extract the final real download URL, decoding the link= parameter.
 suspend fun resolveHubCloudDirect(startUrl: String): String {
     var current = startUrl
     try {
@@ -65,93 +58,6 @@ suspend fun resolveHubCloudDirect(startUrl: String): String {
     return current.ifEmpty { startUrl }
 }
 
-// Handle direct HubCloud php gateway pages (gadgetsweb.xyz, greenmountmotors.com).
-// These are the same download-button pages as gamerxyt.com/hubcloud.php:
-// they contain "Download [Server : 10Gbps]" (gpdl.hubcloud.cx) and PixelServer buttons.
-suspend fun processHubCloudPhp(
-    phpUrl: String,
-    referer: String?,
-    subtitleCallback: (SubtitleFile) -> Unit,
-    callback: (ExtractorLink) -> Unit
-) {
-    val tag = "HubCloud"
-    try {
-        val document = app.get(phpUrl).document
-        val header = document.select("div.card-header").text()
-        val size = document.select("i#size").text()
-        val cleanHeader = header.replace(Regex("""\s+"""), " ").trim()
-        val labelExtras = buildString {
-            if (cleanHeader.isNotEmpty()) append("[$cleanHeader]")
-            if (size.isNotEmpty()) append("[$size]")
-        }
-
-        document.select("a.btn, a.btn-lg, a[href*='gpdl.'], a[href*='pixeldra'], a[href*='hubcloud.cx'], a[href*='pixel.hub']").amap { element ->
-            val link = element.attr("href")
-            val text = element.text()
-            if (link.isBlank() || !link.startsWith("http")) return@amap
-            if (shouldBlockUrl(link)) return@amap
-
-            val skipTexts = listOf("Telegram", "IDM", "IDA", "VPN", "Tutorial", "Copy", "Login", "Create", "How", "Report")
-            if (skipTexts.any { text.contains(it, true) }) return@amap
-
-            val score = calculateQualityScore(1080, size, text, "")
-
-            try {
-                when {
-                    text.contains("10Gbps", true) || link.contains("gpdl.hubcloud", true) ||
-                            (link.contains("pixel.hub", true) && link.contains("?id=")) -> {
-                        val downloadUrl = resolveHubCloudDirect(link)
-                        if (downloadUrl.isNotBlank() && downloadUrl.startsWith("http") &&
-                            !downloadUrl.contains("hubcloud.cx", true) &&
-                            !downloadUrl.contains("gamerxyt.com", true) &&
-                            !downloadUrl.contains("/bgmi/", true)) {
-                            callback(newExtractorLink(
-                                "10Gbps", "10Gbps $labelExtras", downloadUrl
-                            ) {
-                                this.quality = score + 10
-                                this.headers = VIDEO_HEADERS
-                            })
-                        }
-                    }
-                    link.contains("pixeldrain", true) -> {
-                        val finalURL = if (link.contains("/u/")) {
-                            "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
-                        } else link
-                        callback(newExtractorLink(
-                            "Pixeldrain", "Pixeldrain $labelExtras", finalURL
-                        ) {
-                            this.quality = score
-                            this.headers = VIDEO_HEADERS
-                        })
-                    }
-                    link.contains("video-downloads.googleusercontent.com", true) ||
-                            link.endsWith(".mkv", true) || link.endsWith(".mp4", true) -> {
-                        callback(newExtractorLink(
-                            "$tag [Direct]", "$tag [Direct] $labelExtras", link
-                        ) {
-                            this.quality = score + 25
-                            this.headers = VIDEO_HEADERS
-                        })
-                    }
-                    text.contains("Download", true) && !link.contains("google.com", true) -> {
-                        callback(newExtractorLink(
-                            tag, "$tag $labelExtras", link
-                        ) {
-                            this.quality = score
-                            this.headers = VIDEO_HEADERS
-                        })
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "php gateway error: ${e.message}")
-            }
-        }
-    } catch (e: Exception) {
-        Log.e(tag, "processHubCloudPhp failed: ${e.message}")
-    }
-}
-
-// Cached URLs for session-level caching (fetch once, use throughout session)
 private var cachedUrlsJson: JSONObject? = null
 
 suspend fun getLatestUrl(url: String, source: String): String {
@@ -171,7 +77,6 @@ suspend fun getLatestUrl(url: String, source: String): String {
     return link
 }
 
-// Parse file size to MB (e.g., "1.8GB" → 1843, "500MB" → 500)
 fun parseSizeToMB(sizeStr: String): Double {
     val cleanSize = sizeStr.replace("[", "").replace("]", "").replace("⚡", "").trim()
     val regex = Regex("""([\d.]+)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
@@ -185,48 +90,56 @@ fun parseSizeToMB(sizeStr: String): Double {
     }
 }
 
-// Server speed priority (higher = faster)
-fun getServerPriority(serverName: String): Int = when {
-    serverName.contains("Instant", true) -> 800
-    serverName.contains("10Gbps", true) -> 750
-    serverName.contains("FSLv2", true) -> 700
-    serverName.contains("FSL", true) -> 600
-    serverName.contains("Direct", true) -> 500
-    serverName.contains("Pixel", true) -> 400
-    serverName.contains("Download", true) -> 300
-    else -> 100
+fun getServerPriority(serverName: String): Int {
+    return when {
+        serverName.contains("Instant", true) -> 800
+        serverName.contains("10Gbps", true) -> 750
+        serverName.contains("FSLv2", true) -> 700
+        serverName.contains("FSL", true) -> 600
+        serverName.contains("Direct", true) -> 500
+        serverName.contains("Pixeldrain", true) -> 400
+        serverName.contains("Download File", true) -> 300
+        else -> 100
+    }
 }
 
-fun calculateQualityScore(quality: Int, sizeStr: String, serverName: String, codec: String = ""): Int {
-    var score = when (quality) {
-        1080 -> 10000
-        2160 -> 9000
-        720 -> 7000
-        480 -> 5000
-        else -> 3000
+fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", fileName: String = ""): Int {
+    val text = (fileName + sizeStr + serverName).lowercase()
+
+    val isHEVC = text.contains("hevc") || text.contains("x265") || text.contains("h265") || text.contains("h.265")
+    val isX264 = text.contains("x264") || text.contains("h264") || text.contains("h.264")
+
+    val codecQualityScore = when {
+        isX264 && quality >= 1080 -> 30000
+        isX264 && quality >= 720  -> 20000
+        isHEVC && quality >= 1080 -> 10000
+        isHEVC && quality >= 720  -> 9000
+        quality >= 1080 -> 8000
+        quality >= 720  -> 7000
+        quality >= 480  -> 6000
+        else -> 5000
     }
 
-    if (codec.contains("hevc", true) || codec.contains("x265", true) || codec.contains("h265", true) || codec.contains("h.265", true)) {
-        score += 1500
-    } else if (codec.contains("x264", true) || codec.contains("h264", true) || codec.contains("h.264", true)) {
-        score += 1000
+    val sizeMB = parseSizeToMB(sizeStr)
+    val sizeScore = when {
+        sizeMB <= 300  -> 260
+        sizeMB <= 400  -> 250
+        sizeMB <= 500  -> 240
+        sizeMB <= 600  -> 230
+        sizeMB <= 700  -> 220
+        sizeMB <= 800  -> 210
+        sizeMB <= 900  -> 200
+        sizeMB <= 1000 -> 190
+        sizeMB <= 1200 -> 170
+        sizeMB <= 1500 -> 140
+        sizeMB <= 2000 -> 100
+        sizeMB <= 2500 -> 60
+        sizeMB <= 3000 -> 20
+        else -> 0
     }
 
-    if (quality == 1080) {
-        val sizeMB = parseSizeToMB(sizeStr)
-        score += when {
-            sizeMB <= 600 -> 90
-            sizeMB <= 900 -> 75
-            sizeMB <= 1200 -> 60
-            sizeMB <= 1600 -> 45
-            sizeMB <= 2000 -> 30
-            sizeMB <= 2500 -> 15
-            else -> 0
-        }
-    }
-
-    score += getServerPriority(serverName)
-    return score
+    val serverScore = getServerPriority(serverName)
+    return codecQualityScore + sizeScore + serverScore
 }
 
 fun shouldBlockUrl(url: String): Boolean {
@@ -234,16 +147,166 @@ fun shouldBlockUrl(url: String): Boolean {
         ".m3u8", "/hls/", "hubstream", "hdstream",
         "hdstream4u", "t.me/", "tinyurl.com",
         "google.com/search", "one.one.one.one",
-        "/tg/go", "voe.sx", "streamtape", "streamsb", "mixdrop", 
-        "doodstream", "vidhide", "streamhub", "uqload", "dood.", "doodrive"
+        "/tg/go", "voe.sx", "streamtape", "streamsb", "mixdrop",
+        "doodstream", "vidhide", "streamhub", "uqload", "dood.", "doodrive",
+        "m4uplay", "morencius", "earnvids"
     )
     return blockList.any { url.contains(it, ignoreCase = true) }
 }
 
+open class FastDLExtractor : ExtractorApi() {
+    override val name = "FastDL"
+    override val mainUrl = "https://fastdl\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val response = app.get(url, allowRedirects = false)
+            val loc = response.headers["location"].orEmpty()
+            val targetUrl = if (loc.isNotBlank()) loc else url
+            val videoUrl = if (targetUrl.contains("link=")) {
+                URLDecoder.decode(targetUrl.substringAfter("link="), StandardCharsets.UTF_8.toString())
+            } else {
+                val doc = app.get(url).document
+                val linkAttr = doc.selectFirst("a[href*='link=']")?.attr("href") ?: ""
+                if (linkAttr.contains("link=")) {
+                    URLDecoder.decode(linkAttr.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                } else ""
+            }
+            if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, videoUrl
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class VCloudExtractor : ExtractorApi() {
+    override val name = "VCloud"
+    override val mainUrl = "https://vcloud\\.zip"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val innerLink = doc.selectFirst("a[href*='hubcloud'], a[href*='fastdl'], a[href*='filebee'], a[href*='gdflix'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='hblinks']")?.attr("href") ?: ""
+            if (innerLink.isNotBlank() && innerLink.startsWith("http")) {
+                processPluginExtractor(innerLink, referer, subtitleCallback, callback)
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+open class FilebeeExtractor : ExtractorApi() {
+    override val name = "Filebee"
+    override val mainUrl = "https://filebee\\.xyz"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            val directLink = doc.selectFirst("a[href*='googleusercontent.com'], a[href*='r2.cloudflarestorage.com'], a[href*='pixeldrain.dev'], a[href*='gofile.io']")?.attr("href") ?: ""
+            if (directLink.isNotBlank() && directLink.startsWith("http")) {
+                callback(newExtractorLink(
+                    name, name, directLink
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
+}
+
+suspend fun processPluginExtractor(
+    link: String,
+    referer: String?,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+) {
+    if (shouldBlockUrl(link)) return
+
+    try {
+        when {
+            link.contains("fastdl", true) ->
+                FastDLExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("vcloud", true) ->
+                VCloudExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("filebee", true) || link.contains("filepress", true) ->
+                FilebeeExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hblinks", true) ->
+                Hblinks().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubdrive", true) ->
+                Hubdrive().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcloud", true) || link.contains("gamerxyt", true) ->
+                HubCloud().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("hubcdn", true) ->
+                HUBCDN().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("pixeldrain", true) -> {
+                val finalURL = if (link.contains("/u/")) {
+                    "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
+                } else link
+                callback(newExtractorLink(
+                    "Pixeldrain", "Pixeldrain", finalURL
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+
+            link.contains("video-downloads.googleusercontent.com", true) ||
+            link.contains("r2.cloudflarestorage.com", true) ||
+            link.endsWith(".mkv", true) ||
+            link.endsWith(".mp4", true) -> {
+                callback(newExtractorLink(
+                    "Direct", "Direct Stream", link
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("PluginExtractor", "Error: ${e.message}")
+    }
+}
+
 open class Hblinks : ExtractorApi() {
     override val name = "Hblinks"
-    override val mainUrl = "https://(?:hblinks|4khdhub).*"
-    override val requiresReferer = true
+    override val mainUrl = "https://hblinks\\..*"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -252,70 +315,40 @@ open class Hblinks : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "Hblinks"
-        Log.d(tag, "Processing: $url")
-
-        // hblinks.dad → use as-is (not in urls.json)
-        // 4khdhub.* → use hubstreamdad key from urls.json
-        val latestUrl = if (url.contains("4khdhub", true)) {
-            getLatestUrl(url, "hubstreamdad")
-        } else {
-            getBaseUrl(url)
-        }
+        val latestUrl = getLatestUrl(url, "4khdhub")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
 
+        Log.d(tag, "Processing: $newUrl")
+
         try {
             val doc = app.get(newUrl).document
-            val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='hubdrive'], a[href*='pixeldrain'], a[href*='gofile.io']")
+            val links = doc.select("a[href*='hubdrive'], a[href*='hubcloud'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='gofile.io']")
 
-            Log.d(tag, "Found ${links.size} links")
+            Log.d(tag, "Found ${links.size} links on hblinks page")
 
             links.amap { element ->
-                val href = element.absUrl("href").ifBlank { element.attr("href") }
+                val abs = element.absUrl("href")
+                val href = if (abs.isNotBlank()) abs else element.attr("href")
                 if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
-                if (shouldBlockUrl(href)) {
-                    Log.d(tag, "BLOCKED: $href")
-                    return@amap
-                }
-
-                Log.d(tag, "Processing: $href")
+                if (shouldBlockUrl(href)) return@amap
 
                 try {
-                    when {
-                        href.contains("hubdrive", true) ->
-                            Hubdrive().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcloud", true) ->
-                            HubCloud().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("hubcdn", true) ->
-                            HUBCDN().getUrl(href, name, subtitleCallback, callback)
-                        href.contains("pixeldrain", true) || href.contains("gofile.io", true) ->
-                            loadExtractor(href, referer, subtitleCallback, callback)
-                    }
+                    processPluginExtractor(href, name, subtitleCallback, callback)
                 } catch (e: Exception) {
-                    Log.e(tag, "Failed: ${e.message}")
+                    Log.e(tag, "Failed inner link: ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error: ${e.message}")
+            Log.e(tag, "Error processing hblinks: ${e.message}")
         }
     }
 }
 
-/**
- * PixelDrain Dev - pixeldrain.dev direct downloads
- */
-class PixelDrainDev : PixelDrain() {
-    override var mainUrl = "https://pixeldrain.*"
-}
-
-/**
- * Hubdrive Extractor - Redirects to HubCloud
- */
-class Hubdrive : ExtractorApi() {
+open class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
-    override val mainUrl = "https://hubdrive.*"
+    override val mainUrl = "https://hubdrive\\..*"
     override val requiresReferer = false
-
 
     override suspend fun getUrl(
         url: String,
@@ -324,39 +357,44 @@ class Hubdrive : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "Hubdrive"
-        Log.d(tag, "Processing: $url")
-
         val latestUrl = getLatestUrl(url, "hubdrive")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
 
+        Log.d(tag, "Processing: $newUrl")
+
         try {
-            val doc = app.get(newUrl).documentLarge
+            val doc = app.get(newUrl).document
+            val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='gofile.io']")
 
-            var href = doc.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
-            if (href.isBlank() || !href.contains("hubcloud", true)) {
-                href = doc.selectFirst("a.btn[href*=hubcloud]")?.attr("href") ?: ""
-            }
-            if (href.isBlank() || !href.contains("hubcloud", true)) {
-                href = doc.selectFirst("a[href*=hubcloud]")?.attr("href") ?: ""
-            }
+            Log.d(tag, "Found ${links.size} links on hubdrive page")
 
-            Log.d(tag, "Found HubCloud: $href")
+            links.amap { element ->
+                val abs = element.absUrl("href")
+                val href = if (abs.isNotBlank()) abs else element.attr("href")
+                if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
+                if (shouldBlockUrl(href)) return@amap
 
-            if (href.contains("hubcloud", true)) {
-                HubCloud().getUrl(href, "Hubdrive", subtitleCallback, callback)
+                try {
+                    processPluginExtractor(href, name, subtitleCallback, callback)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed inner link: ${e.message}")
+                }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error: ${e.message}")
+            Log.e(tag, "Error processing hubdrive: ${e.message}")
         }
     }
 }
 
-class HubCloud : ExtractorApi() {
-    override val name = "Hub-Cloud"
-    override val mainUrl = "https://hubcloud.*"
-    override val requiresReferer = false
+class PixelDrainDev : PixelDrain() {
+    override var mainUrl = "https://pixeldrain.*"
+}
 
+open class HubCloud : ExtractorApi() {
+    override val name = "Hub-Cloud"
+    override val mainUrl = "https://hubcloud\\..*"
+    override val requiresReferer = false
 
     override suspend fun getUrl(
         url: String,
@@ -365,25 +403,7 @@ class HubCloud : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "HubCloud"
-
-        if (shouldBlockUrl(url)) {
-            Log.d(tag, "BLOCKED streaming URL: $url")
-            return
-        }
-
-        val isValidUrl = try {
-            URI(url).toURL()
-            true
-        } catch (_: Exception) { false }
-        if (!isValidUrl) return
-
-        // Jul 2026: gadgetsweb.xyz / greenmountmotors.com are direct HubCloud php gateways
-        // (same as gamerxyt.com/hubcloud.php). They already carry the download buttons,
-        // so do NOT rewrite the base URL to hubcloud.cx - fetch them as-is.
-        if (url.contains("gadgetsweb", true) || url.contains("greenmountmotors", true)) {
-            processHubCloudPhp(url, referer, subtitleCallback, callback)
-            return
-        }
+        if (shouldBlockUrl(url)) return
 
         val latestUrl = getLatestUrl(url, "hubcloud")
         val currentBaseUrl = getBaseUrl(url)
@@ -392,60 +412,18 @@ class HubCloud : ExtractorApi() {
         Log.d(tag, "Processing: $newUrl")
 
         try {
-            // ═══════════════════════════════════════════════════════════
-            // Step 1: Get drive page and find token URL
-            // ═══════════════════════════════════════════════════════════
             val driveDoc = app.get(newUrl).document
-            val driveHtml = driveDoc.html()
-
-            // Extract file info
             val header = driveDoc.selectFirst("div.card-header")?.text() ?: ""
             val size = driveDoc.selectFirst("i#size")?.text() ?: ""
 
             val qualityMatch = Regex("""(\d{3,4})p""").find(header)
             val quality = qualityMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1080
-            val codec = when {
-                header.contains("x264", true) || header.contains("h264", true) -> "x264"
-                header.contains("hevc", true) || header.contains("x265", true) -> "hevc"
-                else -> ""
-            }
-
-            val labelExtras = buildString {
-                if (header.isNotEmpty()) append("[${cleanTitle(header)}]")
-                if (size.isNotEmpty()) append("[$size]")
-            }
-
-            Log.d(tag, "Quality: ${quality}p, Codec: $codec, Size: $size")
 
             var tokenUrl = ""
-
-            // If URL already has ?token=, use directly
             if (newUrl.contains("?token=")) {
                 tokenUrl = newUrl
             }
 
-            // Find a#download link with token
-            if (tokenUrl.isBlank()) {
-                val downloadHref = driveDoc.selectFirst("a#download")?.attr("href") ?: ""
-                if (downloadHref.isNotBlank() && downloadHref.contains("token=")) {
-                    tokenUrl = if (downloadHref.startsWith("http")) downloadHref
-                    else latestUrl.trimEnd('/') + "/" + downloadHref.trimStart('/')
-                }
-            }
-
-            // Extract from JS: var url = '/drive/XXX?token=TOKEN'
-            if (tokenUrl.isBlank()) {
-                val jsPattern = Regex("""var\s+url\s*=\s*['"]([^'"]*\?token=[^'"]+)['"]""")
-                val jsMatch = jsPattern.find(driveHtml)
-                if (jsMatch != null) {
-                    val jsUrl = jsMatch.groupValues[1]
-                    tokenUrl = if (jsUrl.startsWith("http")) jsUrl
-                    else latestUrl.trimEnd('/') + "/" + jsUrl.trimStart('/')
-                }
-            }
-
-            // Jul 2026: New structure - drive page has a "Generate Direct Download Link" button
-            // pointing to gamerxyt.com/hubcloud.php?host=hubcloud&id=...&token=...
             if (tokenUrl.isBlank()) {
                 val generateHref = driveDoc.selectFirst("a.btn.btn-primary.h6")?.attr("href")
                     ?: driveDoc.selectFirst("a.btn[href*=gamerxyt.com/hubcloud.php]")?.attr("href")
@@ -457,129 +435,51 @@ class HubCloud : ExtractorApi() {
                     ?: ""
                 if (generateHref.isNotBlank() && generateHref.startsWith("http")) {
                     tokenUrl = generateHref
-                    Log.d(tag, "Found Generate Direct Download Link: $generateHref")
                 }
             }
 
-            // Handle search-recover.php redirect
-            if (tokenUrl.isBlank() && newUrl.contains("search-recover.php", true)) {
-                try {
-                    val qMatch = Regex("""Q_INITIAL\s*=\s*"([^"]+)"""").find(driveHtml)
-                    val qInitial = qMatch?.groupValues?.get(1) ?: ""
-                    val fromAc = newUrl.substringAfter("from_ac=").substringBefore("&")
+            if (tokenUrl.isBlank()) return
 
-                    if (qInitial.isNotEmpty() && !qInitial.contains("<html") && fromAc.isNotEmpty()) {
-                        val apiLink = "$latestUrl/drive/search-recover.php?api=search&q=${java.net.URLEncoder.encode(qInitial, "UTF-8")}&from_ac=$fromAc"
-                        val jsonResponse = app.get(apiLink, headers = mapOf("Accept" to "application/json")).text
-                        val hits = JSONObject(jsonResponse).optJSONArray("hits")
-                        if (hits != null && hits.length() > 0) {
-                            val firstUrl = hits.optJSONObject(0)?.optString("url")
-                            if (!firstUrl.isNullOrEmpty()) {
-                                HubCloud().getUrl(firstUrl, referer, subtitleCallback, callback)
-                                return
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "search-recover error: ${e.message}")
-                }
-            }
-
-            if (tokenUrl.isBlank()) {
-                Log.w(tag, "No token URL found for: $newUrl")
-                return
-            }
-
-            Log.d(tag, "Token URL: $tokenUrl")
-
-            // ═══════════════════════════════════════════════════════════
-            // Step 2: Fetch token page and extract download buttons
-            // ═══════════════════════════════════════════════════════════
             val document = app.get(tokenUrl).document
-
-            // Re-extract file info if not found earlier
-            val finalHeader = header.ifEmpty { document.selectFirst("div.card-header")?.text() ?: "" }
-            val finalSize = size.ifEmpty { document.selectFirst("i#size")?.text() ?: "" }
-            val finalLabel = labelExtras.ifEmpty {
-                buildString {
-                    if (finalHeader.isNotEmpty()) append("[${cleanTitle(finalHeader)}]")
-                    if (finalSize.isNotEmpty()) append("[$finalSize]")
-                }
-            }
-
-            // Process download buttons
-            // Jul 2026: Download buttons are now OUTSIDE div.card-body (inside <h2>), so scan the whole document
-            document.select("div.card-body a, a.btn, a.btn-lg, a[href*='gpdl.'], a[href*='pixeldra']").amap { element ->
+            val downloadButtons = document.select("a[href*='cloudflarestorage.com'], a[href*='fsl-buckets'], a[href*='pixel.hubcloud'], a[href*='pixeldrain'], a[href*='gpdl'], div.card-body a, a.btn, a.btn-lg, a[href*='http']")
+            downloadButtons.amap { element ->
                 val link = element.attr("href")
                 val text = element.text()
 
                 if (link.isBlank() || !link.startsWith("http")) return@amap
                 if (shouldBlockUrl(link)) return@amap
 
-                // Skip non-download buttons
                 val skipTexts = listOf("Telegram", "IDM", "IDA", "VPN", "Tutorial", "Copy", "Login", "Create", "How", "Report")
                 if (skipTexts.any { text.contains(it, true) }) return@amap
 
-                // Skip ZipDisk server
-                if (text.contains("ZipDisk", true) || link.contains("zipdisk", true) ||
-                    link.endsWith(".zip", true) || link.contains("cloudserver", true)) {
-                    Log.d(tag, "SKIPPED ZipDisk: $link")
-                    return@amap
-                }
-
-                val score = calculateQualityScore(quality, finalSize, text, codec)
+                val score = getAdjustedQuality(quality, size, text, header)
 
                 try {
                     when {
-                        // FSLv2 Server
-                        text.contains("FSLv2", true) || link.contains("fsl-buckets", true) ||
-                                link.contains("fsl.gigabytes", true) -> {
-                            Log.d(tag, "FSLv2: $link")
+                        text.contains("FSLv2", true) || link.contains("fsl-buckets", true) || link.contains("fsl.gigabytes", true) -> {
                             callback(newExtractorLink(
-                                "$name [FSLv2]",
-                                "$name [FSLv2] $finalLabel",
-                                link
+                                "$name [FSLv2]", "$name [FSLv2]", link
                             ) {
                                 this.quality = score + 20
                                 this.headers = VIDEO_HEADERS
                             })
                         }
-
-                        // FSL Server - Cloudflare R2 / diskcdn.buzz / fsl-buckets
-                        // Jul 2026: FSL now uses r2.cloudflarestorage.com and fsl-buckets.work
-                        link.contains("r2.cloudflarestorage.com", true) ||
-                                link.contains("fsl-buckets", true) ||
-                                link.contains("fsl.gigabytes", true) ||
-                                link.contains("diskcdn.buzz", true) ||
-                                (text.contains("FSL", true) && !text.contains("FSLv2", true)) -> {
-                            Log.d(tag, "FSL/R2: $link")
+                        link.contains("r2.cloudflarestorage.com", true) || link.contains("fsl-buckets", true) || link.contains("diskcdn.buzz", true) -> {
                             callback(newExtractorLink(
-                                "$name [FSL]",
-                                "$name [FSL] $finalLabel",
-                                link
+                                "$name [FSL]", "$name [FSL]", link
                             ) {
                                 this.quality = score + 15
                                 this.headers = VIDEO_HEADERS
                             })
                         }
-
-                        // 10Gbps Server (gpdl.hubcloud.cx/?id= or pixel.hubcloud.cx/?id=)
-                        // Jul 2026: Domain migrated from pixel.hubcdn to hubcloud.cx
-                        // Redirect chain: gpdl.hubcloud.cx → workers.dev → gamerxyt.com/dl.php?link=URL
-                        text.contains("10Gbps", true) ||
-                                (link.contains("pixel.hubcloud", true) && link.contains("?id=")) ||
-                                (link.contains("pixel.hubcdn", true) && link.contains("?id=")) ||
-                                link.contains("gpdl.hubcloud", true) -> {
-                            Log.d(tag, "10Gbps: $link")
+                        text.contains("10Gbps", true) || (link.contains("pixel.hubcloud", true) && link.contains("?id=")) -> {
                             try {
-                                // Follow multi-hop redirect chain manually to avoid downloading the whole file
                                 val downloadUrl = resolveHubCloudDirect(link)
                                 if (downloadUrl.isNotBlank() && downloadUrl.startsWith("http") &&
                                     !downloadUrl.contains("hubcloud.cx", true) &&
-                                    !downloadUrl.contains("gamerxyt.com", true) &&
-                                    !downloadUrl.contains("/bgmi/", true)) {
+                                    !downloadUrl.contains("gamerxyt.com", true)) {
                                     callback(newExtractorLink(
-                                        "10Gbps", "10Gbps $finalLabel", downloadUrl
+                                        "10Gbps", "10Gbps", downloadUrl
                                     ) {
                                         this.quality = score + 10
                                         this.headers = VIDEO_HEADERS
@@ -589,41 +489,20 @@ class HubCloud : ExtractorApi() {
                                 Log.e(tag, "10Gbps redirect error: ${e.message}")
                             }
                         }
-
-
-                        // Direct video URLs (googleusercontent, video file extensions)
-                        (link.contains("video-downloads.googleusercontent.com", true) ||
-                                link.endsWith(".mkv", true) || link.endsWith(".mp4", true)) -> {
-                            Log.d(tag, "Direct video: $link")
-                            callback(newExtractorLink(
-                                "$name [Direct]",
-                                "$name [Direct] $finalLabel",
-                                link
-                            ) {
-                                this.quality = score + 25
-                                this.headers = VIDEO_HEADERS
-                            })
-                        }
-
-                        // PixelDrain (pixeldrain.dev/u/XXX)
                         link.contains("pixeldrain", true) -> {
-                            Log.d(tag, "PixelDrain: $link")
                             val finalURL = if (link.contains("/u/")) {
                                 "${getBaseUrl(link)}/api/file/${link.substringAfterLast("/")}?download"
                             } else link
                             callback(newExtractorLink(
-                                "Pixeldrain", "Pixeldrain $finalLabel", finalURL
+                                "Pixeldrain", "Pixeldrain", finalURL
                             ) {
                                 this.quality = score
                                 this.headers = VIDEO_HEADERS
                             })
                         }
-
-                        // Generic Download button (catch new server types)
                         text.contains("Download", true) && !link.contains("google.com", true) -> {
-                            Log.d(tag, "Download: $link")
                             callback(newExtractorLink(
-                                "$name", "$name $finalLabel", link
+                                name, name, link
                             ) {
                                 this.quality = score
                                 this.headers = VIDEO_HEADERS
@@ -631,26 +510,11 @@ class HubCloud : ExtractorApi() {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(tag, "Error processing: ${e.message}")
+                    Log.e(tag, "Error processing button: ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error: ${e.message}")
-        }
-    }
-
-    private fun cleanTitle(title: String): String {
-        val parts = title.split(".", "-", "_")
-        val qualityTags = listOf("WEBRip", "WEB-DL", "WEB", "BluRay", "HDRip", "DVDRip", "HDTV", "HD")
-
-        val startIndex = parts.indexOfFirst { part ->
-            qualityTags.any { part.contains(it, true) }
-        }
-
-        return if (startIndex != -1) {
-            parts.subList(startIndex, minOf(startIndex + 4, parts.size)).joinToString(".")
-        } else {
-            parts.takeLast(3).joinToString(".")
+            Log.e(tag, "Error processing HubCloud: ${e.message}")
         }
     }
 }
@@ -667,7 +531,6 @@ class HUBCDN : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val tag = "HUBCDN"
-
         val latestUrl = getLatestUrl(url, "hubcdn")
         val baseUrl = getBaseUrl(url)
         val newUrl = url.replace(baseUrl, latestUrl)
@@ -675,125 +538,28 @@ class HUBCDN : ExtractorApi() {
         Log.d(tag, "Processing: $newUrl")
 
         try {
-            when {
-            // hubcdn.sbs/fans/file/XXX - Instant download (primary flow)
-                // Jul 2026: hubcdn now redirects to inventoryidea.com mediator page
-                // Actual download URL is in Base64-encoded 'r' parameter
-                newUrl.contains("/file/") -> {
-                    Log.d(tag, "Instant download: $newUrl")
+            val response = app.get(newUrl, allowRedirects = true)
+            val finalPageUrl = response.url
+            val doc = response.document
+            var downloadUrl: String? = null
 
-                    // Follow redirects - final URL will be hubcdn.fans/dl/?link=FINAL_URL
-                    val response = app.get(newUrl, allowRedirects = true)
-                    val finalPageUrl = response.url
-                    val doc = response.document
+            if (finalPageUrl.contains("link=")) {
+                downloadUrl = URLDecoder.decode(finalPageUrl.substringAfter("link="), "UTF-8")
+            }
 
-                    var downloadUrl: String? = null
-
-                    // Method 1: Extract from redirect URL parameter (?link=)
-                    if (finalPageUrl.contains("link=")) {
-                        downloadUrl = java.net.URLDecoder.decode(
-                            finalPageUrl.substringAfter("link="), "UTF-8"
-                        )
-                        Log.d(tag, "Got URL from redirect param: $downloadUrl")
-                    }
-
-                    // Method 2: Jul 2026 - Hubcdn now redirects to inventoryidea.com mediator
-                    // Extract Base64 'r' parameter and decode to get actual download URL
-                    if (downloadUrl.isNullOrBlank() && finalPageUrl.contains("inventoryidea.com")) {
-                        try {
-                            val rParam = Regex("""[?&]r=([A-Za-z0-9+/=]+)""").find(finalPageUrl)
-                                ?.groupValues?.get(1) ?: ""
-                            if (rParam.isNotEmpty()) {
-                                val decoded = String(android.util.Base64.decode(rParam, android.util.Base64.DEFAULT), Charsets.UTF_8)
-                                // decoded URL format: https://hubcdn.sbs/dl/?link=ACTUAL_DIRECT_URL
-                                if (decoded.contains("link=")) {
-                                    downloadUrl = java.net.URLDecoder.decode(
-                                        decoded.substringAfter("link="), "UTF-8"
-                                    )
-                                    Log.d(tag, "Got URL from inventoryidea Base64 r param: $downloadUrl")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(tag, "Failed to decode inventoryidea r param: ${e.message}")
-                        }
-                    }
-
-                    // Method 3: Find "Download Here" or "Get Links" link on the dl page
-                    if (downloadUrl.isNullOrBlank()) {
-                        val dlLink = doc.selectFirst("a[href]:contains(Download Here)")?.attr("href")
-                            ?: doc.selectFirst("a.btn[href^=http]")?.attr("href")
-                            ?: doc.selectFirst("a.get-link[href^=http]")?.attr("href")
-                            ?: doc.selectFirst("#verify_btn")?.attr("href")
-                        if (!dlLink.isNullOrBlank() && !dlLink.contains("hubcdn")) {
-                            downloadUrl = dlLink
-                            Log.d(tag, "Got URL from Download Here link: $downloadUrl")
-                        }
-                    }
-
-                    // Method 4: Legacy - try reurl JS variable
-                    if (downloadUrl.isNullOrBlank()) {
-                        val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
-                        val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
-                            .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
-                        if (encodedUrl != null) {
-                            try {
-                                downloadUrl = com.lagradost.cloudstream3.base64Decode(encodedUrl)
-                                    .substringAfterLast("link=")
-                                Log.d(tag, "Got URL from reurl JS: $downloadUrl")
-                            } catch (_: Exception) {}
-                        }
-                    }
-
-                    if (!downloadUrl.isNullOrBlank() && downloadUrl.startsWith("http")) {
-                        callback(newExtractorLink(
-                            "Instant DL",
-                            "Instant DL [HUBCDN]",
-                            downloadUrl,
-                            INFER_TYPE
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.headers = VIDEO_HEADERS
-                        })
-                    } else {
-                        Log.w(tag, "Failed to extract download URL from: $newUrl")
-                    }
+            if (downloadUrl.isNullOrBlank()) {
+                val dlLink = doc.selectFirst("a[href]:contains(Download Here)")?.attr("href")
+                    ?: doc.selectFirst("a.btn[href^=http]")?.attr("href")
+                if (!dlLink.isNullOrBlank() && !dlLink.contains("hubcdn")) {
+                    downloadUrl = dlLink
                 }
+            }
 
-                // hubcdn with hubcloud link fallback
-                newUrl.contains("hubcdn") -> {
-                    val doc = app.get(newUrl).document
-
-                    // Try reurl JS variable first
-                    val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
-                    val encodedUrl = Regex("""reurl\s*=\s*"([^"]+)"""")
-                        .find(scriptText ?: "")?.groupValues?.get(1)?.substringAfter("?r=")
-
-                    var decodedUrl: String? = null
-                    if (encodedUrl != null) {
-                        try {
-                            decodedUrl = com.lagradost.cloudstream3.base64Decode(encodedUrl)
-                                .substringAfterLast("link=")
-                        } catch (_: Exception) {}
-                    }
-
-                    if (!decodedUrl.isNullOrBlank()) {
-                        callback(newExtractorLink(
-                            this.name,
-                            this.name,
-                            decodedUrl,
-                            INFER_TYPE
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.headers = VIDEO_HEADERS
-                        })
-                    } else {
-                        // Try hubcloud fallback
-                        val hubcloudLink = doc.select("a[href*=hubcloud]").attr("href")
-                        if (hubcloudLink.isNotBlank()) {
-                            HubCloud().getUrl(hubcloudLink, referer, subtitleCallback, callback)
-                        }
-                    }
-                }
+            if (!downloadUrl.isNullOrBlank() && downloadUrl.startsWith("http")) {
+                callback(newExtractorLink("Instant DL", "Instant DL [HUBCDN]", downloadUrl, INFER_TYPE) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
             }
         } catch (e: Exception) {
             Log.e(tag, "Error: ${e.message}")

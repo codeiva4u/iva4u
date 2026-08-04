@@ -1,18 +1,18 @@
 package com.moviesdrive
 
+import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
-import com.lagradost.cloudstream3.plugins.Plugin
-import android.content.Context
 
 @CloudstreamPlugin
-class MoviesDrivePlugin: Plugin() {
-    override fun load(context: Context) {
-        // All providers should be added in this manner. Please don't edit the providers list directly.
+class MoviesDrivePlugin: BasePlugin() {
+    override fun load() {
         registerMainAPI(MoviesDriveProvider())
-        registerExtractorAPI(GDLink())
-        registerExtractorAPI(GDFlixNet())
-        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(FastDLExtractor())
+        registerExtractorAPI(VCloudExtractor())
+        registerExtractorAPI(FilebeeExtractor())
+        registerExtractorAPI(Hubdrive())
         registerExtractorAPI(HubCloud())
-        registerExtractorAPI(Gofile())
+        registerExtractorAPI(GDFlix())
+        registerExtractorAPI(HUBCDN())
     }
 }
