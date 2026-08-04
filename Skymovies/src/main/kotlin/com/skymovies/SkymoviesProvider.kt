@@ -294,8 +294,17 @@ class SkymoviesProvider : MainAPI() {
         val quality: Int,
         val sizeMB: Double,
         val originalText: String,
+        val seasonNum: Int? = null,
         val episodes: Set<Int> = emptySet()
     )
+
+    private fun extractSeasonFromText(text: String): Int? {
+        if (text.isBlank()) return null
+        val SEASON_REGEX = Regex("""(?i)\b(?:S|Season)\s*[-.:#]*\s*(\d{1,2})\b""")
+        val match = SEASON_REGEX.find(text)
+        val seasonNum = match?.groupValues?.get(1)?.toIntOrNull()
+        return if (seasonNum != null && seasonNum in 1..50) seasonNum else null
+    }
 
     private fun extractEpisodesFromText(text: String): Set<Int> {
         val result = mutableSetOf<Int>()
@@ -329,48 +338,37 @@ class SkymoviesProvider : MainAPI() {
     private suspend fun detectEpisodesFromHtml(document: Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
         val urlList = pageUrl.split("|||").distinct()
-        val epToUrlMap = mutableMapOf<Int, MutableList<String>>()
+        val episodesBySeason = mutableMapOf<Int, MutableSet<Int>>()
 
         Log.d(TAG, "=== detectEpisodesFromHtml START for ${urlList.size} URLs ===")
 
-        for (u in urlList) {
-            val epsInUrl = mutableSetOf<Int>()
-            try {
-                epsInUrl.addAll(extractEpisodesFromText(u))
+        val pageTitle = document.selectFirst("title, h1, h2, h3, .post-title")?.text() ?: ""
+        val mainSeason = extractSeasonFromText(pageTitle) ?: 1
 
+        for (u in urlList) {
+            try {
                 val doc = if (u == urlList.first()) document else app.get(u, headers = headers).document
                 val cleanDoc = doc.clone()
                 cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-                val pageHeading = cleanDoc.select("title, h1, h2, h3, .post-title, div.Robiul, .Mati").text()
-                epsInUrl.addAll(extractEpisodesFromText(pageHeading))
+                var currentSeason = extractSeasonFromText(cleanDoc.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "") ?: mainSeason
 
-                cleanDoc.select("h3, h4, h5, h6, .Bolly, div.L, div.Let").forEach { element ->
+                cleanDoc.select("h3, h4, h5, h6, .Bolly, div.L, div.Let, p, a").forEach { element ->
                     val text = element.text().trim()
-                    epsInUrl.addAll(extractEpisodesFromText(text))
+                    val s = extractSeasonFromText(text)
+                    if (s != null) currentSeason = s
+
+                    val eps = extractEpisodesFromText(text)
+                    if (eps.isNotEmpty()) {
+                        episodesBySeason.getOrPut(currentSeason) { mutableSetOf() }.addAll(eps)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing episodes for sub-url: ${e.message}")
             }
-
-            epsInUrl.removeAll(QUALITY_NUMBERS)
-            for (ep in epsInUrl) {
-                epToUrlMap.getOrPut(ep) { mutableListOf() }.add(u)
-            }
         }
 
-        if (epToUrlMap.isEmpty() && urlList.size > 1) {
-            val sortedUrls = urlList.sortedBy { url ->
-                val match = Regex("""E(\d{1,3})""", RegexOption.IGNORE_CASE).find(url)
-                match?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
-            }
-            for ((index, u) in sortedUrls.withIndex()) {
-                val epNum = index + 1
-                epToUrlMap.getOrPut(epNum) { mutableListOf() }.add(u)
-            }
-        }
-
-        if (epToUrlMap.isEmpty()) {
+        if (episodesBySeason.isEmpty()) {
             val aggregatorUrls = mutableListOf<String>()
             for (u in urlList) {
                 try {
@@ -379,41 +377,46 @@ class SkymoviesProvider : MainAPI() {
                 } catch (_: Exception) {}
             }
             val distinctAggregators = aggregatorUrls.distinct()
-            for (aggUrl in distinctAggregators.take(5)) {
+            for (aggUrl in distinctAggregators.take(10)) {
                 try {
                     val aggDoc = app.get(aggUrl).document
                     aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+
+                    var aggSeason = extractSeasonFromText(aggDoc.selectFirst("title, h1, h2, h3")?.text() ?: "") ?: mainSeason
+
                     aggDoc.select("h2, h3, h4, h5, h6, a, p").forEach { elem ->
                         val text = elem.text().trim()
+                        val s = extractSeasonFromText(text)
+                        if (s != null) aggSeason = s
+
                         val eps = extractEpisodesFromText(text)
-                        for (ep in eps) {
-                            if (!QUALITY_NUMBERS.contains(ep)) {
-                                epToUrlMap.getOrPut(ep) { mutableListOf() }.addAll(urlList)
-                            }
+                        if (eps.isNotEmpty()) {
+                            episodesBySeason.getOrPut(aggSeason) { mutableSetOf() }.addAll(eps)
                         }
                     }
-                    if (epToUrlMap.isNotEmpty()) break
                 } catch (e: Exception) {
                     Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
                 }
             }
         }
 
-        if (epToUrlMap.isNotEmpty()) {
-            val maxEpisode = epToUrlMap.keys.maxOrNull() ?: 1
-            for (episodeNum in 1..maxEpisode) {
-                val targetUrls = epToUrlMap[episodeNum]?.distinct()?.joinToString("|||") ?: pageUrl
-                val data = "$targetUrls|||$episodeNum"
-                episodes.add(
-                    newEpisode(data) {
-                        this.name = "Episode $episodeNum"
-                        this.episode = episodeNum
-                        this.season = 1
-                    }
-                )
+        if (episodesBySeason.isNotEmpty()) {
+            episodesBySeason.keys.sorted().forEach { sNum ->
+                val set = (episodesBySeason[sNum] ?: emptySet()).minus(QUALITY_NUMBERS)
+                val maxEp = set.maxOrNull() ?: 1
+                for (epNum in 1..maxEp) {
+                    val data = "$pageUrl|||$sNum|||$epNum"
+                    episodes.add(
+                        newEpisode(data) {
+                            this.name = "Episode $epNum"
+                            this.episode = epNum
+                            this.season = sNum
+                        }
+                    )
+                }
             }
         } else {
-            val data = "$pageUrl|||0"
+            val data = "$pageUrl|||1|||0"
             episodes.add(
                 newEpisode(data) {
                     this.name = "Full Season"
@@ -449,22 +452,31 @@ class SkymoviesProvider : MainAPI() {
     private suspend fun extractDownloadLinks(document: Document, pageUrl: String = ""): List<DownloadLink> {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
-        
+        var currentSeason: Int? = null
+
         val cleanDoc = document.clone()
         cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
+        val pageHeading = cleanDoc.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: ""
+        currentSeason = extractSeasonFromText(pageHeading)
+
         var currentEpisodes = extractEpisodesFromText(pageUrl).ifEmpty {
-            extractEpisodesFromText(cleanDoc.selectFirst("title, h1, h2, h3, .post-title, div.Robiul, .Mati")?.text() ?: "")
+            extractEpisodesFromText(pageHeading)
         }
 
-        val relevantSelector = "h3, h4, h5, a[href*='howblogs'], a[href*='linkstaker'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn']"
+        val relevantSelector = "h3, h4, h5, h6, a[href*='howblogs'], a[href*='linkstaker'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='m4ulinks']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
+            val elementText = element.text().trim()
 
-            if (tagName in listOf("H3", "H4", "H5")) {
-                val headerText = element.text().trim()
-                val eps = extractEpisodesFromText(headerText)
+            val s = extractSeasonFromText(elementText)
+            if (s != null) {
+                currentSeason = s
+            }
+
+            if (tagName in listOf("H3", "H4", "H5", "H6")) {
+                val eps = extractEpisodesFromText(elementText)
                 if (eps.isNotEmpty()) {
                     currentEpisodes = eps
                 }
@@ -473,7 +485,7 @@ class SkymoviesProvider : MainAPI() {
 
             if (tagName == "A") {
                 val url = element.attr("href")
-                val linkText = element.text().trim()
+                val linkText = elementText
 
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
                 if (shouldBlockUrl(url)) return@forEach
@@ -501,6 +513,7 @@ class SkymoviesProvider : MainAPI() {
                         quality = extractQuality(episodeContext),
                         sizeMB = parseFileSize(episodeContext),
                         originalText = episodeContext,
+                        seasonNum = currentSeason,
                         episodes = linkEpisodes
                     )
                 )
@@ -516,18 +529,26 @@ class SkymoviesProvider : MainAPI() {
                 try {
                     val hbDoc = app.get(link.url).document
                     var hbEpisodes = link.episodes
+                    var hbSeason = link.seasonNum ?: extractSeasonFromText(hbDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
 
                     hbDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
+                        val text = elem.text().trim()
+
+                        val s = extractSeasonFromText(text)
+                        if (s != null) {
+                            hbSeason = s
+                        }
+
                         if (tag in listOf("H3", "H4", "H5", "H6")) {
-                            val eps = extractEpisodesFromText(elem.text())
+                            val eps = extractEpisodesFromText(text)
                             if (eps.isNotEmpty()) {
                                 hbEpisodes = eps
                             }
                         } else if (tag == "A") {
                             val abs = elem.absUrl("href")
                             val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
-                            val innerText = elem.text().trim()
+                            val innerText = text
                             if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
                                 expandedLinks.add(
                                     DownloadLink(
@@ -535,6 +556,7 @@ class SkymoviesProvider : MainAPI() {
                                         quality = extractQuality(innerText).let { if (it == 0) link.quality else it },
                                         sizeMB = parseFileSize(innerText),
                                         originalText = innerText,
+                                        seasonNum = hbSeason,
                                         episodes = hbEpisodes
                                     )
                                 )
@@ -588,9 +610,13 @@ class SkymoviesProvider : MainAPI() {
 
         try {
             val parts = data.split("|||")
-            val lastPartIsEpisodeNum = parts.last().toIntOrNull() != null
-            val episodeNum = if (lastPartIsEpisodeNum) parts.last().toIntOrNull() else null
-            val urls = if (lastPartIsEpisodeNum) parts.dropLast(1) else parts
+            val targetSeason = if (parts.size > 2) parts[1].toIntOrNull() else null
+            val targetEpisode = when {
+                parts.size > 2 -> parts[2].toIntOrNull()
+                parts.size > 1 -> parts[1].toIntOrNull()
+                else -> null
+            }
+            val urls = if (targetEpisode != null) listOf(parts[0]) else parts
 
             val allLinks = mutableListOf<DownloadLink>()
             for (u in urls) {
@@ -603,16 +629,23 @@ class SkymoviesProvider : MainAPI() {
             }
 
             val targetLinks = when {
-                episodeNum == null -> allLinks
-                episodeNum == 0 -> allLinks.filter { it.episodes.isEmpty() }.ifEmpty { allLinks }
+                targetEpisode == null -> allLinks
+                targetEpisode == 0 -> allLinks
                 else -> {
-                    val byField = allLinks.filter { it.episodes.contains(episodeNum) }
+                    val seasonFiltered = if (targetSeason != null) {
+                        allLinks.filter { it.seasonNum == null || it.seasonNum == targetSeason }.ifEmpty { allLinks }
+                    } else {
+                        allLinks
+                    }
+
+                    val byField = seasonFiltered.filter { it.episodes.contains(targetEpisode) }
                     if (byField.isNotEmpty()) byField
                     else {
-                        allLinks.filter { link ->
+                        val byText = seasonFiltered.filter { link ->
                             val eps = extractEpisodesFromText(link.originalText)
-                            eps.contains(episodeNum)
-                        }.ifEmpty { allLinks }
+                            eps.contains(targetEpisode)
+                        }
+                        if (byText.isNotEmpty()) byText else seasonFiltered
                     }
                 }
             }
@@ -647,7 +680,7 @@ class SkymoviesProvider : MainAPI() {
                     }
                 )
 
-            val linksToProcess = if (episodeNum != null) 1 else 3
+            val linksToProcess = if (targetEpisode != null) 1 else 3
             withTimeoutOrNull(10_000L) {
                 sortedLinks.take(linksToProcess).amap { downloadLink ->
                     try {

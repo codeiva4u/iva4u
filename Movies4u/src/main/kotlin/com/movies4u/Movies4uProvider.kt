@@ -262,8 +262,17 @@ class Movies4uProvider : MainAPI() {
         val quality: Int,
         val sizeMB: Double,
         val originalText: String,
+        val seasonNum: Int? = null,
         val episodes: Set<Int> = emptySet()
     )
+
+    private fun extractSeasonFromText(text: String): Int? {
+        if (text.isBlank()) return null
+        val SEASON_REGEX = Regex("""(?i)\b(?:S|Season)\s*[-.:#]*\s*(\d{1,2})\b""")
+        val match = SEASON_REGEX.find(text)
+        val seasonNum = match?.groupValues?.get(1)?.toIntOrNull()
+        return if (seasonNum != null && seasonNum in 1..50) seasonNum else null
+    }
 
     private fun extractEpisodesFromText(text: String): Set<Int> {
         val result = mutableSetOf<Int>()
@@ -296,7 +305,7 @@ class Movies4uProvider : MainAPI() {
 
     private suspend fun detectEpisodesFromHtml(document: Document, pageUrl: String): List<com.lagradost.cloudstream3.Episode> {
         val episodes = mutableListOf<com.lagradost.cloudstream3.Episode>()
-        val detectedEpisodes = mutableSetOf<Int>()
+        val episodesBySeason = mutableMapOf<Int, MutableSet<Int>>()
 
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
@@ -304,15 +313,23 @@ class Movies4uProvider : MainAPI() {
         cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
         val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
-        detectedEpisodes.addAll(extractEpisodesFromText(pageTitle))
+        val mainSeason = extractSeasonFromText(pageTitle) ?: 1
 
-        fun parseDocForEpisodes(doc: Document) {
+        fun parseDocForEpisodes(doc: Document, defaultSeason: Int = 1) {
+            var currentSeason = extractSeasonFromText(doc.selectFirst("title, h1, h2, h3, .post-title")?.text() ?: "") ?: defaultSeason
+
             val downloadDivs = doc.select(".download-links-div, div[class*='download']")
             if (downloadDivs.isNotEmpty()) {
                 downloadDivs.forEach { div ->
                     div.select(".downloads-btns-div, div, p, h3, h4, h5, a").forEach { element ->
                         val text = element.text().trim()
-                        detectedEpisodes.addAll(extractEpisodesFromText(text))
+                        val s = extractSeasonFromText(text)
+                        if (s != null) currentSeason = s
+
+                        val eps = extractEpisodesFromText(text)
+                        if (eps.isNotEmpty()) {
+                            episodesBySeason.getOrPut(currentSeason) { mutableSetOf() }.addAll(eps)
+                        }
                     }
                 }
             } else {
@@ -325,41 +342,58 @@ class Movies4uProvider : MainAPI() {
                     if (text.matches(Regex("""^\d+(\.\d+)?\s*(MB|GB).*""", RegexOption.IGNORE_CASE))) {
                         return@forEach
                     }
-                    detectedEpisodes.addAll(extractEpisodesFromText(text))
-                }
-            }
-        }
+                    val s = extractSeasonFromText(text)
+                    if (s != null) currentSeason = s
 
-        val aggregatorUrls = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']").map { it.attr("href") }.distinct()
-        if (aggregatorUrls.isNotEmpty()) {
-            for (aggUrl in aggregatorUrls.take(10)) {
-                try {
-                    val aggDoc = app.get(aggUrl, headers = headers).document
-                    aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
-                    parseDocForEpisodes(aggDoc)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
-                }
-            }
-        }
-        parseDocForEpisodes(cleanDoc)
-
-        detectedEpisodes.removeAll(QUALITY_NUMBERS)
-
-        if (detectedEpisodes.isNotEmpty()) {
-            val maxEpisode = detectedEpisodes.maxOrNull() ?: 1
-            for (episodeNum in 1..maxEpisode) {
-                val data = "$pageUrl|||$episodeNum"
-                episodes.add(
-                    newEpisode(data) {
-                        this.name = "Episode $episodeNum"
-                        this.episode = episodeNum
-                        this.season = 1
+                    val eps = extractEpisodesFromText(text)
+                    if (eps.isNotEmpty()) {
+                        episodesBySeason.getOrPut(currentSeason) { mutableSetOf() }.addAll(eps)
                     }
-                )
+                }
+            }
+        }
+
+        val relevantAnchors = cleanDoc.select("h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")
+        var contextSeason = mainSeason
+
+        relevantAnchors.forEach { element ->
+            val text = element.text().trim()
+            val s = extractSeasonFromText(text)
+            if (s != null) contextSeason = s
+
+            if (element.tagName().uppercase() == "A") {
+                val href = element.attr("href")
+                if (href.contains("m4ulinks", true) || href.contains("mdrive", true) || href.contains("howblogs", true) || href.contains("linkstaker", true)) {
+                    try {
+                        val aggDoc = app.get(href, headers = headers).document
+                        aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+                        parseDocForEpisodes(aggDoc, defaultSeason = contextSeason)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
+
+        if (episodesBySeason.isNotEmpty()) {
+            episodesBySeason.keys.sorted().forEach { sNum ->
+                val set = (episodesBySeason[sNum] ?: emptySet()).minus(QUALITY_NUMBERS)
+                val maxEp = set.maxOrNull() ?: 1
+                for (epNum in 1..maxEp) {
+                    val data = "$pageUrl|||$sNum|||$epNum"
+                    episodes.add(
+                        newEpisode(data) {
+                            this.name = "Episode $epNum"
+                            this.episode = epNum
+                            this.season = sNum
+                        }
+                    )
+                }
             }
         } else {
-            val data = "$pageUrl|||0"
+            val data = "$pageUrl|||1|||0"
             episodes.add(
                 newEpisode(data) {
                     this.name = "Full Season"
@@ -370,7 +404,7 @@ class Movies4uProvider : MainAPI() {
         }
 
         Log.d(TAG, "Total episodes: ${episodes.size}")
-        return episodes.sortedBy { it.episode }
+        return episodes.sortedWith(compareBy<com.lagradost.cloudstream3.Episode> { it.season }.thenBy { it.episode })
     }
 
     private fun extractQuality(text: String): Int {
@@ -396,18 +430,27 @@ class Movies4uProvider : MainAPI() {
         val downloadLinks = mutableListOf<DownloadLink>()
         val seenUrls = mutableSetOf<String>()
         var currentEpisodes = emptySet<Int>()
+        var currentSeason: Int? = null
 
         val cleanDoc = document.clone()
         cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-        val relevantSelector = "h3, h4, h5, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
+        val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
+        currentSeason = extractSeasonFromText(pageHeading)
+
+        val relevantSelector = "h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
+            val elementText = element.text().trim()
 
-            if (tagName in listOf("H3", "H4", "H5")) {
-                val headerText = element.text().trim()
-                val eps = extractEpisodesFromText(headerText)
+            val s = extractSeasonFromText(elementText)
+            if (s != null) {
+                currentSeason = s
+            }
+
+            if (tagName in listOf("H3", "H4", "H5", "H6")) {
+                val eps = extractEpisodesFromText(elementText)
                 if (eps.isNotEmpty()) {
                     currentEpisodes = eps
                 }
@@ -416,7 +459,7 @@ class Movies4uProvider : MainAPI() {
 
             if (tagName == "A") {
                 val url = element.attr("href")
-                val linkText = element.text().trim()
+                val linkText = elementText
 
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
                 if (shouldBlockUrl(url)) return@forEach
@@ -430,7 +473,6 @@ class Movies4uProvider : MainAPI() {
                 seenUrls.add(url)
 
                 val linkEpisodes = extractEpisodesFromText(linkText).ifEmpty { currentEpisodes }
-                
                 val epStr = if (linkEpisodes.isNotEmpty()) linkEpisodes.joinToString("-") else ""
 
                 val episodeContext = when {
@@ -445,6 +487,7 @@ class Movies4uProvider : MainAPI() {
                         quality = extractQuality(episodeContext),
                         sizeMB = parseFileSize(episodeContext),
                         originalText = episodeContext,
+                        seasonNum = currentSeason,
                         episodes = linkEpisodes
                     )
                 )
@@ -461,18 +504,26 @@ class Movies4uProvider : MainAPI() {
                 try {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
+                    var m4uSeason = link.seasonNum ?: extractSeasonFromText(m4uDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
 
                     m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
+                        val text = elem.text().trim()
+
+                        val s = extractSeasonFromText(text)
+                        if (s != null) {
+                            m4uSeason = s
+                        }
+
                         if (tag in listOf("H3", "H4", "H5", "H6")) {
-                            val eps = extractEpisodesFromText(elem.text())
+                            val eps = extractEpisodesFromText(text)
                             if (eps.isNotEmpty()) {
                                 m4uEpisodes = eps
                             }
                         } else if (tag == "A") {
                             val abs = elem.absUrl("href")
                             val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
-                            val innerText = elem.text().trim()
+                            val innerText = text
                             if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
                                 expandedLinks.add(
                                     DownloadLink(
@@ -480,6 +531,7 @@ class Movies4uProvider : MainAPI() {
                                         quality = extractQuality(innerText).let { if (it == 0) link.quality else it },
                                         sizeMB = parseFileSize(innerText),
                                         originalText = innerText,
+                                        seasonNum = m4uSeason,
                                         episodes = m4uEpisodes
                                     )
                                 )
@@ -527,22 +579,34 @@ class Movies4uProvider : MainAPI() {
         try {
             val parts = data.split("|||")
             val pageUrl = parts[0]
-            val episodeNum = if (parts.size > 1) parts[1].toIntOrNull() else null
+            val targetSeason = if (parts.size > 2) parts[1].toIntOrNull() else null
+            val targetEpisode = when {
+                parts.size > 2 -> parts[2].toIntOrNull()
+                parts.size > 1 -> parts[1].toIntOrNull()
+                else -> null
+            }
 
             val document = app.get(pageUrl, headers = headers).document
             val allLinks = extractDownloadLinks(document)
 
             val targetLinks = when {
-                episodeNum == null -> allLinks
-                episodeNum == 0 -> allLinks.filter { it.episodes.isEmpty() }.ifEmpty { allLinks }
+                targetEpisode == null -> allLinks
+                targetEpisode == 0 -> allLinks
                 else -> {
-                    val byField = allLinks.filter { it.episodes.contains(episodeNum) }
+                    val seasonFiltered = if (targetSeason != null) {
+                        allLinks.filter { it.seasonNum == null || it.seasonNum == targetSeason }.ifEmpty { allLinks }
+                    } else {
+                        allLinks
+                    }
+
+                    val byField = seasonFiltered.filter { it.episodes.contains(targetEpisode) }
                     if (byField.isNotEmpty()) byField
                     else {
-                        allLinks.filter { link ->
+                        val byText = seasonFiltered.filter { link ->
                             val eps = extractEpisodesFromText(link.originalText)
-                            eps.contains(episodeNum)
-                        }.ifEmpty { allLinks }
+                            eps.contains(targetEpisode)
+                        }
+                        if (byText.isNotEmpty()) byText else seasonFiltered
                     }
                 }
             }
@@ -577,7 +641,7 @@ class Movies4uProvider : MainAPI() {
                     }
                 )
 
-            val linksToProcess = if (episodeNum != null) 3 else 5
+            val linksToProcess = if (targetEpisode != null) 3 else 5
             withTimeoutOrNull(25_000L) {
                 sortedLinks.take(linksToProcess).amap { downloadLink ->
                     try {
