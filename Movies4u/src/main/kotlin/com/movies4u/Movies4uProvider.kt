@@ -26,6 +26,9 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
+private var cachedDomain: String? = null
+private var lastFetchTime = 0L
+
 class Movies4uProvider : MainAPI() {
     companion object {
         private const val TAG = "Movies4uProvider"
@@ -57,21 +60,25 @@ class Movies4uProvider : MainAPI() {
 
     init {
         runBlocking {
-            try {
-                withTimeoutOrNull(5_000L) {
-                    val response = app.get(
-                        "https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json"
-                    )
-                    val json = response.text
-                    val jsonObject = JSONObject(json)
-                    val urlString = jsonObject.optString("movies4u")
-                    if (urlString.isNotBlank()) {
-                        mainUrl = urlString.substringBefore("?").trimEnd('/')
-                        Log.d(TAG, "Fetched mainUrl: $urlString")
+            if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
+                mainUrl = cachedDomain!!
+            } else {
+                try {
+                    withTimeoutOrNull(5_000L) {
+                        val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+                        val json = response.text
+                        val jsonObject = org.json.JSONObject(json)
+                        val urlString = jsonObject.optString("movies4u")
+                        if (urlString.isNotBlank()) {
+                            mainUrl = urlString.substringBefore("?").trimEnd('/')
+                            cachedDomain = mainUrl
+                            lastFetchTime = System.currentTimeMillis()
+                            Log.d(TAG, "Fetched mainUrl: ${urlString}")
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to fetch mainUrl: ${e.message}")
             }
         }
     }
@@ -640,7 +647,7 @@ class Movies4uProvider : MainAPI() {
                 )
 
             val linksToProcess = if (targetEpisode != null) 3 else 5
-            withTimeoutOrNull(25_000L) {
+            withTimeoutOrNull(6_000L) {
                 sortedLinks.take(linksToProcess).amap { downloadLink ->
                     try {
                         val link = downloadLink.url
@@ -651,7 +658,7 @@ class Movies4uProvider : MainAPI() {
                         Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
                 }
-            } ?: Log.w(TAG, "Timeout reached (25s)")
+            } ?: Log.w(TAG, "Timeout reached (6s)")
         } catch (e: Exception) {
             Log.e(TAG, "Error in loadLinks: ${e.message}")
         }
@@ -678,3 +685,5 @@ class Movies4uProvider : MainAPI() {
             .trim()
     }
 }
+
+

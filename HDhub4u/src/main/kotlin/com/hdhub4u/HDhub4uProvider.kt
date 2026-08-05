@@ -23,6 +23,9 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
+private var cachedDomain: String? = null
+private var lastFetchTime = 0L
+
 class HDhub4uProvider : MainAPI() {
 
     companion object {
@@ -83,16 +86,22 @@ class HDhub4uProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        try {
-            val json = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json").text
-            if (json.isNotBlank()) {
-                val jsonObject = JSONObject(json)
-                val urlString = jsonObject.optString("hdhub4u")
-                if (urlString.isNotBlank()) {
-                    mainUrl = urlString.substringBefore("?").trimEnd('/')
+        if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
+            mainUrl = cachedDomain!!
+        } else {
+            try {
+                val json = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json", timeout = 3).text
+                if (json.isNotBlank()) {
+                    val jsonObject = org.json.JSONObject(json)
+                    val urlString = jsonObject.optString("hdhub4u")
+                    if (urlString.isNotBlank()) {
+                        mainUrl = urlString.substringBefore("?").trimEnd('/')
+                        cachedDomain = mainUrl
+                        lastFetchTime = System.currentTimeMillis()
+                    }
                 }
-            }
-        } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
 
         val url = if (page == 1) {
             if (request.data.isBlank()) "$mainUrl/" else "$mainUrl/${request.data}"
@@ -638,7 +647,7 @@ class HDhub4uProvider : MainAPI() {
                 )
 
             val linksToProcess = if (targetEpisode != null) 3 else 5
-            withTimeoutOrNull(25_000L) {
+            withTimeoutOrNull(6_000L) {
                 sortedLinks.take(linksToProcess).amap { downloadLink ->
                     try {
                         val link = downloadLink.url
@@ -648,7 +657,7 @@ class HDhub4uProvider : MainAPI() {
                         Log.e(TAG, "Error extracting ${downloadLink.url}: ${e.message}")
                     }
                 }
-            } ?: Log.w(TAG, "Timeout reached (25s)")
+            } ?: Log.w(TAG, "Timeout reached (6s)")
         } catch (e: Exception) {
             Log.e(TAG, "Error in loadLinks: ${e.message}")
         }
@@ -675,3 +684,4 @@ class HDhub4uProvider : MainAPI() {
             .trim()
     }
 }
+

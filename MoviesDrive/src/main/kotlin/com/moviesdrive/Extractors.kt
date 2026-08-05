@@ -16,12 +16,8 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 val VIDEO_HEADERS = mapOf(
-    "User-Agent" to "VLC/3.6.0 LibVLC/3.0.18 (Android)",
-    "Accept" to "*/*",
-    "Accept-Encoding" to "identity",
-    "Connection" to "keep-alive",
-    "Range" to "bytes=0-",
-    "Icy-MetaData" to "1"
+    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept" to "*/*"
 )
 
 fun getIndexQuality(str: String?): Int {
