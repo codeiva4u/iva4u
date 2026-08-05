@@ -46,7 +46,29 @@ class HDhub4uProvider : MainAPI() {
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
     }
 
-    override var mainUrl: String = "https://new4.hdhub4u.cl"
+        override var mainUrl: String = "https://new4.hdhub4u.cl"
+
+    init {
+        kotlinx.coroutines.runBlocking {
+            if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
+                mainUrl = cachedDomain!!
+            } else {
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                        val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+                        val json = response.text
+                        val jsonObject = org.json.JSONObject(json)
+                        val urlString = jsonObject.optString("hdhub4u")
+                        if (urlString.isNotBlank()) {
+                            mainUrl = urlString.substringBefore("?").trimEnd('/')
+                            cachedDomain = mainUrl
+                            lastFetchTime = System.currentTimeMillis()
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     private fun fixUrl(url: String): String {
         if (url.isBlank()) return ""
@@ -86,22 +108,7 @@ class HDhub4uProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
-            mainUrl = cachedDomain!!
-        } else {
-            try {
-                val json = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json", timeout = 3).text
-                if (json.isNotBlank()) {
-                    val jsonObject = org.json.JSONObject(json)
-                    val urlString = jsonObject.optString("hdhub4u")
-                    if (urlString.isNotBlank()) {
-                        mainUrl = urlString.substringBefore("?").trimEnd('/')
-                        cachedDomain = mainUrl
-                        lastFetchTime = System.currentTimeMillis()
-                    }
-                }
-            } catch (_: Exception) {}
-        }
+
 
         val url = if (page == 1) {
             if (request.data.isBlank()) "$mainUrl/" else "$mainUrl/${request.data}"
@@ -684,4 +691,5 @@ class HDhub4uProvider : MainAPI() {
             .trim()
     }
 }
+
 
