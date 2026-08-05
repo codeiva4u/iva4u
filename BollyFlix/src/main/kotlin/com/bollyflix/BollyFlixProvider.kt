@@ -101,10 +101,31 @@ class BollyFlixProvider : MainAPI() {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
 
+        private suspend fun checkAndFetchDomain() {
+        if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
+            mainUrl = cachedDomain!!
+        } else {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                    val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
+                    val json = response.text
+                    val jsonObject = org.json.JSONObject(json)
+                    val urlString = jsonObject.optString("bollyflix")
+                    if (urlString.isNotBlank()) {
+                        mainUrl = urlString.substringBefore("?").trimEnd('/')
+                        cachedDomain = mainUrl
+                        lastFetchTime = System.currentTimeMillis()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
+        checkAndFetchDomain()
 
 
         val url = if (page == 1) {
@@ -181,6 +202,7 @@ class BollyFlixProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        checkAndFetchDomain()
         Log.d(TAG, "Searching for: $query")
         val results = mutableListOf<SearchResponse>()
 
@@ -201,6 +223,7 @@ class BollyFlixProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
+        checkAndFetchDomain()
         Log.d(TAG, "Loading: $url")
 
         val document = app.get(url, headers = headers).document
@@ -554,6 +577,7 @@ class BollyFlixProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        checkAndFetchDomain()
         Log.d(TAG, "Loading links from: $data")
 
         try {
@@ -659,5 +683,6 @@ class BollyFlixProvider : MainAPI() {
             .trim()
     }
 }
+
 
 
