@@ -364,7 +364,7 @@ class Movies4uProvider : MainAPI() {
         parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
         // Fetch aggregators IN PARALLEL with 4s timeout for instant loading
-        val aggregatorLinks = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")
+        val aggregatorLinks = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']")
             .map { Pair(it.attr("href"), extractSeasonFromText(it.text()) ?: mainSeason) }
             .distinctBy { it.first }
 
@@ -443,7 +443,7 @@ class Movies4uProvider : MainAPI() {
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
+        val relevantSelector = "h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -685,5 +685,7 @@ class Movies4uProvider : MainAPI() {
             .trim()
     }
 }
+
+
 
 
