@@ -317,7 +317,7 @@ class Movies4uProvider : MainAPI() {
         Log.d(TAG, "=== detectEpisodesFromHtml START ===")
 
         val cleanDoc = document.clone()
-        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box, .code-block, .responsive-adsterra-box").remove()
 
         val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         val mainSeason = extractSeasonFromText(pageTitle) ?: 1
@@ -373,7 +373,7 @@ class Movies4uProvider : MainAPI() {
                 aggregatorLinks.take(4).amap { (href, seasonContext) ->
                     try {
                         val aggDoc = app.get(href, headers = headers).document
-                        aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+                        aggDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box, .code-block, .responsive-adsterra-box").remove()
                         parseDocForEpisodes(aggDoc, defaultSeason = seasonContext)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error fetching aggregator for episode detection: ${e.message}")
@@ -438,12 +438,12 @@ class Movies4uProvider : MainAPI() {
         var currentSeason: Int? = null
 
         val cleanDoc = document.clone()
-        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
+        cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box, .code-block, .responsive-adsterra-box").remove()
 
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']"
+        val relevantSelector = "h3, h4, h5, h6, p, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -454,7 +454,7 @@ class Movies4uProvider : MainAPI() {
                 currentSeason = s
             }
 
-            if (tagName in listOf("H3", "H4", "H5", "H6")) {
+            if (tagName in listOf("H3", "H4", "H5", "H6", "P", "DIV")) {
                 val eps = extractEpisodesFromText(elementText)
                 if (eps.isNotEmpty()) {
                     currentEpisodes = eps
@@ -685,6 +685,9 @@ class Movies4uProvider : MainAPI() {
             .trim()
     }
 }
+
+
+
 
 
 
