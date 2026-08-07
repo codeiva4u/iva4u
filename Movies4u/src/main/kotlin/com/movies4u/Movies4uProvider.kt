@@ -97,7 +97,6 @@ class Movies4uProvider : MainAPI() {
         "category/bollywood/" to "Bollywood",
         "category/hollywood/" to "Hollywood",
         "category/south-indian/" to "South Hindi Dubbed",
-        "category/dual-audio/" to "Dual Audio",
         "category/web-series/" to "Web Series"
     )
 

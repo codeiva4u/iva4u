@@ -86,8 +86,12 @@ class MoviesDriveProvider : MainAPI() {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
 
+    private var domainFetched = false
+
     private suspend fun checkAndFetchDomain() {
+        if (domainFetched) return
         domainMutex.withLock {
+            if (domainFetched) return
             try {
                 withTimeoutOrNull(2_000L) {
                     val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
@@ -98,6 +102,7 @@ class MoviesDriveProvider : MainAPI() {
                         mainUrl = urlString.substringBefore("?").trimEnd('/')
                         Log.d(TAG, "Fetched domain from GitHub: $mainUrl")
                     }
+                    domainFetched = true
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching domain from GitHub: ${e.message}")
@@ -120,7 +125,7 @@ class MoviesDriveProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        val cards = document.select("div.poster-card, article, div.movies-grid > a[href]").ifEmpty {
+        val cards = document.select("div.poster-card, article, div.movies-grid > a[href], div.post-item, li.post-item").ifEmpty {
             document.select("a[href*='moviesdrive']")
         }
 
@@ -148,7 +153,7 @@ class MoviesDriveProvider : MainAPI() {
 
         val fixedUrl = fixUrl(href)
 
-        val titleText: String = selectFirst(".poster-title, .entry-title, h2, h3, figcaption p, figcaption a")?.text()
+        val titleText: String = selectFirst("h2.post-title, h2.title, .poster-title, .entry-title, h2, h3, figcaption p, figcaption a, .title, .post-title")?.text()
             ?: selectFirst("img")?.attr("alt")
             ?: selectFirst("img")?.attr("title")
             ?: linkElement.attr("title")
@@ -163,10 +168,12 @@ class MoviesDriveProvider : MainAPI() {
             val lazyAttr = imgElement.attr("data-lazy-src")
             val srcAttr = imgElement.attr("src")
             val srcsetAttr = imgElement.attr("srcset")
+            
+            // Avoid extracting blank/dummy placeholders
             val src = when {
-                dataSrcAttr.isNotBlank() && !dataSrcAttr.startsWith("data:") -> dataSrcAttr
-                lazyAttr.isNotBlank() && !lazyAttr.startsWith("data:") -> lazyAttr
-                srcAttr.isNotBlank() && !srcAttr.startsWith("data:") -> srcAttr
+                dataSrcAttr.isNotBlank() && !dataSrcAttr.startsWith("data:") && !dataSrcAttr.contains("blank") && !dataSrcAttr.contains("default-poster") -> dataSrcAttr
+                lazyAttr.isNotBlank() && !lazyAttr.startsWith("data:") && !lazyAttr.contains("blank") && !lazyAttr.contains("default-poster") -> lazyAttr
+                srcAttr.isNotBlank() && !srcAttr.startsWith("data:") && !srcAttr.contains("blank") && !srcAttr.contains("default-poster") -> srcAttr
                 srcsetAttr.isNotBlank() -> srcsetAttr.substringBefore(" ").substringBefore(",")
                 else -> ""
             }
@@ -174,13 +181,14 @@ class MoviesDriveProvider : MainAPI() {
         } else null
 
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(titleText)
+        val finalTitle = title.replace("Download", "", true).trim()
 
         return if (isSeries) {
-            newTvSeriesSearchResponse(title, fixedUrl, TvType.TvSeries) {
+            newTvSeriesSearchResponse(finalTitle, fixedUrl, TvType.TvSeries) {
                 this.posterUrl = posterUrl
             }
         } else {
-            newMovieSearchResponse(title, fixedUrl, TvType.Movie) {
+            newMovieSearchResponse(finalTitle, fixedUrl, TvType.Movie) {
                 this.posterUrl = posterUrl
             }
         }
@@ -204,7 +212,9 @@ class MoviesDriveProvider : MainAPI() {
                     val doc = hits.getJSONObject(i).optJSONObject("document") ?: continue
                     val rawTitle = doc.optString("post_title").trim()
                     val permalink = doc.optString("permalink").trim()
-                    val thumb = doc.optString("post_thumbnail").trim()
+                    var thumb = doc.optString("post_thumbnail").trim()
+                    
+                    if (thumb.contains("default-poster", true)) thumb = ""
 
                     if (rawTitle.isBlank() || permalink.isBlank()) continue
 
@@ -214,13 +224,14 @@ class MoviesDriveProvider : MainAPI() {
 
                     val posterUrl = fixUrlNull(thumb)
                     val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
+                    val finalTitle = cleanedTitle.replace("Download", "", true).trim()
 
                     val result = if (isSeries) {
-                        newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
+                        newTvSeriesSearchResponse(finalTitle, fixedUrl, TvType.TvSeries) {
                             this.posterUrl = posterUrl
                         }
                     } else {
-                        newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
+                        newMovieSearchResponse(finalTitle, fixedUrl, TvType.Movie) {
                             this.posterUrl = posterUrl
                         }
                     }
@@ -246,11 +257,12 @@ class MoviesDriveProvider : MainAPI() {
                 if (rawTitle.isBlank() || permalink.isBlank()) continue
 
                 val cleanedTitle = cleanTitle(rawTitle)
+                val finalTitle = cleanedTitle.replace("Download", "", true).trim()
                 val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
                 val result = if (isSeries) {
-                    newTvSeriesSearchResponse(cleanedTitle, permalink, TvType.TvSeries)
+                    newTvSeriesSearchResponse(finalTitle, permalink, TvType.TvSeries)
                 } else {
-                    newMovieSearchResponse(cleanedTitle, permalink, TvType.Movie)
+                    newMovieSearchResponse(finalTitle, permalink, TvType.Movie)
                 }
                 results.add(result)
             }
@@ -267,20 +279,23 @@ class MoviesDriveProvider : MainAPI() {
 
         val document = app.get(url, headers = headers).document
 
-        val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1")?.text()?.trim()
+        val rawTitle = document.selectFirst("h1.single-title, .entry-title, h1.post-title, h1, h2.title, h2.post-title")?.text()?.trim()
             ?: return null
-        val title = cleanTitle(rawTitle)
+        val title = cleanTitle(rawTitle).replace("Download", "", true).trim()
 
         val posterMeta = document.selectFirst("meta[property=og:image]")?.attr("content")
         val posterImg = document.selectFirst(".entry-content img, .post-content img")?.attr("src")
-        val poster: String? = fixUrlNull(posterMeta ?: posterImg)
+        var pUrl = posterMeta ?: posterImg
+        if (pUrl?.contains("default-poster", true) == true) pUrl = null
+        val poster: String? = fixUrlNull(pUrl)
 
         val descMeta = document.selectFirst("meta[name=description]")?.attr("content")
         val descOg = document.selectFirst("meta[property=og:description]")?.attr("content")
-        val description: String? = descMeta ?: descOg
+        val pDesc = document.selectFirst("div.post-content p, div.entry-content p")?.text()
+        val description: String? = pDesc?.ifBlank { null } ?: descMeta ?: descOg
 
         val year = YEAR_REGEX.find(rawTitle)?.groupValues?.get(1)?.toIntOrNull()
-        val tags = document.select(".entry-categories a, .post-categories a, .cat-links a, a[rel=tag]").map { it.text() }
+        val tags = document.select(".entry-categories a, .post-categories a, .cat-links a, a[rel=tag], .category-tag").map { it.text() }
         val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
 
         return if (isSeries) {
@@ -316,6 +331,7 @@ class MoviesDriveProvider : MainAPI() {
 
         val RANGE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP?|Episodes?)\s*[-.:#]*\s*(\d{1,3})\s*(?:TO|[-–~T])\s*(?:EP?)?\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
         val SINGLE_REGEX = Regex("""(?i)\b(?:S\d+\s*)?(?:EP|Episodes?|E)\s*[-.:#]*\s*(\d{1,3})(?!\s*p|\d+p)""")
+        val EP_REGEX = Regex("""(?i)\b(\d{1,3})(?:st|nd|rd|th)?\s*Episode\b""")
 
         RANGE_REGEX.findAll(text).forEach { match ->
             val startEp = match.groupValues[1].toIntOrNull()
@@ -335,6 +351,13 @@ class MoviesDriveProvider : MainAPI() {
                 result.add(epNum)
             }
         }
+        
+        EP_REGEX.findAll(text).forEach { match ->
+            val epNum = match.groupValues[1].toIntOrNull()
+            if (epNum != null && epNum > 0 && epNum <= 1000 && !QUALITY_NUMBERS.contains(epNum)) {
+                result.add(epNum)
+            }
+        }
 
         return result
     }
@@ -348,7 +371,7 @@ class MoviesDriveProvider : MainAPI() {
         val cleanDoc = document.clone()
         cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-        val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
+        val pageTitle = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1, h2.title, h2.post-title")?.text() ?: ""
         val mainSeason = extractSeasonFromText(pageTitle) ?: 1
 
         fun parseDocForEpisodes(doc: Document, defaultSeason: Int = 1) {
@@ -476,7 +499,7 @@ class MoviesDriveProvider : MainAPI() {
         val cleanDoc = document.clone()
         cleanDoc.select("aside, footer, header, nav, #sidebar, .ct-related-posts-items, .related-posts, #comments, #respond, .wp-block-latest-posts, .ct-widget, .widget, .ct-share-box").remove()
 
-        val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
+        val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1, h2.title, h2.post-title")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
         val relevantSelector = "h3, h4, h5, h6, a[href*='hubdrive'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='mdrive']"
@@ -545,34 +568,43 @@ class MoviesDriveProvider : MainAPI() {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
                     var m4uSeason = link.seasonNum ?: extractSeasonFromText(m4uDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
+                    
+                    var currentContext = ""
 
-                    m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
+                    m4uDoc.select("h1, h2, h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
                         val text = elem.text().trim()
 
-                        val s = extractSeasonFromText(text)
-                        if (s != null) {
-                            m4uSeason = s
-                        }
-
-                        if (tag in listOf("H3", "H4", "H5", "H6")) {
-                            val eps = extractEpisodesFromText(text)
-                            if (eps.isNotEmpty()) {
-                                m4uEpisodes = eps
-                            }
+                        if (tag.startsWith("H")) {
+                             val s = extractSeasonFromText(text)
+                             if (s != null) m4uSeason = s
+                             val eps = extractEpisodesFromText(text)
+                             if (eps.isNotEmpty()) m4uEpisodes = eps
+                             if (text.isNotBlank() && !text.equals("HubCloud", true) && !text.equals("GDFliX", true) && elem.select("a").isEmpty()) {
+                                 currentContext = text
+                             }
                         } else if (tag == "A") {
                             val abs = elem.absUrl("href")
                             val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
                             val innerText = text
-                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
+                            
+                            val parentText = elem.parent()?.previousElementSibling()?.text()?.trim() ?: ""
+                            val linkContext = if (currentContext.isNotBlank()) currentContext else if (parentText.isNotBlank()) parentText else link.originalText
+                            
+                            val epFromContext = extractEpisodesFromText(linkContext)
+                            val finalEps = if (epFromContext.isNotEmpty()) epFromContext else m4uEpisodes
+                            
+                            val finalSeason = extractSeasonFromText(linkContext) ?: m4uSeason
+                            
+                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true) && !linkContext.contains("Zip", true)) {
                                 expandedLinks.add(
                                     DownloadLink(
                                         url = innerUrl,
-                                        quality = extractQuality(innerText).let { if (it == 0) link.quality else it },
-                                        sizeMB = parseFileSize(innerText),
-                                        originalText = innerText,
-                                        seasonNum = m4uSeason,
-                                        episodes = m4uEpisodes
+                                        quality = extractQuality(linkContext).let { if (it == 0) link.quality else it },
+                                        sizeMB = parseFileSize(linkContext),
+                                        originalText = "$linkContext - $innerText",
+                                        seasonNum = finalSeason,
+                                        episodes = finalEps
                                     )
                                 )
                             }
@@ -712,10 +744,11 @@ class MoviesDriveProvider : MainAPI() {
             .replace(Regex("""(?i)\bE\d{1,3}(?:[T\-E]\d{1,3})?\b"""), "")
             .replace(Regex("""(?i)\bE(?:PISODE|P|pisode)?\s*[-.:#]*\s*\d{1,3}(?:\s*[-~T]\s*E?\d{1,3})?\b"""), "")
             .replace(Regex("""(?i)\b(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip|UNCUT|UNRATED|PROPER)\b"""), "")
-            .replace(Regex("""(?i)\b(4K|UHD|1080p|720p|480p|360p|2160p|IMAX|HDTC)\b"""), "")
-            .replace(Regex("""(?i)\b(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)\b"""), "")
+            .replace(Regex("""(?i)\b(4K|UHD|1080p|720p|480p|360p|2160p|IMAX|HDTC|HQ-HDTC|CAM|Rip|V\d+)\b"""), "")
+            .replace(Regex("""(?i)\b(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?|LiNE)\b"""), "")
             .replace(Regex("""(?i)\b(Download|Free|Full|HD|Watch)\b"""), "")
             .replace(Regex("""(?i)\b(Hindi|English|Dual\s*Audio|ESubs?|Multi\s*Audio|Multi|Bengali|Punjabi|Tamil|Telugu|Malayalam|Kannada|Marathi|Gujarati|Bhojpuri|Urdu|Pakistani|Bangladeshi|Korean|Chinese|China|WWE|TV\s*Show|Hot|Short\s*Film|Web\s*Series|Series|Serial|Complete|All\s*Episodes|ORG)\b"""), "")
+            .replace(Regex("""(?i)\b(Download|Free|Full|HD|Watch|MoviesDrive|Movie)\b"""), "")
             .replace(Regex("""[&+]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
