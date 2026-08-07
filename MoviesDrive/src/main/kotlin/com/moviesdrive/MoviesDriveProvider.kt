@@ -18,13 +18,16 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
+import java.net.URLEncoder
 
-private var cachedDomain: String? = null
-private var lastFetchTime = 0L
+private val domainMutex = Mutex()
 
 class MoviesDriveProvider : MainAPI() {
 
@@ -46,29 +49,7 @@ class MoviesDriveProvider : MainAPI() {
         private val QUALITY_NUMBERS = setOf(360, 480, 540, 720, 1080, 2160)
     }
 
-        override var mainUrl: String = "https://new1.moviesdrive.christmas"
-
-    init {
-        kotlinx.coroutines.runBlocking {
-            if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
-                mainUrl = cachedDomain!!
-            } else {
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(2_000L) {
-                        val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
-                        val json = response.text
-                        val jsonObject = org.json.JSONObject(json)
-                        val urlString = jsonObject.optString("moviesdrive")
-                        if (urlString.isNotBlank()) {
-                            mainUrl = urlString.substringBefore("?").trimEnd('/')
-                            cachedDomain = mainUrl
-                            lastFetchTime = System.currentTimeMillis()
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
+    override var mainUrl: String = "https://new1.moviesdrive.christmas"
 
     private fun fixUrl(url: String): String {
         if (url.isBlank()) return ""
@@ -79,14 +60,15 @@ class MoviesDriveProvider : MainAPI() {
 
     private fun fixUrlNull(url: String?): String? {
         if (url.isNullOrBlank()) return null
-        return fixUrl(url)
+        val fullUrl = if (url.startsWith("//")) "https:$url" else url
+        return fixUrl(fullUrl)
     }
 
     override var name = "MoviesDrive"
     override var lang = "hi"
     override val hasMainPage = true
     override val hasDownloadSupport = true
-    override val hasQuickSearch = false
+    override val hasQuickSearch = true
     override val supportedTypes = setOf(
         TvType.Movie, TvType.TvSeries, TvType.Anime
     )
@@ -104,23 +86,22 @@ class MoviesDriveProvider : MainAPI() {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
 
-        private suspend fun checkAndFetchDomain() {
-        if (cachedDomain != null && System.currentTimeMillis() - lastFetchTime < 3600000) {
-            mainUrl = cachedDomain!!
-        } else {
+    private suspend fun checkAndFetchDomain() {
+        domainMutex.withLock {
             try {
-                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                withTimeoutOrNull(2_000L) {
                     val response = app.get("https://raw.githubusercontent.com/codeiva4u/Utils-repo/refs/heads/main/urls.json")
                     val json = response.text
-                    val jsonObject = org.json.JSONObject(json)
+                    val jsonObject = JSONObject(json)
                     val urlString = jsonObject.optString("moviesdrive")
                     if (urlString.isNotBlank()) {
                         mainUrl = urlString.substringBefore("?").trimEnd('/')
-                        cachedDomain = mainUrl
-                        lastFetchTime = System.currentTimeMillis()
+                        Log.d(TAG, "Fetched domain from GitHub: $mainUrl")
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching domain from GitHub: ${e.message}")
+            }
         }
     }
 
@@ -129,7 +110,6 @@ class MoviesDriveProvider : MainAPI() {
         request: MainPageRequest
     ): HomePageResponse {
         checkAndFetchDomain()
-
 
         val url = if (page == 1) {
             if (request.data.isBlank()) "$mainUrl/" else "$mainUrl/${request.data}"
@@ -140,11 +120,11 @@ class MoviesDriveProvider : MainAPI() {
         Log.d(TAG, "Loading main page: $url")
         val document = app.get(url, headers = headers).document
 
-        val anchors = document.select("div.movies-grid a[href], article a, .post-title a, div.post-thumbnail a, h2 a, h3 a").toList().ifEmpty {
-            document.select("a[href*='moviesdrive']").toList()
+        val cards = document.select("div.poster-card, article, div.movies-grid > a[href]").ifEmpty {
+            document.select("a[href*='moviesdrive']")
         }
 
-        val home = anchors.mapNotNull {
+        val home = cards.mapNotNull {
             it.toSearchResult()
         }.distinctBy { it.url }
 
@@ -154,21 +134,21 @@ class MoviesDriveProvider : MainAPI() {
 
     private fun Element.toSearchResult(): SearchResponse? {
         val linkElement: Element? = if (tagName() == "a" && hasAttr("href")) this
-        else selectFirst("figure a[href], .entry-title a[href], h2 a[href], h3 a[href], a[href]")
+        else selectFirst("a[href]")
 
         val href = linkElement?.attr("href") ?: return null
-        if (href.isBlank() || 
-            href == "/" || 
-            href == mainUrl || 
-            href == "$mainUrl/" || 
-            href.contains("/category/") || 
-            href.contains("/page/") || 
+        if (href.isBlank() ||
+            href == "/" ||
+            href == mainUrl ||
+            href == "$mainUrl/" ||
+            href.contains("/category/") ||
+            href.contains("/page/") ||
             href.contains("/tag/") ||
             href.contains("#")) return null
 
         val fixedUrl = fixUrl(href)
 
-        val titleText: String = selectFirst(".entry-title, .poster-title, h2, h3, figcaption p, figcaption a")?.text()
+        val titleText: String = selectFirst(".poster-title, .entry-title, h2, h3, figcaption p, figcaption a")?.text()
             ?: selectFirst("img")?.attr("alt")
             ?: selectFirst("img")?.attr("title")
             ?: linkElement.attr("title")
@@ -177,15 +157,17 @@ class MoviesDriveProvider : MainAPI() {
         val title: String = cleanTitle(titleText)
         if (title.isBlank() || title.equals("logo", ignoreCase = true) || title.equals("home", ignoreCase = true) || title.length < 2) return null
 
-        val imgElement = selectFirst("figure img, .poster-image img, .poster-card img, img[src*='wp-content/uploads'], img[data-src], img[data-lazy-src], img")
+        val imgElement = selectFirst("img")
         val posterUrl: String? = if (imgElement != null) {
-            val srcAttr = imgElement.attr("src")
             val dataSrcAttr = imgElement.attr("data-src")
             val lazyAttr = imgElement.attr("data-lazy-src")
+            val srcAttr = imgElement.attr("src")
+            val srcsetAttr = imgElement.attr("srcset")
             val src = when {
                 dataSrcAttr.isNotBlank() && !dataSrcAttr.startsWith("data:") -> dataSrcAttr
                 lazyAttr.isNotBlank() && !lazyAttr.startsWith("data:") -> lazyAttr
                 srcAttr.isNotBlank() && !srcAttr.startsWith("data:") -> srcAttr
+                srcsetAttr.isNotBlank() -> srcsetAttr.substringBefore(" ").substringBefore(",")
                 else -> ""
             }
             fixUrlNull(src)
@@ -208,44 +190,72 @@ class MoviesDriveProvider : MainAPI() {
         checkAndFetchDomain()
         Log.d(TAG, "Searching for: $query")
         val results = mutableListOf<SearchResponse>()
+        val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
 
+        // 1. Primary Search API: /search.php?q=query&page=1
         try {
-            // MoviesDrive uses a JS-rendered search page: ?s= redirects to search.html?q= (SPA)
-            // The real search API is /search.php?q=query returns JSON
-            val searchApiUrl = "$mainUrl/search.php?q=${query.replace(" ", "+")}&page=1"
+            val searchApiUrl = "$mainUrl/search.php?q=$encodedQuery&page=1"
             val json = app.get(searchApiUrl, headers = headers).text
 
-            val jsonObj = org.json.JSONObject(json)
-            val hits = jsonObj.optJSONArray("hits") ?: return results
+            val jsonObj = JSONObject(json)
+            val hits = jsonObj.optJSONArray("hits")
+            if (hits != null && hits.length() > 0) {
+                for (i in 0 until hits.length()) {
+                    val doc = hits.getJSONObject(i).optJSONObject("document") ?: continue
+                    val rawTitle = doc.optString("post_title").trim()
+                    val permalink = doc.optString("permalink").trim()
+                    val thumb = doc.optString("post_thumbnail").trim()
 
-            for (i in 0 until hits.length()) {
-                val doc = hits.getJSONObject(i).optJSONObject("document") ?: continue
-                val title = doc.optString("post_title").trim()
-                val permalink = doc.optString("permalink").trim()
-                val thumb = doc.optString("post_thumbnail").trim()
+                    if (rawTitle.isBlank() || permalink.isBlank()) continue
 
-                if (title.isBlank() || permalink.isBlank()) continue
+                    val fixedUrl = if (permalink.startsWith("http")) permalink else fixUrl(permalink)
+                    val cleanedTitle = cleanTitle(rawTitle)
+                    if (cleanedTitle.isBlank()) continue
 
-                val fixedUrl = if (permalink.startsWith("http")) permalink else "$mainUrl$permalink"
-                val cleanedTitle = cleanTitle(title)
-                if (cleanedTitle.isBlank() || cleanedTitle.length < 2) continue
+                    val posterUrl = fixUrlNull(thumb)
+                    val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
 
-                val posterUrl = fixUrlNull(thumb)
-                val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(title)
+                    val result = if (isSeries) {
+                        newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
+                            this.posterUrl = posterUrl
+                        }
+                    } else {
+                        newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
+                            this.posterUrl = posterUrl
+                        }
+                    }
+                    results.add(result)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Primary search.php error: ${e.message}")
+        }
 
+        if (results.isNotEmpty()) return results
+
+        // 2. Fallback Search API: /wp-json/wp/v2/posts?search=query
+        try {
+            val wpApiUrl = "$mainUrl/wp-json/wp/v2/posts?search=$encodedQuery"
+            val jsonText = app.get(wpApiUrl, headers = headers).text
+            val jsonArray = org.json.JSONArray(jsonText)
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val titleObj = item.optJSONObject("title")
+                val rawTitle = titleObj?.optString("rendered")?.trim() ?: ""
+                val permalink = item.optString("link").trim()
+                if (rawTitle.isBlank() || permalink.isBlank()) continue
+
+                val cleanedTitle = cleanTitle(rawTitle)
+                val isSeries = SERIES_DETECTION_REGEX.containsMatchIn(rawTitle)
                 val result = if (isSeries) {
-                    newTvSeriesSearchResponse(cleanedTitle, fixedUrl, TvType.TvSeries) {
-                        this.posterUrl = posterUrl
-                    }
+                    newTvSeriesSearchResponse(cleanedTitle, permalink, TvType.TvSeries)
                 } else {
-                    newMovieSearchResponse(cleanedTitle, fixedUrl, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    }
+                    newMovieSearchResponse(cleanedTitle, permalink, TvType.Movie)
                 }
                 results.add(result)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Search error: ${e.message}")
+            Log.e(TAG, "Fallback WP REST search error: ${e.message}")
         }
 
         return results
@@ -692,7 +702,8 @@ class MoviesDriveProvider : MainAPI() {
     }
 
     private fun cleanTitle(title: String): String {
-        return title
+        val unescaped = Parser.unescapeEntities(title, false)
+        val cleaned = unescaped
             .replace(Regex("""\(\d{4}\)"""), "")
             .replace(Regex("""\[.*?]"""), "")
             .replace(Regex("""\|.*$"""), "")
@@ -703,11 +714,13 @@ class MoviesDriveProvider : MainAPI() {
             .replace(Regex("""(?i)\b(WEB-?DL|BluRay|HDRip|WEBRip|HDTV|DVDRip|BRRip|UNCUT|UNRATED|PROPER)\b"""), "")
             .replace(Regex("""(?i)\b(4K|UHD|1080p|720p|480p|360p|2160p|IMAX|HDTC)\b"""), "")
             .replace(Regex("""(?i)\b(HEVC|x264|x265|10Bit|H\.?264|H\.?265|AAC|DD5?\.?1?)\b"""), "")
-            .replace(Regex("""(?i)\b(Download|Free|Full|Movie|HD|Watch)\b"""), "")
+            .replace(Regex("""(?i)\b(Download|Free|Full|HD|Watch)\b"""), "")
             .replace(Regex("""(?i)\b(Hindi|English|Dual\s*Audio|ESubs?|Multi\s*Audio|Multi|Bengali|Punjabi|Tamil|Telugu|Malayalam|Kannada|Marathi|Gujarati|Bhojpuri|Urdu|Pakistani|Bangladeshi|Korean|Chinese|China|WWE|TV\s*Show|Hot|Short\s*Film|Web\s*Series|Series|Serial|Complete|All\s*Episodes|ORG)\b"""), "")
             .replace(Regex("""[&+]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
+
+        return if (cleaned.length >= 2) cleaned else unescaped.substringBefore("|").trim()
     }
 }
 
