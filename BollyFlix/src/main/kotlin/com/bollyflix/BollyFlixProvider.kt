@@ -350,7 +350,7 @@ class BollyFlixProvider : MainAPI() {
 
         parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
-        val aggregatorLinks = cleanDoc.select("a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker']")
+        val aggregatorLinks = cleanDoc.select("a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='linksmod']")
             .map { Pair(it.attr("href"), extractSeasonFromText(it.text()) ?: mainSeason) }
             .distinctBy { it.first }
 
@@ -438,7 +438,7 @@ class BollyFlixProvider : MainAPI() {
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
+        val relevantSelector = "h3, h4, h5, h6, a.dl, a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='linksmod']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -501,13 +501,14 @@ class BollyFlixProvider : MainAPI() {
                 link.url.contains("m4ulinks", ignoreCase = true) ||
                 link.url.contains("mdrive", ignoreCase = true) ||
                 link.url.contains("howblogs", ignoreCase = true) ||
-                link.url.contains("linkstaker", ignoreCase = true)) {
+                link.url.contains("linkstaker", ignoreCase = true) ||
+                link.url.contains("linksmod", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
                     var m4uSeason = link.seasonNum ?: extractSeasonFromText(m4uDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
 
-                    m4uDoc.select("h3, h4, h5, h6, a[href*='fastdlserver'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
+                    m4uDoc.select("h3, h4, h5, h6, a[href*='fastdlserver'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='filepress'], a[href*='gofile'], a[href*='gofile.io'], a[href*='megaup'], a[href*='vikingfile'], a[href*='multiup'], a[href*='r2.dev'], a[href*='busycdn']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
                         val text = elem.text().trim()
 

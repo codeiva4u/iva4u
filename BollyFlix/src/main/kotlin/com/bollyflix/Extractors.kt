@@ -143,15 +143,43 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", f
 }
 
 fun shouldBlockUrl(url: String): Boolean {
+    // केवल HLS/streaming/embed hosts block करें — direct CDN download URLs नहीं
     val blockList = listOf(
-        ".m3u8", "/hls/", "hubstream", "hdstream",
-        "hdstream4u", "t.me/", "tinyurl.com",
+        ".m3u8", "/hls/", ".mpd",
+        "hubstream", "hdstream", "hdstream4u",
+        "t.me/", "tinyurl.com",
         "google.com/search", "one.one.one.one",
         "/tg/go", "voe.sx", "streamtape", "streamsb", "mixdrop",
         "doodstream", "vidhide", "streamhub", "uqload", "dood.", "doodrive",
-        "m4uplay", "morencius", "earnvids"
+        "m4uplay", "morencius", "earnvids",
+        "telegram.org", "telegram.me"
     )
     return blockList.any { url.contains(it, ignoreCase = true) }
+}
+
+open class LinksMod : ExtractorApi() {
+    override val name = "LinksMod"
+    override val mainUrl = "https://linksmod\\.top"
+    override val requiresReferer = false
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        try {
+            val doc = app.get(url).document
+            doc.select("a[href*='gofile'], a[href*='megaup'], a[href*='vikingfile'], a[href*='1fichier'], a[href*='multiup'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='fastdl'], a[href*='pixeldrain'], a[href*='filebee']").forEach { elem ->
+                val href = elem.attr("href")
+                if (href.isNotBlank() && href.startsWith("http") && !shouldBlockUrl(href)) {
+                    processPluginExtractor(href, referer, subtitleCallback, callback)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error: ${e.message}")
+        }
+    }
 }
 
 open class FastDLExtractor : ExtractorApi() {
@@ -169,14 +197,22 @@ open class FastDLExtractor : ExtractorApi() {
             val response = app.get(url, allowRedirects = false)
             val loc = response.headers["location"].orEmpty()
             val targetUrl = if (loc.isNotBlank()) loc else url
-            val videoUrl = if (targetUrl.contains("link=")) {
-                URLDecoder.decode(targetUrl.substringAfter("link="), StandardCharsets.UTF_8.toString())
-            } else {
-                val doc = app.get(url).document
-                val linkAttr = doc.selectFirst("a[href*='link=']")?.attr("href") ?: ""
-                if (linkAttr.contains("link=")) {
-                    URLDecoder.decode(linkAttr.substringAfter("link="), StandardCharsets.UTF_8.toString())
-                } else ""
+            val videoUrl = when {
+                targetUrl.contains("link=") -> {
+                    URLDecoder.decode(targetUrl.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                }
+                targetUrl.contains("download=") -> {
+                    URLDecoder.decode(targetUrl.substringAfter("download="), StandardCharsets.UTF_8.toString())
+                }
+                else -> {
+                    val doc = app.get(url).document
+                    val linkAttr = doc.selectFirst("a[href*='link='], a[href*='download=']")?.attr("href") ?: ""
+                    when {
+                        linkAttr.contains("link=") -> URLDecoder.decode(linkAttr.substringAfter("link="), StandardCharsets.UTF_8.toString())
+                        linkAttr.contains("download=") -> URLDecoder.decode(linkAttr.substringAfter("download="), StandardCharsets.UTF_8.toString())
+                        else -> ""
+                    }
+                }
             }
             if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
                 callback(newExtractorLink(
@@ -318,6 +354,21 @@ suspend fun processPluginExtractor(
 
             link.contains("filebee", true) || link.contains("filepress", true) ->
                 FilebeeExtractor().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("linksmod", true) ->
+                LinksMod().getUrl(link, referer, subtitleCallback, callback)
+
+            link.contains("gofile", true) -> {
+                val id = link.substringAfter("/d/").substringBefore("/")
+                if (id.isNotBlank()) {
+                    callback(newExtractorLink(
+                        "GoFile", "GoFile", link
+                    ) {
+                        this.quality = Qualities.Unknown.value
+                        this.headers = VIDEO_HEADERS
+                    })
+                }
+            }
 
             link.contains("fxlinks", true) ->
                 FxLinks().getUrl(link, referer, subtitleCallback, callback)
@@ -509,16 +560,94 @@ open class GDFlix : ExtractorApi() {
         Log.d(tag, "Processing: $newUrl")
 
         try {
-            val response = app.get(newUrl).document
-            response.select("a[href*='drive.google.com'], a[href*='workers.dev'], a[href*='gofile.io'], a[href*='pixeldrain.dev'], a[href*='r2.cloudflarestorage.com'], a[href*='r2.dev'], a[href*='busycdn'], a[href*='indexserver']").forEach { elem ->
-                val link = elem.attr("href")
-                if (link.isNotBlank() && !shouldBlockUrl(link)) {
-                    callback(newExtractorLink(
-                        name, name, link
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.headers = VIDEO_HEADERS
-                    })
+            val document = app.get(newUrl).document
+            val fileName = document.select("ul > li.list-group-item:contains(Name)").text().substringAfter("Name : ")
+            val fileSize = document.select("ul > li.list-group-item:contains(Size)").text().substringAfter("Size : ")
+            val baseQuality = getIndexQuality(fileName)
+
+            // div.text-center a — खुद anchor element है, .text() सही से काम करेगा
+            document.select("div.text-center a").forEach { anchor ->
+                val text = anchor.text().trim()   // BUG FIX: anchor.select("a") नहीं, anchor.text() डायरेक्ट
+                val href = anchor.attr("href")
+
+                if (href.isBlank() || shouldBlockUrl(href)) return@forEach
+                // Skip ZIP/FAST CLOUD/Telegram/Login
+                if (text.contains("FAST CLOUD", true) || text.contains("ZIPDISK", true) ||
+                    text.contains("ZIP", true) || href.contains(".zip", true) ||
+                    text.contains("Telegram", true) || text.contains("Login", true)) return@forEach
+
+                val score = getAdjustedQuality(baseQuality, fileSize, text, fileName)
+
+                try {
+                    when {
+                        text.contains("Instant DL", true) -> {
+                            // busycdn.xyz direct link
+                            val finalLink = try {
+                                val loc = app.get(href, allowRedirects = false).headers["location"].orEmpty()
+                                if (loc.isNotEmpty()) loc.substringAfter("url=").ifEmpty { loc } else href
+                            } catch (_: Exception) { href }
+                            if (finalLink.isNotBlank() &&
+                                !finalLink.contains("gamerxyt.com", true) &&
+                                !finalLink.contains("/bgmi/", true)) {
+                                callback(newExtractorLink(
+                                    "GDFlix[Instant]", "GDFlix[Instant] $fileName [$fileSize]", finalLink
+                                ) {
+                                    this.quality = score + 800   // highest priority
+                                    this.headers = VIDEO_HEADERS
+                                })
+                            }
+                        }
+                        text.contains("CLOUD DOWNLOAD", true) && href.contains("r2.dev", true) -> {
+                            // Direct R2 CDN link
+                            val r2Link = if (href.contains("url="))
+                                URLDecoder.decode(href.substringAfter("url="), "UTF-8") else href
+                            if (r2Link.isNotBlank()) {
+                                callback(newExtractorLink(
+                                    "GDFlix[R2-Cloud]", "GDFlix[R2-Cloud] $fileName [$fileSize]", r2Link
+                                ) {
+                                    this.quality = score + 700
+                                    this.headers = VIDEO_HEADERS
+                                })
+                            }
+                        }
+                        text.contains("DIRECT DL", true) || text.contains("DIRECT SERVER", true) -> {
+                            callback(newExtractorLink(
+                                "GDFlix[Direct]", "GDFlix[Direct] $fileName [$fileSize]", href
+                            ) {
+                                this.quality = score + 600
+                                this.headers = VIDEO_HEADERS
+                            })
+                        }
+                        href.contains("pixeldra", true) -> {
+                            val pdUrl = if (href.contains("/u/"))
+                                "${getBaseUrl(href)}/api/file/${href.substringAfterLast("/")}?download"
+                            else href
+                            callback(newExtractorLink(
+                                "GDFlix[Pixeldrain]", "GDFlix[Pixeldrain] $fileName [$fileSize]", pdUrl
+                            ) {
+                                this.quality = score + 400
+                                this.headers = VIDEO_HEADERS
+                            })
+                        }
+                        href.contains("gofile", true) || href.contains("multiup", true) -> {
+                            callback(newExtractorLink(
+                                "GDFlix[Mirror]", "GDFlix[Mirror] $fileName [$fileSize]", href
+                            ) {
+                                this.quality = score + 200
+                                this.headers = VIDEO_HEADERS
+                            })
+                        }
+                        href.contains("indexserver", true) -> {
+                            callback(newExtractorLink(
+                                "GDFlix[Index]", "GDFlix[Index] $fileName [$fileSize]", href
+                            ) {
+                                this.quality = score + 300
+                                this.headers = VIDEO_HEADERS
+                            })
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Button error: ${e.message}")
                 }
             }
         } catch (e: Exception) {

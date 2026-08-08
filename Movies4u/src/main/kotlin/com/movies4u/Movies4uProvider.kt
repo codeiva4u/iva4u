@@ -442,7 +442,7 @@ class Movies4uProvider : MainAPI() {
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, p, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']"
+        val relevantSelector = "h3, h4, h5, h6, p, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee'], a[href*='filepress'], a[href*='linksmod']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -504,13 +504,15 @@ class Movies4uProvider : MainAPI() {
             if (link.url.contains("m4ulinks", ignoreCase = true) ||
                 link.url.contains("mdrive", ignoreCase = true) ||
                 link.url.contains("howblogs", ignoreCase = true) ||
-                link.url.contains("linkstaker", ignoreCase = true)) {
+                link.url.contains("linkstaker", ignoreCase = true) ||
+                link.url.contains("linksmod", ignoreCase = true) ||
+                link.url.contains("filepress", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
                     var m4uSeason = link.seasonNum ?: extractSeasonFromText(m4uDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
 
-                    m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile']").forEach { elem ->
+                        m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile'], a[href*='filepress'], a[href*='megaup'], a[href*='vikingfile'], a[href*='multiup']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
                         val text = elem.text().trim()
 
