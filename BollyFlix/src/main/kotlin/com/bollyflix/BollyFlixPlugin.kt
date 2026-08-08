@@ -7,13 +7,11 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 class BollyFlixPlugin : BasePlugin() {
     override fun load() {
         registerMainAPI(BollyFlixProvider())
-        registerExtractorAPI(FxLinks())
-        registerExtractorAPI(FastDLServer())
-        registerExtractorAPI(FastDLExtractor())
-        registerExtractorAPI(VCloudExtractor())
-        registerExtractorAPI(FilebeeExtractor())
-        registerExtractorAPI(HubCloud())
         registerExtractorAPI(GDFlix())
-        registerExtractorAPI(HUBCDN())
+        registerExtractorAPI(Gofile())
+        registerExtractorAPI(Pixeldrain())
+        registerExtractorAPI(HubCloud())
+        registerExtractorAPI(FastDLServer())
+        registerExtractorAPI(FxLinks())
     }
 }
