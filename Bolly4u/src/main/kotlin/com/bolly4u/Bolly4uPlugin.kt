@@ -1,12 +1,12 @@
-package com.bollyflix
+package com.bolly4u
 
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
 @CloudstreamPlugin
-class BollyFlixPlugin : BasePlugin() {
+class Bolly4uPlugin : BasePlugin() {
     override fun load() {
-        registerMainAPI(BollyFlixProvider())
+        registerMainAPI(Bolly4uProvider())
         registerExtractorAPI(GDFlix())
         registerExtractorAPI(Gofile())
         registerExtractorAPI(Pixeldrain())

@@ -1,4 +1,4 @@
-package com.bollyflix
+package com.bolly4u
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
