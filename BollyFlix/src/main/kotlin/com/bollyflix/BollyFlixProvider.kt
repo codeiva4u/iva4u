@@ -350,7 +350,7 @@ class BollyFlixProvider : MainAPI() {
 
         parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
-        val aggregatorLinks = cleanDoc.select("a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='linksmod']")
+        val aggregatorLinks = cleanDoc.select("a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='linksmod'], a[href*='fastdl']")
             .map { Pair(it.attr("href"), extractSeasonFromText(it.text()) ?: mainSeason) }
             .distinctBy { it.first }
 
@@ -439,7 +439,7 @@ class BollyFlixProvider : MainAPI() {
         currentSeason = extractSeasonFromText(pageHeading)
 
         // BollyFlix पर download links class="dl" होते हैं + aggregator links
-        val relevantSelector = "h3, h4, h5, h6, a.dl, a[href*='fastdlserver'], a[href*='linksmod'], a[href*='fxlinks'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
+        val relevantSelector = "h3, h4, h5, h6, a.dl, a.dl-button, a[href*='fastdlserver'], a[href*='linksmod'], a[href*='fxlinks'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='linkstaker'], a[href*='howblogs'], a[href*='fastdl']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -465,11 +465,7 @@ class BollyFlixProvider : MainAPI() {
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
                 if (shouldBlockUrl(url)) return@forEach
 
-                if (linkText.contains("Zip", ignoreCase = true) ||
-                    linkText.contains(".zip", ignoreCase = true) ||
-                    url.endsWith(".zip", ignoreCase = true)) {
-                    return@forEach
-                }
+                if (isInvalidLink(url, linkText)) return@forEach
 
                 seenUrls.add(url)
 
@@ -503,7 +499,8 @@ class BollyFlixProvider : MainAPI() {
                 link.url.contains("mdrive", ignoreCase = true) ||
                 link.url.contains("howblogs", ignoreCase = true) ||
                 link.url.contains("linkstaker", ignoreCase = true) ||
-                link.url.contains("linksmod", ignoreCase = true)) {
+                link.url.contains("linksmod", ignoreCase = true) ||
+                link.url.contains("fastdl", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
                     var m4uEpisodes = link.episodes
@@ -527,7 +524,8 @@ class BollyFlixProvider : MainAPI() {
                             val abs = elem.absUrl("href")
                             val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
                             val innerText = text
-                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
+                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && 
+                                !(innerText.contains("Zip", true) && !innerText.contains("fastdl.zip", true) && !innerText.contains("vcloud.zip", true))) {
                                 expandedLinks.add(
                                     DownloadLink(
                                         url = innerUrl,

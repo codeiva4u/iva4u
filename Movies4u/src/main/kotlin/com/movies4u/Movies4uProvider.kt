@@ -363,7 +363,7 @@ class Movies4uProvider : MainAPI() {
         parseDocForEpisodes(cleanDoc, defaultSeason = mainSeason)
 
         // Fetch aggregators IN PARALLEL with 4s timeout for instant loading
-        val aggregatorLinks = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee']")
+        val aggregatorLinks = cleanDoc.select("a[href*='m4ulinks'], a[href*='mdrive'], a[href*='howblogs'], a[href*='linkstaker'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee'], a[href*='linksmod']")
             .map { Pair(it.attr("href"), extractSeasonFromText(it.text()) ?: mainSeason) }
             .distinctBy { it.first }
 
@@ -442,7 +442,7 @@ class Movies4uProvider : MainAPI() {
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, p, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee'], a[href*='filepress'], a[href*='linksmod']"
+        val relevantSelector = "h3, h4, h5, h6, p, a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='fastdl'], a[href*='vcloud'], a[href*='filebee'], a[href*='filepress'], a[href*='linksmod'], a[href*='linkstaker'], a[href*='howblogs']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()
@@ -468,9 +468,8 @@ class Movies4uProvider : MainAPI() {
                 if (url.isBlank() || seenUrls.contains(url)) return@forEach
                 if (shouldBlockUrl(url)) return@forEach
 
-                if (linkText.contains("Zip", ignoreCase = true) ||
-                    linkText.contains(".zip", ignoreCase = true) ||
-                    url.endsWith(".zip", ignoreCase = true)) {
+                if (linkText.contains("Zip", ignoreCase = true) && !linkText.contains("fastdl.zip", ignoreCase = true) && !linkText.contains("vcloud.zip", ignoreCase = true) ||
+                    url.endsWith(".zip", ignoreCase = true) && !url.contains("fastdl.zip", ignoreCase = true) && !url.contains("vcloud.zip", ignoreCase = true)) {
                     return@forEach
                 }
 
@@ -506,6 +505,7 @@ class Movies4uProvider : MainAPI() {
                 link.url.contains("howblogs", ignoreCase = true) ||
                 link.url.contains("linkstaker", ignoreCase = true) ||
                 link.url.contains("linksmod", ignoreCase = true) ||
+                link.url.contains("fastdl", ignoreCase = true) ||
                 link.url.contains("filepress", ignoreCase = true)) {
                 try {
                     val m4uDoc = app.get(link.url).document
@@ -531,7 +531,8 @@ class Movies4uProvider : MainAPI() {
                             val abs = elem.absUrl("href")
                             val innerUrl = if (abs.isNotBlank()) abs else elem.attr("href")
                             val innerText = text
-                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && !innerText.contains("Zip", true)) {
+                            if (innerUrl.isNotBlank() && !shouldBlockUrl(innerUrl) && 
+                                !(innerText.contains("Zip", true) && !innerText.contains("fastdl.zip", true) && !innerText.contains("vcloud.zip", true))) {
                                 expandedLinks.add(
                                     DownloadLink(
                                         url = innerUrl,

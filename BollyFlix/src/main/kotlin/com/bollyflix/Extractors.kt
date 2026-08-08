@@ -143,7 +143,6 @@ fun getAdjustedQuality(quality: Int, sizeStr: String, serverName: String = "", f
 }
 
 fun shouldBlockUrl(url: String): Boolean {
-    // केवल HLS/streaming/embed hosts block करें — direct CDN download URLs नहीं
     val blockList = listOf(
         ".m3u8", "/hls/", ".mpd",
         "hubstream", "hdstream", "hdstream4u",
@@ -154,7 +153,17 @@ fun shouldBlockUrl(url: String): Boolean {
         "m4uplay", "morencius", "earnvids",
         "telegram.org", "telegram.me"
     )
-    return blockList.any { url.contains(it, ignoreCase = true) }
+    if (blockList.any { url.contains(it, ignoreCase = true) }) return true
+    if (url.endsWith(".zip", ignoreCase = true)) return true
+    return false
+}
+
+fun isInvalidLink(url: String, text: String): Boolean {
+    if (shouldBlockUrl(url)) return true
+    val lowerText = text.lowercase()
+    if (lowerText.contains("zip") && !lowerText.contains("fastdl.zip") && !lowerText.contains("vcloud.zip")) return true
+    if (lowerText.contains("telegram") || lowerText.contains("login")) return true
+    return false
 }
 
 open class LinksMod : ExtractorApi() {
@@ -591,10 +600,8 @@ open class GDFlix : ExtractorApi() {
                 val href = anchor.attr("href")
 
                 if (href.isBlank() || shouldBlockUrl(href)) return@forEach
-                // Skip ZIP/FAST CLOUD/Telegram/Login
-                if (text.contains("FAST CLOUD", true) || text.contains("ZIPDISK", true) ||
-                    text.contains("ZIP", true) || href.contains(".zip", true) ||
-                    text.contains("Telegram", true) || text.contains("Login", true)) return@forEach
+                // Skip invalid links
+                if (isInvalidLink(href, text)) return@forEach
 
                 val score = getAdjustedQuality(baseQuality, fileSize, text, fileName)
 
