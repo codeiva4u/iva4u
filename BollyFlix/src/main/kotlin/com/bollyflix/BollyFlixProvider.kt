@@ -438,7 +438,8 @@ class BollyFlixProvider : MainAPI() {
         val pageHeading = cleanDoc.selectFirst("title, h1.single-title, .entry-title, h1.post-title, h1")?.text() ?: ""
         currentSeason = extractSeasonFromText(pageHeading)
 
-        val relevantSelector = "h3, h4, h5, h6, a.dl, a[href*='fxlinks'], a[href*='fastdlserver'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive'], a[href*='linksmod']"
+        // BollyFlix पर download links class="dl" होते हैं + aggregator links
+        val relevantSelector = "h3, h4, h5, h6, a.dl, a[href*='fastdlserver'], a[href*='linksmod'], a[href*='fxlinks'], a[href*='m4ulinks'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='mdrive']"
 
         cleanDoc.select(relevantSelector).forEach { element ->
             val tagName = element.tagName().uppercase()

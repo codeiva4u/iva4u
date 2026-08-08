@@ -170,10 +170,30 @@ open class LinksMod : ExtractorApi() {
     ) {
         try {
             val doc = app.get(url).document
-            doc.select("a[href*='gofile'], a[href*='megaup'], a[href*='vikingfile'], a[href*='1fichier'], a[href*='multiup'], a[href*='hubcloud'], a[href*='gdflix'], a[href*='fastdl'], a[href*='pixeldrain'], a[href*='filebee']").forEach { elem ->
-                val href = elem.attr("href")
-                if (href.isNotBlank() && href.startsWith("http") && !shouldBlockUrl(href)) {
-                    processPluginExtractor(href, referer, subtitleCallback, callback)
+            doc.select("a[href]").forEach { elem ->
+                val href = elem.absUrl("href").ifEmpty { elem.attr("href") }
+                if (href.isBlank() || !href.startsWith("http") || shouldBlockUrl(href)) return@forEach
+                // Streaming-only sites skip करो
+                if (href.contains("mixdrop", true) || href.contains("bollyflix.to", true)) return@forEach
+
+                when {
+                    href.contains("vikingfile", true) ||
+                    href.contains("megaup", true) ||
+                    href.contains("1fichier", true) ||
+                    href.contains("multiup", true) ||
+                    href.contains("gofile", true) -> {
+                        // Mirror hosts — direct callback
+                        callback(newExtractorLink("Mirror", "Mirror [${elem.text().trim().take(30)}]", href) {
+                            this.quality = Qualities.Unknown.value
+                            this.headers = VIDEO_HEADERS
+                        })
+                    }
+                    href.contains("hubcloud", true) || href.contains("gdflix", true) ||
+                    href.contains("fastdl", true) || href.contains("pixeldrain", true) ||
+                    href.contains("filebee", true) || href.contains("r2.dev", true) ||
+                    href.contains("busycdn", true) -> {
+                        processPluginExtractor(href, referer, subtitleCallback, callback)
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -512,7 +512,8 @@ class Movies4uProvider : MainAPI() {
                     var m4uEpisodes = link.episodes
                     var m4uSeason = link.seasonNum ?: extractSeasonFromText(m4uDoc.selectFirst("title, h1, h2, h3")?.text() ?: "")
 
-                        m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='gofile'], a[href*='filepress'], a[href*='megaup'], a[href*='vikingfile'], a[href*='multiup']").forEach { elem ->
+                    // mdrive.buzz पर: r2.dev, fastdl.zip, filebee.xyz, hubcloud.cx, gdflix.dev सब मिलते हैं
+                    m4uDoc.select("h3, h4, h5, h6, a[href*='hubcloud'], a[href*='gdflix'], a[href*='gdlink'], a[href*='hubcdn'], a[href*='pixeldrain'], a[href*='fastdl'], a[href*='filebee'], a[href*='filepress'], a[href*='gofile'], a[href*='megaup'], a[href*='vikingfile'], a[href*='multiup'], a[href*='r2.dev'], a[href*='r2.cloudflarestorage'], a[href*='busycdn']").forEach { elem ->
                         val tag = elem.tagName().uppercase()
                         val text = elem.text().trim()
 

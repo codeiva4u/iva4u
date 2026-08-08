@@ -33,30 +33,44 @@ open class FastDLExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         try {
-            val response = app.get(url, allowRedirects = false)
+            // embed.php?download= URL → redirect follow करो
+            val response = app.get(url, allowRedirects = true)
+            val finalUrl = response.url
+
+            // अगर redirect हुआ और CDN पर पहुंचे
+            if (finalUrl != url && finalUrl.startsWith("http") && !shouldBlockUrl(finalUrl)) {
+                callback(newExtractorLink(name, name, finalUrl) {
+                    this.quality = Qualities.Unknown.value
+                    this.headers = VIDEO_HEADERS
+                })
+                return
+            }
+
+            // No redirect — fallback: location header या link= / download= param
             val loc = response.headers["location"].orEmpty()
-            val targetUrl = if (loc.isNotBlank()) loc else url
+            val targetUrl = if (loc.isNotBlank()) loc else finalUrl
             val videoUrl = when {
-                targetUrl.contains("link=") -> {
+                targetUrl.contains("link=") ->
                     java.net.URLDecoder.decode(targetUrl.substringAfter("link="), "UTF-8")
-                }
-                targetUrl.contains("download=") -> {
+                targetUrl.contains("download=") && !targetUrl.contains("embed.php") ->
                     java.net.URLDecoder.decode(targetUrl.substringAfter("download="), "UTF-8")
-                }
                 else -> {
-                    val doc = app.get(url).document
-                    val linkAttr = doc.selectFirst("a[href*='link='], a[href*='download=']")?.attr("href") ?: ""
+                    // Page parse करो
+                    val doc = response.document
+                    val directLink = doc.selectFirst(
+                        "a[href*='r2.dev'], a[href*='cloudflarestorage.com'], a[href*='busycdn'], " +
+                        "a[href*='link='], a[href*='download='], a[href$='.mkv'], a[href$='.mp4']"
+                    )?.attr("href") ?: ""
                     when {
-                        linkAttr.contains("link=") -> java.net.URLDecoder.decode(linkAttr.substringAfter("link="), "UTF-8")
-                        linkAttr.contains("download=") -> java.net.URLDecoder.decode(linkAttr.substringAfter("download="), "UTF-8")
+                        directLink.contains("link=") -> java.net.URLDecoder.decode(directLink.substringAfter("link="), "UTF-8")
+                        directLink.contains("download=") -> java.net.URLDecoder.decode(directLink.substringAfter("download="), "UTF-8")
+                        directLink.startsWith("http") -> directLink
                         else -> ""
                     }
                 }
             }
-            if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
-                callback(newExtractorLink(
-                    name, name, videoUrl
-                ) {
+            if (videoUrl.isNotBlank() && videoUrl.startsWith("http") && !shouldBlockUrl(videoUrl)) {
+                callback(newExtractorLink(name, name, videoUrl) {
                     this.quality = Qualities.Unknown.value
                     this.headers = VIDEO_HEADERS
                 })
@@ -342,15 +356,37 @@ open class M4uLinks : ExtractorApi() {
 
         try {
             val doc = app.get(url).document
-            val links = doc.select("a[href*='hubcloud'], a[href*='hubcdn'], a[href*='hubdrive'], a[href*='gdflix'], a[href*='pixeldrain'], a[href*='gofile.io'], a[href*='filebee'], a[href*='filepress'], a[href*='fastdl'], a[href*='vcloud'], a[href*='megaup'], a[href*='vikingfile'], a[href*='1fichier'], a[href*='multiup'], a[href*='linksmod']")
-
-            Log.d(tag, "Found ${links.size} links on m4ulinks page")
-
-            links.amap { element ->
+            // mdrive.buzz/mdisk/ पर: r2.dev, fastdl.zip, filebee.xyz, hubcloud.cx, gdflix.dev
+            doc.select("a[href]").amap { element ->
                 val abs = element.absUrl("href")
                 val href = if (abs.isNotBlank()) abs else element.attr("href")
                 if (href.isBlank() || href.startsWith("#") || href.contains("t.me")) return@amap
                 if (shouldBlockUrl(href)) return@amap
+
+                val isDownloadLink = href.contains("hubcloud", true) ||
+                    href.contains("hubcdn", true) ||
+                    href.contains("hubdrive", true) ||
+                    href.contains("gdflix", true) ||
+                    href.contains("gdlink", true) ||
+                    href.contains("pixeldrain", true) ||
+                    href.contains("gofile.io", true) ||
+                    href.contains("filebee", true) ||
+                    href.contains("filepress", true) ||
+                    href.contains("fastdl", true) ||
+                    href.contains("vcloud", true) ||
+                    href.contains("megaup", true) ||
+                    href.contains("vikingfile", true) ||
+                    href.contains("1fichier", true) ||
+                    href.contains("multiup", true) ||
+                    href.contains("linksmod", true) ||
+                    href.contains("r2.dev", true) ||
+                    href.contains("r2.cloudflarestorage.com", true) ||
+                    href.contains("busycdn", true) ||
+                    href.contains("indexserver", true) ||
+                    href.endsWith(".mkv", true) ||
+                    href.endsWith(".mp4", true)
+
+                if (!isDownloadLink) return@amap
 
                 try {
                     processPluginExtractor(href, name, subtitleCallback, callback)
